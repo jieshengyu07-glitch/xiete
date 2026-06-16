@@ -1,11 +1,11 @@
 ﻿const express = require("express");
-const { runCycle } = require("./checker");
+const { runCycle, loadCookies, writeCookies } = require("./checker");
 const storage = require("./db/storage");
 const Scheduler = require("./scheduler/cron");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 // Background scheduler
 const scheduler = new Scheduler(async () => {
@@ -17,9 +17,8 @@ scheduler.start();
 
 // GET /status
 app.get("/status", (req, res) => {
-  let cookies = null;
-  try { cookies = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "data", "cookies.json"), "utf8")); } catch {}
-  const valid = !!(cookies?.find(x => x.name === "JSESSIONID" && x.domain.includes("newjwc")));
+  const cookies = loadCookies();
+  const valid = !!(cookies?.find(x => x.name === "JSESSIONID" && x.domain?.includes("newjwc")));
   res.json({
     status: "running",
     cookieValid: valid,
@@ -45,4 +44,28 @@ app.post("/check", async (req, res) => {
   else res.json({ checked: false, gradesCount: 0, added: [], changed: [], error: r.error, message: r.message });
 });
 
-app.listen(PORT, () => console.log("API running on http://localhost:" + PORT));
+// POST /upload-cookies
+app.post("/upload-cookies", (req, res) => {
+  try {
+    const data = req.body;
+    if (!Array.isArray(data)) {
+      return res.status(400).json({ success: false, error: "INVALID_FORMAT", message: "Body must be a JSON array" });
+    }
+    for (const c of data) {
+      if (!c.name || !c.value) {
+        return res.status(400).json({ success: false, error: "INVALID_ENTRY", message: "Each cookie needs name and value" });
+      }
+    }
+    writeCookies(data);
+    const hasJSession = data.some(c => c.name === "JSESSIONID");
+    console.log("[api] Cookies uploaded: " + data.length + " entries" + (hasJSession ? " (includes JSESSIONID)" : " (WARNING: no JSESSIONID)"));
+    res.json({ success: true, count: data.length, hasJSession });
+  } catch (err) {
+    res.status(500).json({ success: false, error: "WRITE_FAILED", message: err.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log("API running on http://localhost:" + PORT);
+  console.log("Endpoints: GET /status  GET /grades  POST /check  POST /upload-cookies");
+});
