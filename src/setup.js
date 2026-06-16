@@ -49,8 +49,8 @@ function httpGet(url) {
   await page.goto("https://ronghemenhu.tyust.edu.cn/index");
   await question("  Press Enter AFTER logging in and reaching the portal.\n");
 
-  console.log("  Navigating to JWXT...");
-  await page.goto("https://newjwc.tyust.edu.cn/jwglxt/xtgl/index_initMenu.html?jsdm=xs&_t=" + Date.now()).catch(() => {});
+  console.log("  In the browser, click the \u6559\u52a1\u7cfb\u7edf app icon on the portal page.");
+  console.log("  (This triggers SSO - you should reach JWXT main page with your name visible)");
   await question("  Press Enter AFTER reaching JWXT main page.\n");
 
   // 3. Save cookies
