@@ -1,0 +1,32 @@
+﻿<view class="container">
+  <view class="card" wx:if="{{loading}}"><view class="loading">加载中...</view></view>
+  <view class="card" wx:elif="{{error}}">
+    <view class="card-title">⚠️ 连接异常</view>
+    <view class="row"><text class="label">{{error}}</text></view>
+    <button class="btn" bindtap="refresh">重新连接</button>
+    <view style="font-size:24rpx;color:#999;margin-top:16rpx;line-height:1.6">请确保后端服务已启动（npm start）</view>
+  </view>
+  <block wx:else>
+    <view class="card">
+      <view class="card-title">📊 服务状态</view>
+      <view class="row">
+        <text class="label">服务状态</text>
+        <text class="value"><text class="status-dot {{status.status==='running'?'status-ok':'status-err'}}"></text>{{status.status}}</text>
+      </view>
+      <view class="row">
+        <text class="label">Cookie 状态</text>
+        <text class="value"><text class="status-dot {{status.cookieValid?'status-ok':'status-err'}}"></text>{{status.cookieValid?'有效':'已过期'}}</text>
+      </view>
+      <view class="row">
+        <text class="label">已存成绩</text>
+        <text class="value">{{status.totalGrades}} 条</text>
+      </view>
+      <view class="row">
+        <text class="label">上次检查</text>
+        <text class="value">{{status.lastCheckAtFormatted||'尚未检查'}}</text>
+      </view>
+    </view>
+    <button class="btn" bindtap="doCheck">🔄 手动检查成绩</button>
+    <button class="btn" style="background:#95a5a6" bindtap="refresh">🔄 刷新状态</button>
+  </block>
+</view>
