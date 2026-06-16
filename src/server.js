@@ -58,14 +58,20 @@ app.post("/upload-cookies", (req, res) => {
     }
     writeCookies(data);
     const hasJSession = data.some(c => c.name === "JSESSIONID");
-    console.log("[api] Cookies uploaded: " + data.length + " entries" + (hasJSession ? " (includes JSESSIONID)" : " (WARNING: no JSESSIONID)"));
-    res.json({ success: true, count: data.length, hasJSession });
+    if (!hasJSession) {
+      writeCookies(data);
+      console.log("[api] Cookies uploaded (WARNING: no JSESSIONID)");
+      return res.json({ success: true, saved: true, error: "NO_JSESSIONID", message: "No JSESSIONID found. Grade queries will not work.", count: data.length, hasJSession: false });
+    }
+    writeCookies(data);
+    console.log("[api] Cookies uploaded: " + data.length + " entries (includes JSESSIONID)");
+    res.json({ success: true, saved: true, count: data.length, hasJSession: true });
   } catch (err) {
     res.status(500).json({ success: false, error: "WRITE_FAILED", message: err.message });
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log("API running on http://localhost:" + PORT);
   console.log("Endpoints: GET /status  GET /grades  POST /check  POST /upload-cookies");
 });

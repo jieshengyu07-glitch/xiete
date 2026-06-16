@@ -39,6 +39,8 @@ function buildCookieHeader(cookies, domainPattern) {
 }
 
 function writeCookies(cookiesData) {
+  const dir = path.dirname(COOKIE_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(COOKIE_FILE, JSON.stringify(cookiesData, null, 2));
 }
 
