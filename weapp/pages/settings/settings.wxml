@@ -1,0 +1,19 @@
+﻿<view class="container">
+  <view class="card"><view class="card-title">⚙️ 配置信息</view>
+    <view class="row"><text class="label">API 地址</text><text class="value">{{apiAddr}}</text></view>
+    <view class="row"><text class="label">客户端版本</text><text class="value">{{version}}</text></view>
+  </view>
+  <view class="card"><view class="card-title">📖 使用说明</view>
+    <view style="font-size:26rpx;color:#666;line-height:1.8">
+      <view>1. 服务器端运行 npm start 启动 API</view>
+      <view>2. 首次使用运行 npm run login 获取凭据</view>
+      <view>3. cookies 过期后重新运行 npm run login</view>
+      <view>4. 系统每30分钟自动检查成绩</view>
+    </view>
+  </view>
+  <view class="card"><view class="card-title">🔗 绑定信息</view>
+    <view style="font-size:26rpx;color:#666;line-height:1.8">
+      <view>学校：太原科技大学</view><view>系统：教学综合信息服务平台</view>
+    </view>
+  </view>
+</view>

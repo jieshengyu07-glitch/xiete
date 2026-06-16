@@ -1,0 +1,17 @@
+﻿.container { padding: 20rpx; min-height: 100vh; background: #f5f6fa; }
+.card { background: #fff; border-radius: 12rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.06); }
+.card-title { font-size: 28rpx; color: #2c3e50; font-weight: 600; margin-bottom: 16rpx; }
+.row { display: flex; justify-content: space-between; padding: 12rpx 0; border-bottom: 1rpx solid #f0f0f0; }
+.row:last-child { border-bottom: none; }
+.label { font-size: 26rpx; color: #666; }
+.value { font-size: 26rpx; color: #333; font-weight: 500; }
+.btn { display: block; width: 100%; height: 80rpx; line-height: 80rpx; text-align: center; background: #2c3e50; color: #fff; border-radius: 12rpx; font-size: 28rpx; margin: 20rpx 0; }
+.btn:active { opacity: 0.8; }
+.status-dot { display: inline-block; width: 16rpx; height: 16rpx; border-radius: 50%; margin-right: 8rpx; }
+.status-ok { background: #27ae60; }
+.status-err { background: #e74c3c; }
+.empty { text-align: center; padding: 60rpx 0; color: #999; font-size: 28rpx; }
+.loading { text-align: center; padding: 40rpx 0; }
+.tag { display: inline-block; padding: 4rpx 16rpx; border-radius: 6rpx; font-size: 22rpx; }
+.tag-ok { background: #e8f8e8; color: #27ae60; }
+.tag-err { background: #fde8e8; color: #e74c3c; }

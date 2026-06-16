@@ -1,0 +1,26 @@
+﻿{
+  "pages": [
+    "pages/index/index",
+    "pages/grades/grades",
+    "pages/settings/settings"
+  ],
+  "window": {
+    "navigationBarTitleText": "校园成绩助手",
+    "navigationBarBackgroundColor": "#2c3e50",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f6fa"
+  },
+  "tabBar": {
+    "color": "#999",
+    "selectedColor": "#2c3e50",
+    "backgroundColor": "#fff",
+    "borderStyle": "black",
+    "list": [
+      {"pagePath": "pages/index/index", "text": "状态", "iconPath": "icons/status.png", "selectedIconPath": "icons/status-active.png"},
+      {"pagePath": "pages/grades/grades", "text": "成绩", "iconPath": "icons/grades.png", "selectedIconPath": "icons/grades-active.png"},
+      {"pagePath": "pages/settings/settings", "text": "设置", "iconPath": "icons/settings.png", "selectedIconPath": "icons/settings-active.png"}
+    ]
+  },
+  "networkTimeout": {"request": 10000},
+  "sitemapLocation": "sitemap.json"
+}

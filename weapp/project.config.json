@@ -1,0 +1,8 @@
+﻿{
+  "description": "校园成绩助手",
+  "setting": { "urlCheck": false, "es6": true, "postcss": true, "minified": true },
+  "compileType": "miniprogram",
+  "libVersion": "3.3.4",
+  "appid": "wx0000000000000000",
+  "projectname": "校园成绩助手"
+}
