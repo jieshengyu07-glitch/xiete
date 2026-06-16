@@ -1,4 +1,4 @@
-﻿<view class="container">
+<view class="container">
   <view class="card" wx:if="{{loading}}"><view class="loading">加载中...</view></view>
   <view class="card" wx:elif="{{error}}">
     <view class="card-title">⚠️ 连接异常</view>

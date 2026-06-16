@@ -71,6 +71,24 @@ app.post("/upload-cookies", (req, res) => {
   }
 });
 
+
+
+// POST /grades/import
+app.post("/grades/import", (req, res) => {
+  try {
+    var d = req.body;
+    if (!d || !d.grades) return res.status(400).json({success:false,message:"Missing grades field"});
+    var g = d.grades;
+    if (typeof g === "string") try { g = JSON.parse(g); } catch(e) {}
+    if (!Array.isArray(g)) return res.status(400).json({success:false,message:"grades must be array"});
+    require("./db/storage").mergeGrades(g);
+    console.log("[api] Imported " + g.length + " grades");
+    res.json({success:true,count:g.length});
+  } catch(err) {
+    res.status(500).json({success:false,message:err.message});
+  }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log("API running on http://localhost:" + PORT);
   console.log("Endpoints: GET /status  GET /grades  POST /check  POST /upload-cookies");
