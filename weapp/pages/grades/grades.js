@@ -1,4 +1,4 @@
-﻿const api = require("../../utils/api");
+const api = require("../../utils/api");
 Page({
   data: { grades: [], count: 0, loading: true, error: null },
   onShow() { this.loadGrades(); },

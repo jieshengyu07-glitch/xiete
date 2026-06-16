@@ -1,4 +1,4 @@
-﻿<view class="container">
+<view class="container">
   <view class="card"><view class="card-title">⚙️ 配置信息</view>
     <view class="row"><text class="label">API 地址</text><text class="value">{{apiAddr}}</text></view>
     <view class="row"><text class="label">客户端版本</text><text class="value">{{version}}</text></view>

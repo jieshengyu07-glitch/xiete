@@ -1,8 +1,26 @@
-﻿{
-  "description": "校园成绩助手",
-  "setting": { "urlCheck": false, "es6": true, "postcss": true, "minified": true },
+{
+  "setting": {
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "uglifyFileName": false,
+    "enhance": true,
+    "packNpmRelationList": [],
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    },
+    "useCompilerPlugins": false,
+    "minifyWXML": true,
+    "urlCheck": false
+  },
   "compileType": "miniprogram",
-  "libVersion": "3.3.4",
-  "appid": "wx0000000000000000",
-  "projectname": "校园成绩助手"
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "appid": "wx1f9610b6d54aa803",
+  "editorSetting": {}
 }
