@@ -28,17 +28,25 @@ Page({
 
   formatChange(change) {
     const term = change.termName || "";
+    const courseName = change.kcmc || "";
+    if (!courseName) {
+      return {
+        ...change,
+        displayType: "更新",
+        displayText: "检测到成绩数据更新"
+      };
+    }
     if (change.type === "changed") {
       return {
         ...change,
         displayType: "变化",
-        displayText: (change.kcmc || "未知课程") + " " + (change.oldCj || "") + " -> " + (change.newCj || "") + " " + term
+        displayText: courseName + " " + (change.oldCj || "") + " -> " + (change.newCj || "") + " " + term
       };
     }
     return {
       ...change,
       displayType: "新增",
-      displayText: (change.kcmc || "未知课程") + " " + (change.newCj || "") + " " + term
+      displayText: courseName + " " + (change.newCj || "") + " " + term
     };
   },
 
@@ -81,6 +89,15 @@ Page({
           });
         }
       } else {
+        if (d.cookieStatus === "jwxt_unavailable" || d.error === "jwxt_unavailable") {
+          wx.showModal({
+            title: "检查失败",
+            content: "教务系统暂时不可用，请稍后再试",
+            showCancel: false
+          });
+          this.loadStatus();
+          return;
+        }
         wx.showToast({ title: d.error || "检查失败", icon: "none" });
       }
       this.loadStatus();

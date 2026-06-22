@@ -8,6 +8,7 @@ const credentialStore = require("./services/credentialStore");
 const tokenStore = require("./auth/tokenStore");
 const { optionalAuth } = require("./auth/authMiddleware");
 const { safeUserId, getUserPaths } = require("./services/userPaths");
+const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
@@ -127,11 +128,12 @@ app.get("/status", (req, res) => {
   const activeStorage = requestStorage(req);
   const cookies = loadCookies(req.userId);
   const valid = !!(cookies?.find(x => x.name === "JSESSIONID" && x.domain?.includes("newjwc")));
+  const hasBoundAccount = req.userId ? Boolean(credentialStore.readBoundAccount(req.userId)) : Boolean(credentialStore.getJwxtCredentials());
   const unevaluatedCourses = buildUnevaluatedCourses(activeStorage);
   res.json({
     status: "running",
     cookieValid: valid,
-    cookieStatus: valid ? "cookie_valid" : "login_required",
+    cookieStatus: valid ? "cookie_valid" : (hasBoundAccount ? "account_saved" : "login_required"),
     totalGrades: activeStorage.getGrades().length,
     unevaluatedCount: unevaluatedCourses.length,
     unevaluatedCourses,
@@ -228,25 +230,69 @@ app.post("/bind-account", async (req, res) => {
     });
   }
 
+  console.log("[user-scope] bind-account saving userId=" + (req.userId || "(legacy)") + " accountPath=" + getUserPaths(req.userId).accountPath);
+  credentialStore.saveBoundAccount(studentId, password, req.userId);
+  deleteCookies(req.userId);
+
   try {
     const login = await httpJwxtLogin(studentId, password);
-    console.log("[user-scope] bind-account saving userId=" + (req.userId || "(legacy)") + " accountPath=" + getUserPaths(req.userId).accountPath);
-    credentialStore.saveBoundAccount(studentId, password, req.userId);
     const jwxtCookies = selectJwxtGradeCookies(login.cookies);
-    if (jwxtCookies.length) writeCookies(jwxtCookies, req.userId);
-    console.log("[api] JWXT account bound successfully for studentId=" + studentId);
+    const hasRoute = jwxtCookies.some(c => c.name === "route");
+    const hasJSession = jwxtCookies.some(c => c.name === "JSESSIONID");
+    const hasRememberMe = jwxtCookies.some(c => c.name === "rememberMe");
+
+    if (!hasRoute || !hasJSession || !hasRememberMe) {
+      console.log("[api] JWXT account saved but verification unavailable for studentId=" + studentId);
+      return res.json({
+        success: true,
+        bound: true,
+        verified: false,
+        reason: "jwxt_unavailable",
+        message: "账号已保存，教务系统暂时不可用，稍后可再检查成绩"
+      });
+    }
+
+    writeCookies(jwxtCookies, req.userId);
+    console.log("[api] JWXT account bound and verified for studentId=" + studentId);
     res.json({
       success: true,
       bound: true,
+      verified: true,
       finalUrl: login.finalUrl,
       hasJSession: Boolean(login.jwxtJSessionId)
     });
   } catch (err) {
-    console.log("[api] JWXT account bind failed for studentId=" + studentId + ": " + err.message);
-    res.status(400).json({
-      success: false,
-      error: "BIND_FAILED",
-      message: "账号或密码错误 / 教务系统不可用"
+    const classified = classifyJwxtLoginError(err);
+    console.log("[api] JWXT account bind verification result for studentId=" + studentId + ": " + classified.error);
+
+    if (classified.error === "invalid_credentials") {
+      credentialStore.deleteBoundAccount(req.userId);
+      deleteCookies(req.userId);
+      return res.status(400).json({
+        success: false,
+        error: "invalid_credentials",
+        message: "账号或密码错误"
+      });
+    }
+
+    if (classified.error === "captcha_required") {
+      credentialStore.deleteBoundAccount(req.userId);
+      deleteCookies(req.userId);
+      return res.status(400).json({
+        success: false,
+        bound: false,
+        verified: false,
+        error: "captcha_required",
+        message: "当前账号登录需要验证码或风控校验，请稍后重试"
+      });
+    }
+
+    res.json({
+      success: true,
+      bound: true,
+      verified: false,
+      reason: "jwxt_unavailable",
+      message: "账号已保存，教务系统暂时不可用，稍后可再检查成绩"
     });
   }
 });
@@ -256,7 +302,7 @@ app.post("/unbind-account", (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "POST /unbind-account");
   try {
-    credentialStore.deleteBoundAccount();
+    credentialStore.deleteBoundAccount(req.userId);
     deleteCookies(req.userId);
     console.log("[api] JWXT account unbound; account.json and cookies.json removed");
     res.json({ success: true, unbound: true });

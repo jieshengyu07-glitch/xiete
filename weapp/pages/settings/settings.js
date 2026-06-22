@@ -35,6 +35,15 @@ Page({
       wx.hideLoading();
       if (data && data.success) {
         this.setData({ password: "", binding: false });
+        if (data.verified === false && data.reason === "jwxt_unavailable") {
+          wx.showToast({ title: "账号已保存", icon: "success" });
+          wx.showModal({
+            title: "账号已保存",
+            content: "账号已保存，教务系统暂时不可用，稍后可在首页点击检查成绩",
+            showCancel: false
+          });
+          return;
+        }
         wx.showToast({ title: "绑定成功", icon: "success" });
         wx.showModal({
           title: "绑定成功",
@@ -43,7 +52,15 @@ Page({
         });
       } else {
         this.setData({ binding: false });
-        wx.showToast({ title: (data && data.message) || "账号或密码错误", icon: "none" });
+        if (data && data.error === "invalid_credentials") {
+          wx.showToast({ title: "账号或密码错误", icon: "none" });
+          return;
+        }
+        if (data && data.error === "captcha_required") {
+          wx.showToast({ title: "需要验证码或风控校验", icon: "none" });
+          return;
+        }
+        wx.showToast({ title: (data && data.message) || "绑定失败", icon: "none" });
       }
     }).catch(() => {
       wx.hideLoading();

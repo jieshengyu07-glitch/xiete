@@ -13,32 +13,50 @@
   </view>
 
   <block wx:else>
-    <view class="card">
-      <view class="card-title">服务状态</view>
-      <view class="row">
-        <text class="label">服务状态</text>
-        <text class="value">
-          <text class="status-dot {{status.status==='running'?'status-ok':'status-err'}}"></text>{{status.status}}
-        </text>
+    <view class="hero-card">
+      <view>
+        <view class="hero-eyebrow">校园助手</view>
+        <view class="hero-title">成绩监测中心</view>
+        <view class="hero-subtitle">自动检查成绩、评教状态与最新变化</view>
       </view>
-      <view class="row">
-        <text class="label">Cookie 状态</text>
-        <text class="value">
-          <text class="status-dot {{status.cookieValid?'status-ok':'status-err'}}"></text>{{status.cookieValid?'有效':'已过期'}}
-        </text>
-      </view>
-      <view class="row">
-        <text class="label">已存成绩</text>
-        <text class="value">{{status.totalGrades}} 条</text>
-      </view>
-      <view class="row">
-        <text class="label">上次检查</text>
-        <text class="value">{{status.lastCheckAtFormatted||'尚未检查'}}</text>
+      <view class="hero-count">
+        <view class="hero-number">{{status.totalGrades}}</view>
+        <view class="hero-unit">条成绩</view>
       </view>
     </view>
 
     <view class="card">
-      <view class="card-title">未评价课程提醒</view>
+      <view class="card-title">服务状态</view>
+      <view class="status-grid">
+        <view class="status-cell">
+          <view class="status-label">服务</view>
+          <view class="status-value">
+            <text class="status-dot {{status.status==='running'?'status-ok':'status-err'}}"></text>{{status.status}}
+          </view>
+        </view>
+        <view class="status-cell">
+          <view class="status-label">Cookie</view>
+          <view class="status-value">
+            <text class="status-dot {{status.cookieValid || status.cookieStatus==='account_saved'?'status-ok':'status-err'}}"></text>{{status.cookieValid?'有效':(status.cookieStatus==='account_saved'?'已保存':'需登录')}}
+          </view>
+        </view>
+        <view class="status-cell wide">
+          <view class="status-label">上次检查</view>
+          <view class="status-value">{{status.lastCheckAtFormatted||'尚未检查'}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="action-row">
+      <button class="action-btn primary-action" bindtap="doCheck">立即检查成绩</button>
+      <button class="action-btn secondary-action" bindtap="refresh">刷新状态</button>
+    </view>
+
+    <view class="card">
+      <view class="section-head">
+        <view class="card-title no-margin">未评价课程提醒</view>
+        <view class="pill {{status.unevaluatedCount > 0 ? 'pill-warn' : 'pill-ok'}}">{{status.unevaluatedCount || 0}}</view>
+      </view>
       <view wx:if="{{status.unevaluatedCount > 0}}">
         <view class="warning">检测到未完成教学评价</view>
         <view wx:for="{{status.unevaluatedCourses}}" wx:key="kcmc" class="eval-item">
@@ -61,8 +79,5 @@
         </view>
       </view>
     </view>
-
-    <button class="btn" bindtap="doCheck">立即检查成绩</button>
-    <button class="btn secondary" bindtap="refresh">刷新状态</button>
   </block>
 </view>
