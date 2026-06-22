@@ -1,3 +1,117 @@
 .container { padding: 20rpx; min-height: 100vh; background: #f5f6fa; }
 .loading { text-align: center; padding: 60rpx 0; color: #999; font-size: 28rpx; }
 .empty { text-align: center; padding: 60rpx 0; color: #999; font-size: 28rpx; }
+
+.summary-card {
+  background: #ffffff;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  margin-bottom: 18rpx;
+  box-shadow: 0 4rpx 16rpx rgba(31, 41, 55, 0.06);
+}
+
+.summary-title {
+  color: #1f2937;
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.summary-meta {
+  color: #6b7280;
+  font-size: 24rpx;
+  margin-top: 8rpx;
+}
+
+.term-tabs {
+  white-space: nowrap;
+  margin: 4rpx -20rpx 18rpx;
+}
+
+.term-tabs-inner {
+  display: flex;
+  padding: 0 20rpx;
+}
+
+.term-tab {
+  flex-shrink: 0;
+  max-width: 320rpx;
+  padding: 16rpx 24rpx;
+  margin-right: 14rpx;
+  border-radius: 999rpx;
+  background: #ffffff;
+  color: #4b5563;
+  font-size: 26rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2rpx 10rpx rgba(31, 41, 55, 0.05);
+}
+
+.term-tab.active {
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.term-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8rpx 4rpx 16rpx;
+}
+
+.term-title {
+  color: #111827;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.term-count {
+  color: #6b7280;
+  font-size: 24rpx;
+}
+
+.grade-card {
+  background: #ffffff;
+  border-radius: 12rpx;
+  padding: 22rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 4rpx 16rpx rgba(31, 41, 55, 0.06);
+}
+
+.course-name {
+  color: #111827;
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-bottom: 18rpx;
+}
+
+.grade-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.info-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.info-label {
+  color: #9ca3af;
+  font-size: 22rpx;
+  margin-bottom: 6rpx;
+}
+
+.score {
+  color: #dc2626;
+  font-size: 34rpx;
+  font-weight: 800;
+}
+
+.info-value {
+  color: #374151;
+  font-size: 26rpx;
+  font-weight: 600;
+}

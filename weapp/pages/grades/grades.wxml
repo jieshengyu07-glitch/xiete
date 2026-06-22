@@ -5,15 +5,52 @@
     <view class="row"><text class="label">{{error}}</text></view>
   </view>
   <block wx:else>
-    <view class="card">
-      <view class="card-title">📚 成绩列表（{{count}} 条）</view>
+    <view class="summary-card">
+      <view class="summary-title">成绩列表</view>
+      <view class="summary-meta">{{count}} 条成绩 · {{groupedGrades.length}} 个学期</view>
     </view>
+
     <view wx:if="{{grades.length===0}}" class="empty">暂无成绩数据</view>
-    <view wx:for="{{grades}}" wx:key="kcmc" class="card">
-      <view class="row"><text class="label">课程</text><text class="value" style="flex:1;text-align:right">{{item.kcmc}}</text></view>
-      <view class="row"><text class="label">成绩</text><text class="value">{{item.cj||"-"}}</text></view>
-      <view class="row"><text class="label">学分</text><text class="value">{{item.xf||"-"}}</text></view>
-      <view class="row"><text class="label">学期</text><text class="value">{{item.xnm||"-"}}-{{item.xqm||"-"}}</text></view>
-    </view>
+
+    <block wx:else>
+      <scroll-view scroll-x class="term-tabs" show-scrollbar="{{false}}">
+        <view class="term-tabs-inner">
+          <view
+            wx:for="{{groupedGrades}}"
+            wx:for-item="group"
+            wx:for-index="index"
+            wx:key="key"
+            class="term-tab {{activeTermIndex===index?'active':''}}"
+            data-index="{{index}}"
+            bindtap="selectTerm"
+          >
+            {{group.shortName}}
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="term-header">
+        <view class="term-title">{{currentGroup.termName}}</view>
+        <view class="term-count">{{currentGrades.length}} 门课程</view>
+      </view>
+
+      <view wx:for="{{currentGrades}}" wx:for-item="grade" wx:key="kcmc" class="grade-card">
+        <view class="course-name">{{grade.kcmc || "未知课程"}}</view>
+        <view class="grade-info">
+          <view class="info-item">
+            <text class="info-label">成绩</text>
+            <text class="score">{{grade.cj || "-"}}</text>
+          </view>
+          <view class="info-item">
+            <text class="info-label">学分</text>
+            <text class="info-value">{{grade.xf || "-"}}</text>
+          </view>
+          <view class="info-item">
+            <text class="info-label">学期</text>
+            <text class="info-value">{{grade.xnm || "-"}}-{{grade.xqm || "-"}}</text>
+          </view>
+        </view>
+      </view>
+    </block>
   </block>
 </view>
