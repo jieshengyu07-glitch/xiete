@@ -1,6 +1,16 @@
-﻿node_modules/
+node_modules/
 data/cookies.json
+data/users/
+data/*.txt
+data/*capture*
+data/*response*
+data/*dump*
+data/*trace*
+logs/
+reports/
 .env
 *.log
+*.cookie
+*.session
 .DS_Store
 Thumbs.db

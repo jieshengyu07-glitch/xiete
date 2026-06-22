@@ -6,10 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "login": "node src/login_once.js",
-    "setup": "node src/setup.js",
-    "auto-login": "node src/auto_login.js",
-    "refresh": "node src/refresh_grades.js",
-    "import-grades": "node src/import_grades.js"
+    "setup": "node src/setup.js"
   },
   "dependencies": {
     "express": "^4.21.0",
