@@ -2,10 +2,24 @@
 const { runCycle, loadCookies, writeCookies } = require("./checker");
 const storage = require("./db/storage");
 const Scheduler = require("./scheduler/cron");
+const { httpJwxtLogin } = require("./login/httpJwxtLogin");
+const credentialStore = require("./services/credentialStore");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
 app.use(express.json({ limit: "1mb" }));
+
+function isJwglxtPath(cookiePath) {
+  return cookiePath === "/jwglxt" || String(cookiePath || "").startsWith("/jwglxt/");
+}
+
+function selectJwxtGradeCookies(cookies) {
+  const list = Array.isArray(cookies) ? cookies : [];
+  const route = list.find(c => String(c.domain || "").includes("newjwc.tyust.edu.cn") && c.name === "route" && c.path === "/");
+  const jsession = list.find(c => String(c.domain || "").includes("newjwc.tyust.edu.cn") && c.name === "JSESSIONID" && isJwglxtPath(c.path));
+  const rememberMe = list.find(c => String(c.domain || "").includes("newjwc.tyust.edu.cn") && c.name === "rememberMe" && isJwglxtPath(c.path));
+  return [route, jsession, rememberMe].filter(Boolean);
+}
 
 // Background scheduler
 const scheduler = new Scheduler(async () => {
@@ -86,6 +100,41 @@ app.post("/check", async (req, res) => {
   const r = await runCycle();
   if (r.success) res.json({ checked: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, error: null, cookieStatus: r.cookieStatus || "cookie_valid" });
   else res.json({ checked: false, gradesCount: 0, added: [], changed: [], error: r.error, message: r.message, cookieStatus: r.cookieStatus || r.error || "query_error" });
+});
+
+// POST /bind-account
+app.post("/bind-account", async (req, res) => {
+  const studentId = String((req.body && req.body.studentId) || "").trim();
+  const password = String((req.body && req.body.password) || "");
+
+  if (!studentId || !password) {
+    return res.status(400).json({
+      success: false,
+      error: "INVALID_ACCOUNT",
+      message: "studentId and password are required"
+    });
+  }
+
+  try {
+    const login = await httpJwxtLogin(studentId, password);
+    credentialStore.saveBoundAccount(studentId, password);
+    const jwxtCookies = selectJwxtGradeCookies(login.cookies);
+    if (jwxtCookies.length) writeCookies(jwxtCookies);
+    console.log("[api] JWXT account bound successfully for studentId=" + studentId);
+    res.json({
+      success: true,
+      bound: true,
+      finalUrl: login.finalUrl,
+      hasJSession: Boolean(login.jwxtJSessionId)
+    });
+  } catch (err) {
+    console.log("[api] JWXT account bind failed for studentId=" + studentId + ": " + err.message);
+    res.status(400).json({
+      success: false,
+      error: "BIND_FAILED",
+      message: "账号或密码错误 / 教务系统不可用"
+    });
+  }
 });
 
 // POST /upload-cookies

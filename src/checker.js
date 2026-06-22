@@ -2,6 +2,8 @@
 const path = require("path");
 const axios = require("axios");
 const storage = require("./db/storage");
+const { httpJwxtLogin } = require("./login/httpJwxtLogin");
+const credentialStore = require("./services/credentialStore");
 
 const COOKIE_FILE = path.join(__dirname, "..", "data", "cookies.json");
 
@@ -34,7 +36,31 @@ function loadCookies() {
   return null;
 }
 
+function isJwglxtPath(cookiePath) {
+  return cookiePath === "/jwglxt" || String(cookiePath || "").startsWith("/jwglxt/");
+}
+
+function selectJwxtGradeCookies(cookies) {
+  var list = Array.isArray(cookies) ? cookies : [];
+  var route = list.find(function(c) {
+    return String(c.domain || "").includes("newjwc.tyust.edu.cn") && c.name === "route" && c.path === "/";
+  });
+  var jsession = list.find(function(c) {
+    return String(c.domain || "").includes("newjwc.tyust.edu.cn") && c.name === "JSESSIONID" && isJwglxtPath(c.path);
+  });
+  var rememberMe = list.find(function(c) {
+    return String(c.domain || "").includes("newjwc.tyust.edu.cn") && c.name === "rememberMe" && isJwglxtPath(c.path);
+  });
+  return [route, jsession, rememberMe].filter(Boolean);
+}
+
 function buildCookieHeader(cookies, domainPattern) {
+  if (domainPattern === "newjwc.tyust.edu.cn") {
+    var selected = selectJwxtGradeCookies(cookies);
+    if (selected.some(function(c) { return c.name === "JSESSIONID"; })) {
+      return selected.map(function(c) { return c.name + "=" + c.value; }).join("; ");
+    }
+  }
   return cookies.filter(c => String(c.domain || "").includes(domainPattern)).map(c => c.name + "=" + c.value).join("; ");
 }
 
@@ -103,8 +129,38 @@ function attachTermToGrade(grade, term) {
   return item;
 }
 
-async function runCycle() {
-  const cookies = loadCookies();
+function isCookieExpiredResult(result) {
+  return result && (result.cookieStatus === "cookie_expired" || result.error === "cookie_expired");
+}
+
+async function refreshCookiesFromEnv() {
+  const credentials = credentialStore.getJwxtCredentials();
+  if (!credentials) {
+    console.log("[checker] Cookie 失效，但未配置 JWXT_STUDENT_ID/JWXT_PASSWORD，保持原返回");
+    return null;
+  }
+
+  console.log("[checker] 检测到 Cookie 失效，尝试自动刷新");
+  try {
+    const login = await httpJwxtLogin(credentials.studentId, credentials.password);
+    const selected = selectJwxtGradeCookies(login.cookies);
+    const hasRoute = selected.some(function(c) { return c.name === "route"; });
+    const hasJSession = selected.some(function(c) { return c.name === "JSESSIONID"; });
+    const hasRememberMe = selected.some(function(c) { return c.name === "rememberMe"; });
+    if (!hasRoute || !hasJSession || !hasRememberMe) {
+      console.log("[checker] 自动刷新失败：未获取完整 route/JSESSIONID/rememberMe Cookie");
+      return null;
+    }
+    writeCookies(selected);
+    console.log("[checker] 自动刷新成功，已更新 cookies.json（未打印 Cookie 值）");
+    return selected;
+  } catch (err) {
+    console.log("[checker] 自动刷新失败：" + err.message);
+    return null;
+  }
+}
+
+async function executeCheck(cookies) {
   if (!cookies) return fail("login_required", "Run: npm run login or POST /upload-cookies");
   const cs = buildCookieHeader(cookies, "newjwc.tyust.edu.cn");
   if (!cs) return fail("login_required", "Missing JWXT session cookie. Upload via POST /upload-cookies");
@@ -145,6 +201,23 @@ async function runCycle() {
   }catch(err){
     return fail("query_error", err.message);
   }
+}
+
+async function runCycle() {
+  const cookies = loadCookies();
+  const first = await executeCheck(cookies);
+  if (!isCookieExpiredResult(first)) return first;
+
+  const refreshedCookies = await refreshCookiesFromEnv();
+  if (!refreshedCookies) return first;
+
+  const retry = await executeCheck(refreshedCookies);
+  if (retry.success) {
+    retry.cookieStatus = "cookie_valid";
+    return retry;
+  }
+  if (isCookieExpiredResult(retry)) return fail("cookie_expired", retry.message || "JWXT cookie refresh retry failed");
+  return retry;
 }
 
 module.exports = { runCycle, loadCookies, writeCookies };
