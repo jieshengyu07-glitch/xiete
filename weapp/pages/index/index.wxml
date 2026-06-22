@@ -38,6 +38,19 @@
     </view>
 
     <view class="card">
+      <view class="card-title">未评价课程提醒</view>
+      <view wx:if="{{status.unevaluatedCount > 0}}">
+        <view class="warning">检测到未完成教学评价</view>
+        <view wx:for="{{status.unevaluatedCourses}}" wx:key="kcmc" class="eval-item">
+          <view class="eval-course">{{item.kcmc}}</view>
+          <view class="eval-term">{{item.termName}}</view>
+        </view>
+        <view class="tips">请前往教务系统完成教学评价</view>
+      </view>
+      <view wx:else class="empty">暂无未评价课程</view>
+    </view>
+
+    <view class="card">
       <view class="card-title">最近成绩变化</view>
       <view wx:if="{{gradeChanges.length === 0}}" class="empty">暂无新成绩变化</view>
       <view wx:for="{{gradeChanges}}" wx:key="createdAt" class="change-item">
