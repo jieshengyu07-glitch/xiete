@@ -30,14 +30,32 @@ const scheduler = new Scheduler(async () => {
 scheduler.start();
 
 // GET /status
+function buildUnevaluatedCourses() {
+  return storage.getGrades()
+    .filter(g => String(g.CJ || g.cj || "") === "未评价")
+    .map(g => {
+      const xnm = g.XNM || g.xnm || "";
+      const xqm = g.XQM || g.xqm || "";
+      return {
+        kcmc: g.KCMC || g.kcmc || "",
+        xnm,
+        xqm,
+        termName: termLabel(xnm, xqm)
+      };
+    });
+}
+
 app.get("/status", (req, res) => {
   const cookies = loadCookies();
   const valid = !!(cookies?.find(x => x.name === "JSESSIONID" && x.domain?.includes("newjwc")));
+  const unevaluatedCourses = buildUnevaluatedCourses();
   res.json({
     status: "running",
     cookieValid: valid,
     cookieStatus: valid ? "cookie_valid" : "login_required",
     totalGrades: storage.getGrades().length,
+    unevaluatedCount: unevaluatedCourses.length,
+    unevaluatedCourses,
     lastCheckAt: storage.data?.lastRunAt || null,
     version: "1.0.0",
   });

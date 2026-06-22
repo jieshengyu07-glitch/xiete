@@ -68,6 +68,30 @@
   text-align: center;
 }
 
+.warning {
+  margin-bottom: 18rpx;
+  color: #e67e22;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.eval-item {
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #f0f1f5;
+}
+
+.eval-course {
+  color: #333;
+  font-size: 27rpx;
+  line-height: 1.5;
+}
+
+.eval-term {
+  margin-top: 6rpx;
+  color: #999;
+  font-size: 23rpx;
+}
+
 .change-item {
   display: flex;
   gap: 18rpx;
