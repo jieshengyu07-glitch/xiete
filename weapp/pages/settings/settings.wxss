@@ -67,6 +67,13 @@
   color: #ffffff;
 }
 
+.unbind-btn {
+  margin-top: 18rpx;
+  border-radius: 12rpx;
+  background: #e74c3c;
+  color: #ffffff;
+}
+
 .desc {
   color: #666;
   font-size: 26rpx;
