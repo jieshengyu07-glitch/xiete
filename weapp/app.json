@@ -5,22 +5,25 @@
     "pages/settings/settings"
   ],
   "window": {
-    "navigationBarTitleText": "校园成绩助手",
-    "navigationBarBackgroundColor": "#2c3e50",
+    "navigationBarTitleText": "校园助手",
+    "navigationBarBackgroundColor": "#1677ff",
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#f5f6fa"
+    "backgroundColor": "#f3f7ff",
+    "backgroundTextStyle": "dark"
   },
   "tabBar": {
-    "color": "#999",
-    "selectedColor": "#2c3e50",
-    "backgroundColor": "#fff",
-    "borderStyle": "black",
+    "color": "#8a94a6",
+    "selectedColor": "#1677ff",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
     "list": [
-      {"pagePath": "pages/index/index", "text": "状态", "iconPath": "icons/status.png", "selectedIconPath": "icons/status-active.png"},
-      {"pagePath": "pages/grades/grades", "text": "成绩", "iconPath": "icons/grades.png", "selectedIconPath": "icons/grades-active.png"},
-      {"pagePath": "pages/settings/settings", "text": "设置", "iconPath": "icons/settings.png", "selectedIconPath": "icons/settings-active.png"}
+      { "pagePath": "pages/index/index", "text": "首页" },
+      { "pagePath": "pages/grades/grades", "text": "成绩" },
+      { "pagePath": "pages/settings/settings", "text": "设置" }
     ]
   },
-  "networkTimeout": {"request": 10000},
+  "networkTimeout": {
+    "request": 30000
+  },
   "sitemapLocation": "sitemap.json"
 }

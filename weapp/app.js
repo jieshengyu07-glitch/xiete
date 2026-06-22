@@ -1,6 +1,13 @@
+const API_ENV = "production";
+const API_BASES = {
+  production: "https://xiete.onrender.com",
+  // 本地开发可切换为 development；也可改成 http://localhost:3456
+  development: "http://192.168.1.14:3456"
+};
+
 App({
   globalData: {
-    apiBase: "http://192.168.1.14:3456",
+    apiBase: API_BASES[API_ENV],
     token: ""
   },
 

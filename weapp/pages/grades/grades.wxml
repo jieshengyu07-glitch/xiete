@@ -1,13 +1,22 @@
 <view class="container">
-  <view class="card" wx:if="{{loading}}"><view class="loading">加载中...</view></view>
-  <view class="card" wx:elif="{{error}}">
-    <view class="card-title">⚠️ 连接异常</view>
-    <view class="row"><text class="label">{{error}}</text></view>
+  <view class="card" wx:if="{{loading}}">
+    <view class="loading">加载中...</view>
   </view>
+
+  <view class="card" wx:elif="{{error}}">
+    <view class="card-title">连接异常</view>
+    <view class="row">
+      <text class="label">{{error}}</text>
+    </view>
+  </view>
+
   <block wx:else>
     <view class="summary-card">
-      <view class="summary-title">成绩列表</view>
-      <view class="summary-meta">{{count}} 条成绩 · {{groupedGrades.length}} 个学期</view>
+      <view>
+        <view class="summary-title">成绩列表</view>
+        <view class="summary-meta">{{count}} 条成绩 · {{groupedGrades.length}} 个学期</view>
+      </view>
+      <view class="summary-badge">{{currentGrades.length}} 门</view>
     </view>
 
     <view wx:if="{{grades.length===0}}" class="empty">暂无成绩数据</view>
@@ -37,7 +46,7 @@
       <view wx:for="{{currentGrades}}" wx:for-item="grade" wx:key="kcmc" class="grade-card">
         <view class="course-name">{{grade.kcmc || "未知课程"}}</view>
         <view class="grade-info">
-          <view class="info-item">
+          <view class="score-block">
             <text class="info-label">成绩</text>
             <text class="score">{{grade.cj || "-"}}</text>
           </view>
