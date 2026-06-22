@@ -1,5 +1,7 @@
 ﻿const express = require("express");
 const { runCycle, loadCookies, writeCookies } = require("./checker");
+const fs = require("fs");
+const path = require("path");
 const storage = require("./db/storage");
 const Scheduler = require("./scheduler/cron");
 const { httpJwxtLogin } = require("./login/httpJwxtLogin");
@@ -7,6 +9,7 @@ const credentialStore = require("./services/credentialStore");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
+const COOKIE_FILE = path.join(__dirname, "..", "data", "cookies.json");
 app.use(express.json({ limit: "1mb" }));
 
 function isJwglxtPath(cookiePath) {
@@ -157,6 +160,22 @@ app.post("/bind-account", async (req, res) => {
       success: false,
       error: "BIND_FAILED",
       message: "账号或密码错误 / 教务系统不可用"
+    });
+  }
+});
+
+// POST /unbind-account
+app.post("/unbind-account", (req, res) => {
+  try {
+    credentialStore.deleteBoundAccount();
+    if (fs.existsSync(COOKIE_FILE)) fs.unlinkSync(COOKIE_FILE);
+    console.log("[api] JWXT account unbound; account.json and cookies.json removed");
+    res.json({ success: true, unbound: true });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: "UNBIND_FAILED",
+      message: err.message
     });
   }
 });

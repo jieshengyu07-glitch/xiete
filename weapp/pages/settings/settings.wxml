@@ -1,31 +1,32 @@
 <view class="container">
   <view class="card">
-    <view class="card-title">配置消息</view>
+    <view class="card-title">&#x914d;&#x7f6e;&#x4fe1;&#x606f;</view>
     <view class="row">
-      <text class="label">API 地址</text>
+      <text class="label">API &#x5730;&#x5740;</text>
       <text class="value">{{apiAddr}}</text>
     </view>
     <view class="row">
-      <text class="label">客户端版本</text>
+      <text class="label">&#x5ba2;&#x6237;&#x7aef;&#x7248;&#x672c;</text>
       <text class="value">{{version}}</text>
     </view>
   </view>
 
   <view class="card">
-    <view class="card-title">绑定教务账号</view>
-    <view class="hint">密码只提交给后端用于自动刷新 Cookie，小程序不保存密码。</view>
-    <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
-    <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
-    <button class="bind-btn" loading="{{binding}}" disabled="{{binding}}" bindtap="bindAccount">绑定</button>
+    <view class="card-title">&#x7ed1;&#x5b9a;&#x6559;&#x52a1;&#x8d26;&#x53f7;</view>
+    <view class="hint">&#x5bc6;&#x7801;&#x53ea;&#x63d0;&#x4ea4;&#x7ed9;&#x540e;&#x7aef;&#x7528;&#x4e8e;&#x81ea;&#x52a8;&#x5237;&#x65b0; Cookie&#xff0c;&#x5c0f;&#x7a0b;&#x5e8f;&#x4e0d;&#x4fdd;&#x5b58;&#x5bc6;&#x7801;&#x3002;</view>
+    <input class="input" placeholder="&#x8bf7;&#x8f93;&#x5165;&#x5b66;&#x53f7;" value="{{studentId}}" bindinput="onStudentIdInput" />
+    <input class="input" placeholder="&#x8bf7;&#x8f93;&#x5165;&#x6559;&#x52a1;&#x5bc6;&#x7801;" password value="{{password}}" bindinput="onPasswordInput" />
+    <button class="bind-btn" loading="{{binding}}" disabled="{{binding}}" bindtap="bindAccount">&#x7ed1;&#x5b9a;</button>
+    <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">&#x89e3;&#x9664;&#x7ed1;&#x5b9a;</button>
   </view>
 
   <view class="card">
-    <view class="card-title">使用说明</view>
+    <view class="card-title">&#x4f7f;&#x7528;&#x8bf4;&#x660e;</view>
     <view class="desc">
-      <view>1. 后端运行 npm start 启动 API。</view>
-      <view>2. 可继续使用手动 login/setup 方案。</view>
-      <view>3. 绑定教务账号后，Cookie 过期时后端会自动刷新。</view>
-      <view>4. 不要在公共设备上绑定账号。</view>
+      <view>1. &#x540e;&#x7aef;&#x8fd0;&#x884c; npm start &#x542f;&#x52a8; API&#x3002;</view>
+      <view>2. &#x53ef;&#x7ee7;&#x7eed;&#x4f7f;&#x7528;&#x624b;&#x52a8; login/setup &#x65b9;&#x6848;&#x3002;</view>
+      <view>3. &#x7ed1;&#x5b9a;&#x6559;&#x52a1;&#x8d26;&#x53f7;&#x540e;&#xff0c;Cookie &#x8fc7;&#x671f;&#x65f6;&#x540e;&#x7aef;&#x4f1a;&#x81ea;&#x52a8;&#x5237;&#x65b0;&#x3002;</view>
+      <view>4. &#x89e3;&#x9664;&#x7ed1;&#x5b9a;&#x4e0d;&#x4f1a;&#x5220;&#x9664;&#x5df2;&#x5b58;&#x6210;&#x7ee9;&#x3002;</view>
     </view>
   </view>
 </view>
