@@ -34,6 +34,17 @@ function parseHiddenValue(html, id) {
   return match ? decodeHtml(match[1].trim()) : "";
 }
 
+function isInvalidCredentialPage(html) {
+  const text = String(html || "");
+  return text.includes("用户名或密码") ||
+    text.includes("账号或密码") ||
+    text.includes("账户或密码") ||
+    text.includes("密码错误") ||
+    text.includes("用户名不存在") ||
+    text.includes("认证失败") ||
+    text.toLowerCase().includes("invalid credentials");
+}
+
 function userAgent() {
   return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -344,6 +355,9 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   const followed = await followRedirects(cookieJar, loginResponse, LOGIN_POST_URL);
   if (followed.finalUrl.includes(PORTAL_ORIGIN + "/sso/login?code=")) {
     return getAndFollow(cookieJar, followed.finalUrl, LOGIN_POST_URL);
+  }
+  if (isInvalidCredentialPage(followed.response && followed.response.data)) {
+    throw new Error("invalid_credentials");
   }
   return followed;
 }

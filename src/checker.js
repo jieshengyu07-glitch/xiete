@@ -6,6 +6,7 @@ const { createStorageForUser } = require("./db/storage");
 const { httpJwxtLogin } = require("./login/httpJwxtLogin");
 const credentialStore = require("./services/credentialStore");
 const { getUserPaths } = require("./services/userPaths");
+const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 
 const COOKIE_FILE = path.join(__dirname, "..", "data", "cookies.json");
 
@@ -102,6 +103,30 @@ function fail(cookieStatus, message, extra) {
   }, extra || {});
   console.log("[checker] " + cookieStatus + ": " + result.message);
   return result;
+}
+
+function isJwxtUnavailableError(err) {
+  const code = String((err && err.code) || "");
+  const message = String((err && err.message) || "").toLowerCase();
+  return [
+    "ECONNABORTED",
+    "ETIMEDOUT",
+    "ENOTFOUND",
+    "ECONNRESET",
+    "EAI_AGAIN",
+    "ECONNREFUSED",
+    "ENETUNREACH",
+    "ERR_BAD_RESPONSE"
+  ].includes(code) ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("network") ||
+    message.includes("socket hang up") ||
+    message.includes("enotfound") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused") ||
+    message.includes("econnaborted") ||
+    message.includes("eai_again");
 }
 
 function isLoginPage(data) {
@@ -222,6 +247,15 @@ function isCookieExpiredResult(result) {
   return result && (result.cookieStatus === "cookie_expired" || result.error === "cookie_expired");
 }
 
+function isLoginRequiredResult(result) {
+  return result && (result.cookieStatus === "login_required" || result.error === "login_required");
+}
+
+function shouldAttemptCookieRefresh(result, userId) {
+  if (isCookieExpiredResult(result)) return true;
+  return isLoginRequiredResult(result) && Boolean(credentialStore.getJwxtCredentials(userId));
+}
+
 async function refreshCookiesFromEnv(userId) {
   const credentials = credentialStore.getJwxtCredentials(userId);
   if (!credentials) {
@@ -238,14 +272,23 @@ async function refreshCookiesFromEnv(userId) {
     const hasRememberMe = selected.some(function(c) { return c.name === "rememberMe"; });
     if (!hasRoute || !hasJSession || !hasRememberMe) {
       console.log("[checker] 自动刷新失败：未获取完整 route/JSESSIONID/rememberMe Cookie");
-      return null;
+      return {
+        errorResult: fail("jwxt_unavailable", "账号已保存，教务系统暂时不可用，稍后可再检查成绩", {
+          error: "jwxt_unavailable"
+        })
+      };
     }
     writeCookies(selected, userId);
     console.log("[checker] 自动刷新成功，已更新 cookies.json（未打印 Cookie 值）");
     return selected;
   } catch (err) {
-    console.log("[checker] 自动刷新失败：" + err.message);
-    return null;
+    const classified = classifyJwxtLoginError(err);
+    console.log("[checker] 自动刷新失败：" + classified.error);
+    return {
+      errorResult: fail(classified.reason || classified.error, classified.message, {
+        error: classified.error
+      })
+    };
   }
 }
 
@@ -279,6 +322,7 @@ async function executeCheck(cookies, activeStorage) {
         console.log("[checker] term " + t.xnm + "-" + t.xqm + " count=" + grades.length);
         for(var g=0;g<grades.length;g++)allGrades.push(attachTermToGrade(grades[g], t));
       }catch(e){
+        if (isJwxtUnavailableError(e)) return fail("jwxt_unavailable", e.message, { term: t });
         return fail("query_error", e.message, { term: t });
       }
     }
@@ -300,9 +344,10 @@ async function executeCheck(cookies, activeStorage) {
 async function runCycle() {
   const cookies = loadCookies();
   const first = await executeCheck(cookies, storage);
-  if (!isCookieExpiredResult(first)) return first;
+  if (!shouldAttemptCookieRefresh(first)) return first;
 
   const refreshedCookies = await refreshCookiesFromEnv();
+  if (refreshedCookies && refreshedCookies.errorResult) return refreshedCookies.errorResult;
   if (!refreshedCookies) return first;
 
   const retry = await executeCheck(refreshedCookies, storage);
@@ -318,9 +363,10 @@ async function runCycleForUser(userId) {
   const userStorage = createStorageForUser(userId);
   const cookies = loadCookies(userId);
   const first = await executeCheck(cookies, userStorage);
-  if (!isCookieExpiredResult(first)) return first;
+  if (!shouldAttemptCookieRefresh(first, userId)) return first;
 
   const refreshedCookies = await refreshCookiesFromEnv(userId);
+  if (refreshedCookies && refreshedCookies.errorResult) return refreshedCookies.errorResult;
   if (!refreshedCookies) return first;
 
   const retry = await executeCheck(refreshedCookies, userStorage);
