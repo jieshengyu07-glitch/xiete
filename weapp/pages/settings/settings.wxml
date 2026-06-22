@@ -1,19 +1,31 @@
 <view class="container">
-  <view class="card"><view class="card-title">⚙️ 配置信息</view>
-    <view class="row"><text class="label">API 地址</text><text class="value">{{apiAddr}}</text></view>
-    <view class="row"><text class="label">客户端版本</text><text class="value">{{version}}</text></view>
-  </view>
-  <view class="card"><view class="card-title">📖 使用说明</view>
-    <view style="font-size:26rpx;color:#666;line-height:1.8">
-      <view>1. 服务器端运行 npm start 启动 API</view>
-      <view>2. 首次使用运行 npm run login 获取凭据</view>
-      <view>3. cookies 过期后重新运行 npm run login</view>
-      <view>4. 系统每30分钟自动检查成绩</view>
+  <view class="card">
+    <view class="card-title">配置消息</view>
+    <view class="row">
+      <text class="label">API 地址</text>
+      <text class="value">{{apiAddr}}</text>
+    </view>
+    <view class="row">
+      <text class="label">客户端版本</text>
+      <text class="value">{{version}}</text>
     </view>
   </view>
-  <view class="card"><view class="card-title">🔗 绑定信息</view>
-    <view style="font-size:26rpx;color:#666;line-height:1.8">
-      <view>学校：太原科技大学</view><view>系统：教学综合信息服务平台</view>
+
+  <view class="card">
+    <view class="card-title">绑定教务账号</view>
+    <view class="hint">密码只提交给后端用于自动刷新 Cookie，小程序不保存密码。</view>
+    <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
+    <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
+    <button class="bind-btn" loading="{{binding}}" disabled="{{binding}}" bindtap="bindAccount">绑定</button>
+  </view>
+
+  <view class="card">
+    <view class="card-title">使用说明</view>
+    <view class="desc">
+      <view>1. 后端运行 npm start 启动 API。</view>
+      <view>2. 可继续使用手动 login/setup 方案。</view>
+      <view>3. 绑定教务账号后，Cookie 过期时后端会自动刷新。</view>
+      <view>4. 不要在公共设备上绑定账号。</view>
     </view>
   </view>
 </view>
