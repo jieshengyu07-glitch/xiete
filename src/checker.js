@@ -46,9 +46,9 @@ function writeCookies(cookiesData) {
 
 
 const ALL_TERMS = [
-  {xnm:"2023",xqm:"11"},{xnm:"2023",xqm:"12"},
-  {xnm:"2024",xqm:"11"},{xnm:"2024",xqm:"12"},
-  {xnm:"2025",xqm:"11"},{xnm:"2025",xqm:"12"},
+  {xnm:"2023",xqm:"3"},{xnm:"2023",xqm:"12"},
+  {xnm:"2024",xqm:"3"},{xnm:"2024",xqm:"12"},
+  {xnm:"2025",xqm:"3"},{xnm:"2025",xqm:"12"},
 ];
 
 function fail(cookieStatus, message, extra) {
@@ -94,6 +94,15 @@ function classifyResponse(resp) {
   return null;
 }
 
+function attachTermToGrade(grade, term) {
+  var item = grade || {};
+  item.xnm = term.xnm || item.xnm || item.XNM;
+  item.xqm = term.xqm || item.xqm || item.XQM;
+  item.XNM = item.xnm;
+  item.XQM = item.xqm;
+  return item;
+}
+
 async function runCycle() {
   const cookies = loadCookies();
   if (!cookies) return fail("login_required", "Run: npm run login or POST /upload-cookies");
@@ -106,6 +115,7 @@ async function runCycle() {
     var allGrades=[];
     for(var i=0;i<ALL_TERMS.length;i++){
       var t=ALL_TERMS[i];
+      console.log("[checker] querying grades xnm=" + t.xnm + " xqm=" + t.xqm);
       try{
         var resp=await axios.post(
           "https://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxXsgrcj.html?doType=query",
@@ -120,7 +130,8 @@ async function runCycle() {
         else if(data.items)grades=data.items;
         else if(data.rows)grades=data.rows;
         else return fail("query_error", "Unexpected grade response format", { term: t });
-        for(var g=0;g<grades.length;g++)allGrades.push(grades[g]);
+        console.log("[checker] term " + t.xnm + "-" + t.xqm + " count=" + grades.length);
+        for(var g=0;g<grades.length;g++)allGrades.push(attachTermToGrade(grades[g], t));
       }catch(e){
         return fail("query_error", e.message, { term: t });
       }

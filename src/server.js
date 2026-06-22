@@ -30,12 +30,55 @@ app.get("/status", (req, res) => {
 });
 
 // GET /grades
+function schoolYearName(xnm) {
+  if (!xnm) return "未知学年";
+  var text = String(xnm);
+  if (/^\d{4}$/.test(text)) return text + "-" + (Number(text) + 1);
+  return text;
+}
+
+function termNumber(xqm) {
+  var text = String(xqm || "");
+  if (text === "12") return 2;
+  if (text === "3") return 1;
+  var n = Number(text);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function termLabel(xnm, xqm) {
+  var text = String(xqm || "");
+  var termName = "未知学期";
+  if (text === "3") termName = "第1学期";
+  else if (text === "12") termName = "第2学期";
+  else if (text) termName = text;
+  return schoolYearName(xnm) + "学年" + termName;
+}
+
+function buildGroupedGrades(grades) {
+  var map = {};
+  grades.forEach(function(g) {
+    var xnm = g.xnm || "";
+    var xqm = g.xqm || "";
+    var key = xnm + "_" + xqm;
+    if (!map[key]) {
+      map[key] = { key: key, xnm: xnm, xqm: xqm, termName: termLabel(xnm, xqm), grades: [] };
+    }
+    map[key].grades.push(g);
+  });
+  return Object.keys(map).map(function(k) { return map[k]; }).sort(function(a, b) {
+    var ya = parseInt(a.xnm, 10) || 0;
+    var yb = parseInt(b.xnm, 10) || 0;
+    if (yb !== ya) return yb - ya;
+    return termNumber(b.xqm) - termNumber(a.xqm);
+  });
+}
+
 app.get("/grades", (req, res) => {
   const grades = storage.getGrades().map(g => ({
     kcmc: g.KCMC || g.kcmc, cj: g.CJ || g.cj, xf: g.XF || g.xf,
     xnm: g.XNM || g.xnm, xqm: g.XQM || g.xqm,
   }));
-  res.json({ count: grades.length, grades });
+  res.json({ count: grades.length, grades, groupedGrades: buildGroupedGrades(grades) });
 });
 
 // POST /check
