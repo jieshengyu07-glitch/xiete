@@ -1,8 +1,8 @@
 const fs = require("fs");
 const path = require("path");
+const { getUserPaths } = require("./userPaths");
 
 let cachedEnvFile = null;
-const ACCOUNT_FILE = path.join(__dirname, "..", "..", "data", "users", "account.json");
 
 function readEnvFile() {
   if (cachedEnvFile) return cachedEnvFile;
@@ -34,7 +34,15 @@ function getValue(name) {
   return process.env[name] || readEnvFile()[name] || "";
 }
 
-function getJwxtCredentials() {
+function accountFile(userId) {
+  return getUserPaths(userId).accountPath;
+}
+
+function getJwxtCredentials(userId) {
+  if (userId) {
+    return readBoundAccount(userId);
+  }
+
   const studentId = getValue("JWXT_STUDENT_ID");
   const password = getValue("JWXT_PASSWORD");
 
@@ -42,13 +50,14 @@ function getJwxtCredentials() {
     return { studentId, password, source: "env" };
   }
 
-  return readBoundAccount();
+  return readBoundAccount(userId);
 }
 
-function readBoundAccount() {
-  if (!fs.existsSync(ACCOUNT_FILE)) return null;
+function readBoundAccount(userId) {
+  const file = accountFile(userId);
+  if (!fs.existsSync(file)) return null;
   try {
-    const data = JSON.parse(fs.readFileSync(ACCOUNT_FILE, "utf8"));
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
     if (!data || !data.studentId || !data.password) return null;
     return {
       studentId: String(data.studentId),
@@ -60,18 +69,21 @@ function readBoundAccount() {
   }
 }
 
-function saveBoundAccount(studentId, password) {
-  const dir = path.dirname(ACCOUNT_FILE);
+function saveBoundAccount(studentId, password, userId) {
+  const file = accountFile(userId);
+  const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(ACCOUNT_FILE, JSON.stringify({
+  console.log("[user-scope] credentialStore.saveAccount userId=" + (userId || "(legacy)") + " accountPath=" + file);
+  fs.writeFileSync(file, JSON.stringify({
     studentId: String(studentId),
     password: String(password),
     updatedAt: new Date().toISOString()
   }, null, 2));
 }
 
-function deleteBoundAccount() {
-  if (fs.existsSync(ACCOUNT_FILE)) fs.unlinkSync(ACCOUNT_FILE);
+function deleteBoundAccount(userId) {
+  const file = accountFile(userId);
+  if (fs.existsSync(file)) fs.unlinkSync(file);
 }
 
 module.exports = {
