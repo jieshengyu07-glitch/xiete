@@ -35,7 +35,7 @@ function loadCookies() {
 }
 
 function buildCookieHeader(cookies, domainPattern) {
-  return cookies.filter(c => c.domain.includes(domainPattern)).map(c => c.name + "=" + c.value).join("; ");
+  return cookies.filter(c => String(c.domain || "").includes(domainPattern)).map(c => c.name + "=" + c.value).join("; ");
 }
 
 function writeCookies(cookiesData) {
@@ -51,17 +51,60 @@ const ALL_TERMS = [
   {xnm:"2025",xqm:"11"},{xnm:"2025",xqm:"12"},
 ];
 
+function fail(cookieStatus, message, extra) {
+  var result = Object.assign({
+    success: false,
+    error: cookieStatus,
+    cookieStatus: cookieStatus,
+    message: message || cookieStatus
+  }, extra || {});
+  console.log("[checker] " + cookieStatus + ": " + result.message);
+  return result;
+}
+
+function isLoginPage(data) {
+  if (typeof data !== "string") return false;
+  return data.includes("login_slogin.html") ||
+    data.includes("/jwglxt/xtgl/login") ||
+    data.includes("用户登录") ||
+    data.includes("用户名");
+}
+
+function isEmptyResponse(data) {
+  return data === null || data === undefined || data === "";
+}
+
+function classifyResponse(resp) {
+  if (!resp) return { status: "jwxt_unavailable", message: "No response from JWXT" };
+  if (resp.status === 901 || resp.status === 403 || resp.status === 302) {
+    return { status: "cookie_expired", message: "JWXT returned HTTP " + resp.status };
+  }
+  if (resp.status >= 500) {
+    return { status: "jwxt_unavailable", message: "JWXT returned HTTP " + resp.status };
+  }
+  if (isEmptyResponse(resp.data)) {
+    return { status: "jwxt_unavailable", message: "JWXT returned empty response" };
+  }
+  if (isLoginPage(resp.data)) {
+    return { status: "cookie_expired", message: "JWXT returned login page" };
+  }
+  if (resp.status !== 200) {
+    return { status: "query_error", message: "JWXT returned HTTP " + resp.status };
+  }
+  return null;
+}
+
 async function runCycle() {
   const cookies = loadCookies();
-  if (!cookies) return { success: false, error: "NO_COOKIES", message: "Run: npm run login or POST /upload-cookies" };
+  if (!cookies) return fail("login_required", "Run: npm run login or POST /upload-cookies");
   const cs = buildCookieHeader(cookies, "newjwc.tyust.edu.cn");
-  if (!cs) return { success: false, error: "NO_JSESSIONID", message: "Missing JWXT session cookie. Upload via POST /upload-cookies" };
+  if (!cs) return fail("login_required", "Missing JWXT session cookie. Upload via POST /upload-cookies");
   try {
-    await axios.get("https://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default",{headers:{"Cookie":cs},maxRedirects:0,validateStatus:s=>true,timeout:10000}).catch(()=>{});
+    var initResp = await axios.get("https://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default",{headers:{"Cookie":cs},maxRedirects:0,validateStatus:s=>true,timeout:10000}).catch(function(err){ return { status: 0, data: "", _error: err.message }; });
+    var initClass = initResp._error ? { status: "jwxt_unavailable", message: initResp._error } : classifyResponse(initResp);
+    if (initClass) return fail(initClass.status, initClass.message, { httpStatus: initResp.status });
     var allGrades=[];
-    var sessionExpired=false;
     for(var i=0;i<ALL_TERMS.length;i++){
-      if(sessionExpired)break;
       var t=ALL_TERMS[i];
       try{
         var resp=await axios.post(
@@ -69,25 +112,27 @@ async function runCycle() {
           new URLSearchParams({xnm:t.xnm,xqm:t.xqm,page:"1",rows:"50"}).toString(),
           {headers:{"Content-Type":"application/x-www-form-urlencoded","Cookie":cs,"Referer":"https://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default"},maxRedirects:0,validateStatus:function(s){return true;},timeout:30000}
         );
-        if(resp.status===302){sessionExpired=true;break;}
-        if(resp.status!==200)continue;
+        var respClass = classifyResponse(resp);
+        if(respClass) return fail(respClass.status, respClass.message, { httpStatus: resp.status, term: t });
         var data=resp.data;
         var grades=[];
         if(Array.isArray(data))grades=data;
         else if(data.items)grades=data.items;
         else if(data.rows)grades=data.rows;
+        else return fail("query_error", "Unexpected grade response format", { term: t });
         for(var g=0;g<grades.length;g++)allGrades.push(grades[g]);
-      }catch(e){continue;}
+      }catch(e){
+        return fail("query_error", e.message, { term: t });
+      }
     }
-    if(sessionExpired)return{success:false,error:"COOKIES_EXPIRED",message:"Cookies expired. Re-upload via POST /upload-cookies"};
-    if(!allGrades.length)return{success:true,gradesCount:0,added:[],changed:[],grades:[]};
+    if(!allGrades.length)return{success:true,cookieStatus:"cookie_valid",gradesCount:0,added:[],changed:[],grades:[]};
     var diff=storage.diffGrades(allGrades);
     storage.mergeGrades(allGrades);
     if(diff.added.length||diff.changed.length)storage.addGradeChange({type:"update"});
     storage.updateLastRun();
-    return{success:true,gradesCount:allGrades.length,added:diff.added.map(function(g){return{kcmc:g.KCMC||g.kcmc,cj:g.CJ||g.cj};}),changed:diff.changed,grades:[]};
+    return{success:true,cookieStatus:"cookie_valid",gradesCount:allGrades.length,added:diff.added.map(function(g){return{kcmc:g.KCMC||g.kcmc,cj:g.CJ||g.cj};}),changed:diff.changed,grades:[]};
   }catch(err){
-    return{success:false,error:"REQUEST_FAILED",message:err.message};
+    return fail("query_error", err.message);
   }
 }
 
