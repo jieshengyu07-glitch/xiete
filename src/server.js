@@ -22,6 +22,7 @@ app.get("/status", (req, res) => {
   res.json({
     status: "running",
     cookieValid: valid,
+    cookieStatus: valid ? "cookie_valid" : "login_required",
     totalGrades: storage.getGrades().length,
     lastCheckAt: storage.data?.lastRunAt || null,
     version: "1.0.0",
@@ -40,8 +41,8 @@ app.get("/grades", (req, res) => {
 // POST /check
 app.post("/check", async (req, res) => {
   const r = await runCycle();
-  if (r.success) res.json({ checked: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, error: null });
-  else res.json({ checked: false, gradesCount: 0, added: [], changed: [], error: r.error, message: r.message });
+  if (r.success) res.json({ checked: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, error: null, cookieStatus: r.cookieStatus || "cookie_valid" });
+  else res.json({ checked: false, gradesCount: 0, added: [], changed: [], error: r.error, message: r.message, cookieStatus: r.cookieStatus || r.error || "query_error" });
 });
 
 // POST /upload-cookies
