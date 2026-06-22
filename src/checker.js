@@ -2,8 +2,10 @@
 const path = require("path");
 const axios = require("axios");
 const storage = require("./db/storage");
+const { createStorageForUser } = require("./db/storage");
 const { httpJwxtLogin } = require("./login/httpJwxtLogin");
 const credentialStore = require("./services/credentialStore");
+const { getUserPaths } = require("./services/userPaths");
 
 const COOKIE_FILE = path.join(__dirname, "..", "data", "cookies.json");
 
@@ -24,10 +26,16 @@ if (process.env.COOKIES_JSON) {
   }
 }
 
-function loadCookies() {
+function cookieFile(userId) {
+  return userId ? getUserPaths(userId).cookiesPath : COOKIE_FILE;
+}
+
+function loadCookies(userId) {
+  const file = cookieFile(userId);
+  console.log("[user-scope] loadCookies userId=" + (userId || "(legacy)") + " cookiesPath=" + file);
   // Try file first
-  if (fs.existsSync(COOKIE_FILE)) {
-    try { return JSON.parse(fs.readFileSync(COOKIE_FILE, "utf8")); } catch { console.error("[checker] Failed to parse cookies.json"); }
+  if (fs.existsSync(file)) {
+    try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { console.error("[checker] Failed to parse cookies.json"); }
   }
   // Fallback to env var at runtime
   if (process.env.COOKIES_JSON) {
@@ -64,10 +72,18 @@ function buildCookieHeader(cookies, domainPattern) {
   return cookies.filter(c => String(c.domain || "").includes(domainPattern)).map(c => c.name + "=" + c.value).join("; ");
 }
 
-function writeCookies(cookiesData) {
-  const dir = path.dirname(COOKIE_FILE);
+function writeCookies(cookiesData, userId) {
+  const file = cookieFile(userId);
+  const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(COOKIE_FILE, JSON.stringify(cookiesData, null, 2));
+  fs.writeFileSync(file, JSON.stringify(cookiesData, null, 2));
+  console.log("[user-scope] writeCookies userId=" + (userId || "(legacy)") + " cookiesPath=" + file + " count=" + (Array.isArray(cookiesData) ? cookiesData.length : 0));
+}
+
+function deleteCookies(userId) {
+  const file = cookieFile(userId);
+  if (fs.existsSync(file)) fs.unlinkSync(file);
+  console.log("[user-scope] deleteCookies userId=" + (userId || "(legacy)") + " cookiesPath=" + file);
 }
 
 
@@ -206,8 +222,8 @@ function isCookieExpiredResult(result) {
   return result && (result.cookieStatus === "cookie_expired" || result.error === "cookie_expired");
 }
 
-async function refreshCookiesFromEnv() {
-  const credentials = credentialStore.getJwxtCredentials();
+async function refreshCookiesFromEnv(userId) {
+  const credentials = credentialStore.getJwxtCredentials(userId);
   if (!credentials) {
     console.log("[checker] Cookie 失效，但未配置 JWXT_STUDENT_ID/JWXT_PASSWORD，保持原返回");
     return null;
@@ -224,7 +240,7 @@ async function refreshCookiesFromEnv() {
       console.log("[checker] 自动刷新失败：未获取完整 route/JSESSIONID/rememberMe Cookie");
       return null;
     }
-    writeCookies(selected);
+    writeCookies(selected, userId);
     console.log("[checker] 自动刷新成功，已更新 cookies.json（未打印 Cookie 值）");
     return selected;
   } catch (err) {
@@ -233,7 +249,8 @@ async function refreshCookiesFromEnv() {
   }
 }
 
-async function executeCheck(cookies) {
+async function executeCheck(cookies, activeStorage) {
+  activeStorage = activeStorage || storage;
   if (!cookies) return fail("login_required", "Run: npm run login or POST /upload-cookies");
   const cs = buildCookieHeader(cookies, "newjwc.tyust.edu.cn");
   if (!cs) return fail("login_required", "Missing JWXT session cookie. Upload via POST /upload-cookies");
@@ -266,14 +283,14 @@ async function executeCheck(cookies) {
       }
     }
     if(!allGrades.length)return{success:true,cookieStatus:"cookie_valid",gradesCount:0,added:[],changed:[],changeCount:0,grades:[]};
-    var diff=storage.diffGrades(allGrades);
+    var diff=activeStorage.diffGrades(allGrades);
     console.log("[diff] checker added array=" + Array.isArray(diff.added) + " changed array=" + Array.isArray(diff.changed));
     console.log("[diff] checker added=" + (diff.added || []).length + " changed=" + (diff.changed || []).length);
-    storage.mergeGrades(allGrades);
+    activeStorage.mergeGrades(allGrades);
     var changeRecords = buildGradeChangeRecords(diff);
     console.log("[changes] checker records=" + changeRecords.length);
-    storage.addGradeChanges(changeRecords);
-    storage.updateLastRun();
+    activeStorage.addGradeChanges(changeRecords);
+    activeStorage.updateLastRun();
     return{success:true,cookieStatus:"cookie_valid",gradesCount:allGrades.length,added:diff.added.map(function(g){return{kcmc:g.KCMC||g.kcmc,cj:g.CJ||g.cj,xnm:g.XNM||g.xnm,xqm:g.XQM||g.xqm};}),changed:diff.changed,changeCount:changeRecords.length,grades:[]};
   }catch(err){
     return fail("query_error", err.message);
@@ -282,13 +299,13 @@ async function executeCheck(cookies) {
 
 async function runCycle() {
   const cookies = loadCookies();
-  const first = await executeCheck(cookies);
+  const first = await executeCheck(cookies, storage);
   if (!isCookieExpiredResult(first)) return first;
 
   const refreshedCookies = await refreshCookiesFromEnv();
   if (!refreshedCookies) return first;
 
-  const retry = await executeCheck(refreshedCookies);
+  const retry = await executeCheck(refreshedCookies, storage);
   if (retry.success) {
     retry.cookieStatus = "cookie_valid";
     return retry;
@@ -297,4 +314,22 @@ async function runCycle() {
   return retry;
 }
 
-module.exports = { runCycle, loadCookies, writeCookies };
+async function runCycleForUser(userId) {
+  const userStorage = createStorageForUser(userId);
+  const cookies = loadCookies(userId);
+  const first = await executeCheck(cookies, userStorage);
+  if (!isCookieExpiredResult(first)) return first;
+
+  const refreshedCookies = await refreshCookiesFromEnv(userId);
+  if (!refreshedCookies) return first;
+
+  const retry = await executeCheck(refreshedCookies, userStorage);
+  if (retry.success) {
+    retry.cookieStatus = "cookie_valid";
+    return retry;
+  }
+  if (isCookieExpiredResult(retry)) return fail("cookie_expired", retry.message || "JWXT cookie refresh retry failed");
+  return retry;
+}
+
+module.exports = { runCycle, runCycleForUser, loadCookies, writeCookies, deleteCookies };

@@ -1,11 +1,12 @@
 ﻿const fs = require('fs');
 const path = require('path');
 const config = require('../config');
+const { getUserPaths } = require('../services/userPaths');
 
 class JsonStorage {
-  constructor() {
-    this.dataDir = config.dataDir;
-    this.filePath = path.join(this.dataDir, 'campus.json');
+  constructor(filePath) {
+    this.filePath = filePath || path.join(config.dataDir, 'campus.json');
+    this.dataDir = path.dirname(this.filePath);
     this.data = null;
     this._ensureDataDir();
     this._load();
@@ -230,4 +231,12 @@ class JsonStorage {
   }
 }
 
-module.exports = new JsonStorage();
+function createStorageForUser(userId) {
+  return new JsonStorage(getUserPaths(userId).campusPath);
+}
+
+const defaultStorage = new JsonStorage();
+
+module.exports = defaultStorage;
+module.exports.JsonStorage = JsonStorage;
+module.exports.createStorageForUser = createStorageForUser;
