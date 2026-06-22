@@ -129,6 +129,79 @@ function attachTermToGrade(grade, term) {
   return item;
 }
 
+function schoolYearName(xnm) {
+  if (!xnm) return "未知学年";
+  var text = String(xnm);
+  if (/^\d{4}$/.test(text)) return text + "-" + (Number(text) + 1);
+  return text;
+}
+
+function termName(xnm, xqm) {
+  var text = String(xqm || "");
+  var name = "未知学期";
+  if (text === "3") name = "第1学期";
+  else if (text === "12") name = "第2学期";
+  else if (text) name = text;
+  return schoolYearName(xnm) + "学年" + name;
+}
+
+function gradeCourseName(grade) {
+  return grade.KCMC || grade.kcmc || grade.course || "";
+}
+
+function gradeScore(grade) {
+  return grade.CJ || grade.cj || "";
+}
+
+function gradeXnm(grade) {
+  return grade.XNM || grade.xnm || "";
+}
+
+function gradeXqm(grade) {
+  return grade.XQM || grade.xqm || "";
+}
+
+function addedChangeRecord(grade) {
+  var xnm = gradeXnm(grade);
+  var xqm = gradeXqm(grade);
+  return {
+    type: "added",
+    kcmc: gradeCourseName(grade),
+    oldCj: "",
+    newCj: gradeScore(grade),
+    xnm: xnm,
+    xqm: xqm,
+    termName: termName(xnm, xqm)
+  };
+}
+
+function changedChangeRecord(change) {
+  var newGrade = change.newGrade || {};
+  var oldGrade = change.oldGrade || {};
+  var xnm = change.xnm || gradeXnm(newGrade) || gradeXnm(oldGrade);
+  var xqm = change.xqm || gradeXqm(newGrade) || gradeXqm(oldGrade);
+  return {
+    type: "changed",
+    kcmc: change.kcmc || change.course || gradeCourseName(newGrade) || gradeCourseName(oldGrade),
+    oldCj: change.oldCj || change.old || gradeScore(oldGrade),
+    newCj: change.newCj || change.new || gradeScore(newGrade),
+    xnm: xnm,
+    xqm: xqm,
+    termName: termName(xnm, xqm)
+  };
+}
+
+function buildGradeChangeRecords(diff) {
+  var records = [];
+  (diff.added || []).forEach(function(grade) {
+    records.push(addedChangeRecord(grade));
+  });
+  (diff.changed || []).forEach(function(change) {
+    records.push(changedChangeRecord(change));
+  });
+  return records;
+}
+
 function isCookieExpiredResult(result) {
   return result && (result.cookieStatus === "cookie_expired" || result.error === "cookie_expired");
 }
@@ -192,12 +265,16 @@ async function executeCheck(cookies) {
         return fail("query_error", e.message, { term: t });
       }
     }
-    if(!allGrades.length)return{success:true,cookieStatus:"cookie_valid",gradesCount:0,added:[],changed:[],grades:[]};
+    if(!allGrades.length)return{success:true,cookieStatus:"cookie_valid",gradesCount:0,added:[],changed:[],changeCount:0,grades:[]};
     var diff=storage.diffGrades(allGrades);
+    console.log("[diff] checker added array=" + Array.isArray(diff.added) + " changed array=" + Array.isArray(diff.changed));
+    console.log("[diff] checker added=" + (diff.added || []).length + " changed=" + (diff.changed || []).length);
     storage.mergeGrades(allGrades);
-    if(diff.added.length||diff.changed.length)storage.addGradeChange({type:"update"});
+    var changeRecords = buildGradeChangeRecords(diff);
+    console.log("[changes] checker records=" + changeRecords.length);
+    storage.addGradeChanges(changeRecords);
     storage.updateLastRun();
-    return{success:true,cookieStatus:"cookie_valid",gradesCount:allGrades.length,added:diff.added.map(function(g){return{kcmc:g.KCMC||g.kcmc,cj:g.CJ||g.cj};}),changed:diff.changed,grades:[]};
+    return{success:true,cookieStatus:"cookie_valid",gradesCount:allGrades.length,added:diff.added.map(function(g){return{kcmc:g.KCMC||g.kcmc,cj:g.CJ||g.cj,xnm:g.XNM||g.xnm,xqm:g.XQM||g.xqm};}),changed:diff.changed,changeCount:changeRecords.length,grades:[]};
   }catch(err){
     return fail("query_error", err.message);
   }

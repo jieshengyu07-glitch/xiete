@@ -52,6 +52,42 @@ class JsonStorage {
     };
   }
 
+  _ensureShape() {
+    if (!this.data) this.data = this._getDefaultData();
+    if (!Array.isArray(this.data.grades)) this.data.grades = [];
+    if (!Array.isArray(this.data.gradeChanges)) this.data.gradeChanges = [];
+  }
+
+  _value(grade, lower, upper) {
+    if (!grade) return '';
+    return grade[lower] !== undefined && grade[lower] !== null ? grade[lower] :
+      (grade[upper] !== undefined && grade[upper] !== null ? grade[upper] : '');
+  }
+
+  _gradeKey(grade) {
+    const kcmc = String(this._value(grade, 'kcmc', 'KCMC'));
+    const kch = String(this._value(grade, 'kch', 'KCH'));
+    const xnm = String(this._value(grade, 'xnm', 'XNM'));
+    const xqm = String(this._value(grade, 'xqm', 'XQM'));
+    return [kcmc, kch, xnm, xqm].join('|');
+  }
+
+  _score(grade) {
+    return String(this._value(grade, 'cj', 'CJ'));
+  }
+
+  _courseName(grade) {
+    return this._value(grade, 'kcmc', 'KCMC');
+  }
+
+  _xnm(grade) {
+    return this._value(grade, 'xnm', 'XNM');
+  }
+
+  _xqm(grade) {
+    return this._value(grade, 'xqm', 'XQM');
+  }
+
   // ========== 成绩相关 ==========
 
   // 获取所有已存储的成绩
@@ -66,37 +102,62 @@ class JsonStorage {
 
   // 对比新成绩，返回变化（新增/修改）
   diffGrades(newGrades) {
+    this._load();
+    this._ensureShape();
     const existing = this.data.grades;
     const added = [];
     const changed = [];
 
+    console.log('[diff] oldGrades=' + existing.length);
+    console.log('[diff] newGrades=' + (Array.isArray(newGrades) ? newGrades.length : 0));
+
     for (const ng of newGrades) {
-      const old = existing.find(e =>
-        e.kch === ng.kch && e.xnm === ng.xnm && e.xqm === ng.xqm
-      );
+      const newKey = this._gradeKey(ng);
+      const old = existing.find(e => this._gradeKey(e) === newKey);
       if (!old) {
         added.push(ng);
-      } else if (old.cj !== ng.cj) {
-        changed.push({ old: old.cj, new: ng.cj, course: ng.kcmc });
+      } else if (this._score(old) !== this._score(ng)) {
+        changed.push({
+          old: this._score(old),
+          new: this._score(ng),
+          course: this._courseName(ng),
+          oldGrade: old,
+          newGrade: ng,
+          oldCj: this._score(old),
+          newCj: this._score(ng),
+          kcmc: this._courseName(ng),
+          xnm: this._xnm(ng),
+          xqm: this._xqm(ng)
+        });
       }
     }
 
+    console.log('[diff] added=' + added.length);
+    console.log('[diff] changed=' + changed.length);
     return { added, changed };
   }
 
   // 合并新成绩到存储
   mergeGrades(newGrades) {
+    this._ensureShape();
     for (const ng of newGrades) {
-      const idx = this.data.grades.findIndex(e =>
-        e.kch === ng.kch && e.xnm === ng.xnm && e.xqm === ng.xqm
-      );
+      const newKey = this._gradeKey(ng);
+      const idx = this.data.grades.findIndex(e => this._gradeKey(e) === newKey);
       if (idx === -1) {
         this.data.grades.push(ng);
       } else {
         // 更新已有记录
-        if (this.data.grades[idx].cj !== ng.cj) {
-          this.data.grades[idx].cj = ng.cj;
-          this.data.grades[idx].cjBj = '(已更新)';
+        if (this._score(this.data.grades[idx]) !== this._score(ng)) {
+          this.data.grades[idx] = {
+            ...this.data.grades[idx],
+            ...ng,
+            cjBj: '(已更新)'
+          };
+        } else {
+          this.data.grades[idx] = {
+            ...this.data.grades[idx],
+            ...ng
+          };
         }
       }
     }
@@ -107,9 +168,31 @@ class JsonStorage {
   addGradeChange(change) {
     this.data.gradeChanges.push({
       ...change,
-      detectedAt: new Date().toISOString(),
+      createdAt: change.createdAt || new Date().toISOString(),
+      detectedAt: change.detectedAt || new Date().toISOString(),
     });
     this._save();
+  }
+
+  addGradeChanges(changes) {
+    console.log('[changes] writing count=' + (Array.isArray(changes) ? changes.length : 0));
+    if (!Array.isArray(changes) || changes.length === 0) return;
+    const now = new Date().toISOString();
+    for (const change of changes) {
+      this.data.gradeChanges.push({
+        ...change,
+        createdAt: change.createdAt || now,
+        detectedAt: change.detectedAt || now,
+      });
+    }
+    this._save();
+  }
+
+  getGradeChanges(limit = 20) {
+    return (this.data.gradeChanges || [])
+      .slice()
+      .sort((a, b) => String(b.createdAt || b.detectedAt || "").localeCompare(String(a.createdAt || a.detectedAt || "")))
+      .slice(0, limit);
   }
 
   // 获取所有未通知的变化
