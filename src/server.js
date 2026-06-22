@@ -95,11 +95,17 @@ app.get("/grades", (req, res) => {
   res.json({ count: grades.length, grades, groupedGrades: buildGroupedGrades(grades) });
 });
 
+// GET /grade-changes
+app.get("/grade-changes", (req, res) => {
+  const changes = storage.getGradeChanges(20);
+  res.json({ count: changes.length, changes });
+});
+
 // POST /check
 app.post("/check", async (req, res) => {
   const r = await runCycle();
-  if (r.success) res.json({ checked: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, error: null, cookieStatus: r.cookieStatus || "cookie_valid" });
-  else res.json({ checked: false, gradesCount: 0, added: [], changed: [], error: r.error, message: r.message, cookieStatus: r.cookieStatus || r.error || "query_error" });
+  if (r.success) res.json({ checked: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, changeCount: r.changeCount || 0, error: null, cookieStatus: r.cookieStatus || "cookie_valid" });
+  else res.json({ checked: false, gradesCount: 0, added: [], changed: [], changeCount: 0, error: r.error, message: r.message, cookieStatus: r.cookieStatus || r.error || "query_error" });
 });
 
 // POST /bind-account
