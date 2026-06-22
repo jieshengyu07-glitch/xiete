@@ -5,27 +5,27 @@ function authHeader() {
   return token ? { Authorization: "Bearer " + token } : {};
 }
 
-function request(path) {
+function request(path, options) {
   return new Promise((resolve, reject) => {
     wx.request({
       url: app.globalData.apiBase + path,
       method: "GET",
       header: authHeader(),
-      timeout: 30000,
+      timeout: options && options.timeout ? options.timeout : 30000,
       success: res => resolve(res.data),
       fail: err => reject(err)
     });
   });
 }
 
-function post(path, data) {
+function post(path, data, options) {
   return new Promise((resolve, reject) => {
     wx.request({
       url: app.globalData.apiBase + path,
       method: "POST",
       header: authHeader(),
       data: data || {},
-      timeout: 30000,
+      timeout: options && options.timeout ? options.timeout : 30000,
       success: res => resolve(res.data),
       fail: err => reject(err)
     });

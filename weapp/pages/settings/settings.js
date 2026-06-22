@@ -1,3 +1,4 @@
+const api = require("../../utils/api");
 const app = getApp();
 
 Page({
@@ -23,47 +24,39 @@ Page({
     const password = String(this.data.password || "");
 
     if (!studentId || !password) {
-      wx.showToast({ title: "\u8bf7\u8f93\u5165\u5b66\u53f7\u548c\u5bc6\u7801", icon: "none" });
+      wx.showToast({ title: "请输入学号和密码", icon: "none" });
       return;
     }
 
     this.setData({ binding: true });
-    wx.showLoading({ title: "\u7ed1\u5b9a\u4e2d..." });
+    wx.showLoading({ title: "绑定中..." });
 
-    wx.request({
-      url: app.globalData.apiBase + "/bind-account",
-      method: "POST",
-      timeout: 120000,
-      data: { studentId, password },
-      success: res => {
-        wx.hideLoading();
-        const data = res.data || {};
-        if (data.success) {
-          this.setData({ password: "", binding: false });
-          wx.showToast({ title: "\u7ed1\u5b9a\u6210\u529f", icon: "success" });
-          wx.showModal({
-            title: "\u7ed1\u5b9a\u6210\u529f",
-            content: "\u7ed1\u5b9a\u6210\u529f\uff0c\u4e4b\u540e\u53ef\u81ea\u52a8\u67e5\u6210\u7ee9",
-            showCancel: false
-          });
-        } else {
-          this.setData({ binding: false });
-          wx.showToast({ title: data.message || "\u8d26\u53f7\u6216\u5bc6\u7801\u9519\u8bef", icon: "none" });
-        }
-      },
-      fail: () => {
-        wx.hideLoading();
+    api.post("/bind-account", { studentId, password }, { timeout: 120000 }).then(data => {
+      wx.hideLoading();
+      if (data && data.success) {
+        this.setData({ password: "", binding: false });
+        wx.showToast({ title: "绑定成功", icon: "success" });
+        wx.showModal({
+          title: "绑定成功",
+          content: "绑定成功，之后可自动查成绩。请回首页点击“立即检查成绩”。",
+          showCancel: false
+        });
+      } else {
         this.setData({ binding: false });
-        wx.showToast({ title: "\u6559\u52a1\u7cfb\u7edf\u4e0d\u53ef\u7528", icon: "none" });
+        wx.showToast({ title: (data && data.message) || "账号或密码错误", icon: "none" });
       }
+    }).catch(() => {
+      wx.hideLoading();
+      this.setData({ binding: false });
+      wx.showToast({ title: "教务系统不可用", icon: "none" });
     });
   },
 
   unbindAccount() {
     wx.showModal({
-      title: "\u786e\u8ba4\u89e3\u9664\u7ed1\u5b9a",
-      content: "\u89e3\u9664\u540e\u5c06\u5220\u9664\u672c\u5730\u7ed1\u5b9a\u8d26\u53f7\u548c Cookie\uff0c\u4e0d\u4f1a\u5220\u9664\u5df2\u5b58\u6210\u7ee9\u3002",
-      confirmText: "\u89e3\u9664\u7ed1\u5b9a",
+      title: "确认解除绑定",
+      content: "解除后将删除本地绑定账号和 Cookie，不会删除已存成绩。",
+      confirmText: "解除绑定",
       confirmColor: "#e74c3c",
       success: result => {
         if (!result.confirm) return;
@@ -74,26 +67,20 @@ Page({
 
   doUnbindAccount() {
     this.setData({ unbinding: true });
-    wx.showLoading({ title: "\u89e3\u9664\u4e2d..." });
+    wx.showLoading({ title: "解除中..." });
 
-    wx.request({
-      url: app.globalData.apiBase + "/unbind-account",
-      method: "POST",
-      timeout: 30000,
-      success: res => {
-        wx.hideLoading();
-        this.setData({ unbinding: false, password: "" });
-        if (res.data && res.data.success) {
-          wx.showToast({ title: "\u5df2\u89e3\u9664\u7ed1\u5b9a", icon: "success" });
-        } else {
-          wx.showToast({ title: "\u89e3\u9664\u5931\u8d25", icon: "none" });
-        }
-      },
-      fail: () => {
-        wx.hideLoading();
-        this.setData({ unbinding: false });
-        wx.showToast({ title: "\u8bf7\u6c42\u5931\u8d25", icon: "none" });
+    api.post("/unbind-account", {}, { timeout: 30000 }).then(data => {
+      wx.hideLoading();
+      this.setData({ unbinding: false, password: "" });
+      if (data && data.success) {
+        wx.showToast({ title: "已解除绑定", icon: "success" });
+      } else {
+        wx.showToast({ title: "解除失败", icon: "none" });
       }
+    }).catch(() => {
+      wx.hideLoading();
+      this.setData({ unbinding: false });
+      wx.showToast({ title: "请求失败", icon: "none" });
     });
   }
 });
