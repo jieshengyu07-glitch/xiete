@@ -122,6 +122,18 @@ function parseClassroom(classroomRaw) {
   const text = String(classroomRaw || "").trim();
   if (!text) return { building: "", room: "", displayLocation: "地点待定" };
 
+  const dashed = text.match(/^(\d{1,2})\s*-\s*(\d{3,4})$/);
+  if (dashed) {
+    const buildingNo = String(Number(dashed[1]));
+    const room = dashed[2];
+    const building = buildingNo + "号楼";
+    return {
+      building,
+      room,
+      displayLocation: building + room + "教室"
+    };
+  }
+
   if (/^\d{5}$/.test(text)) {
     const buildingNo = String(Number(text.slice(0, 2)));
     const room = text.slice(2);
