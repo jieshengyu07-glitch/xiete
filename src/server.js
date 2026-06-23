@@ -48,6 +48,41 @@ function logUserScope(req, label) {
   console.log("[user-scope] " + label + " scope=" + (req.userId ? "user" : "legacy"));
 }
 
+function safeUrlHostPath(value) {
+  if (!value) return "unknown";
+  try {
+    const parsed = new URL(String(value));
+    return parsed.host + parsed.pathname;
+  } catch (err) {
+    return "unknown";
+  }
+}
+
+function shortMessage(value) {
+  return String(value || "").replace(/\s+/g, " ").slice(0, 120);
+}
+
+function bindFailureDetails(err, fallback) {
+  const response = err && err.response;
+  const config = err && err.config;
+  return {
+    errorType: String((err && (err.errorType || err.code || err.name)) || (fallback && fallback.errorType) || "unknown"),
+    step: String((err && (err.step || err.phase)) || (fallback && fallback.step) || "unknown"),
+    httpStatus: String((err && (err.httpStatus || err.status)) || (response && response.status) || (fallback && fallback.httpStatus) || "unknown"),
+    finalUrl: safeUrlHostPath((err && (err.finalUrl || err.url)) || (config && config.url) || (fallback && fallback.finalUrl)),
+    message: shortMessage((err && err.message) || (fallback && fallback.message) || "")
+  };
+}
+
+function logBindVerifyFailed(err, fallback) {
+  const details = bindFailureDetails(err, fallback);
+  console.log("[bind] jwxt verify failed errorType=" + details.errorType +
+    " step=" + details.step +
+    " httpStatus=" + details.httpStatus +
+    " finalUrl=" + details.finalUrl +
+    " message=" + details.message);
+}
+
 function isJwglxtPath(cookiePath) {
   return cookiePath === "/jwglxt" || String(cookiePath || "").startsWith("/jwglxt/");
 }
@@ -227,6 +262,7 @@ app.post("/check", async (req, res) => {
 // POST /bind-account
 app.post("/bind-account", async (req, res) => {
   if (!ensureValidScope(req, res)) return;
+  console.log("[bind] start scope=" + (req.userId ? "user" : "legacy"));
   logUserScope(req, "POST /bind-account");
   const studentId = String((req.body && req.body.studentId) || "").trim();
   const password = String((req.body && req.body.password) || "");
@@ -244,13 +280,38 @@ app.post("/bind-account", async (req, res) => {
   deleteCookies(req.userId);
 
   try {
+    console.log("[bind] verifying jwxt");
     const login = await httpJwxtLogin(studentId, password);
+    if (!login || login.success === false) {
+      logBindVerifyFailed(null, {
+        errorType: "success_false",
+        step: "httpJwxtLogin",
+        finalUrl: login && login.finalUrl,
+        message: login && (login.message || login.error)
+      });
+      const classified = classifyJwxtLoginError(login && (login.message || login.error));
+      console.log("[bind] classified error=" + classified.error);
+      return res.json({
+        success: true,
+        bound: true,
+        verified: false,
+        reason: "jwxt_unavailable",
+        message: "账号已保存，教务系统暂时不可用，稍后可再检查成绩"
+      });
+    }
+    console.log("[bind] jwxt verified success");
     const jwxtCookies = selectJwxtGradeCookies(login.cookies);
     const hasRoute = jwxtCookies.some(c => c.name === "route");
     const hasJSession = jwxtCookies.some(c => c.name === "JSESSIONID");
     const hasRememberMe = jwxtCookies.some(c => c.name === "rememberMe");
 
     if (!hasRoute || !hasJSession || !hasRememberMe) {
+      logBindVerifyFailed(null, {
+        errorType: "missing_required_cookies",
+        step: "selectJwxtGradeCookies",
+        finalUrl: login.finalUrl,
+        message: "Missing required JWXT cookie names"
+      });
       console.log("[api] JWXT account saved but verification unavailable");
       return res.json({
         success: true,
@@ -271,8 +332,9 @@ app.post("/bind-account", async (req, res) => {
       hasJSession: Boolean(login.jwxtJSessionId)
     });
   } catch (err) {
+    logBindVerifyFailed(err, { step: "httpJwxtLogin" });
     const classified = classifyJwxtLoginError(err);
-    console.log("[api] JWXT account bind verification result: " + classified.error);
+    console.log("[bind] classified error=" + classified.error);
 
     if (classified.error === "invalid_credentials") {
       credentialStore.deleteBoundAccount(req.userId);
