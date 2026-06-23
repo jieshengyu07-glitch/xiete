@@ -31,9 +31,13 @@ function cookieFile(userId) {
   return userId ? getUserPaths(userId).cookiesPath : COOKIE_FILE;
 }
 
+function scopeLabel(userId) {
+  return userId ? "user" : "legacy";
+}
+
 function loadCookies(userId) {
   const file = cookieFile(userId);
-  console.log("[user-scope] loadCookies userId=" + (userId || "(legacy)") + " cookiesPath=" + file);
+  console.log("[user-scope] loadCookies scope=" + scopeLabel(userId));
   // Try file first
   if (fs.existsSync(file)) {
     try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { console.error("[checker] Failed to parse cookies.json"); }
@@ -78,13 +82,13 @@ function writeCookies(cookiesData, userId) {
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(file, JSON.stringify(cookiesData, null, 2));
-  console.log("[user-scope] writeCookies userId=" + (userId || "(legacy)") + " cookiesPath=" + file + " count=" + (Array.isArray(cookiesData) ? cookiesData.length : 0));
+  console.log("[user-scope] writeCookies scope=" + scopeLabel(userId) + " count=" + (Array.isArray(cookiesData) ? cookiesData.length : 0));
 }
 
 function deleteCookies(userId) {
   const file = cookieFile(userId);
   if (fs.existsSync(file)) fs.unlinkSync(file);
-  console.log("[user-scope] deleteCookies userId=" + (userId || "(legacy)") + " cookiesPath=" + file);
+  console.log("[user-scope] deleteCookies scope=" + scopeLabel(userId));
 }
 
 

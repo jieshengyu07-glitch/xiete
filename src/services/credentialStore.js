@@ -73,7 +73,7 @@ function saveBoundAccount(studentId, password, userId) {
   const file = accountFile(userId);
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  console.log("[user-scope] credentialStore.saveAccount userId=" + (userId || "(legacy)") + " accountPath=" + file);
+  console.log("[user-scope] credentialStore.saveAccount scope=" + (userId ? "user" : "legacy"));
   fs.writeFileSync(file, JSON.stringify({
     studentId: String(studentId),
     password: String(password),
