@@ -45,6 +45,7 @@ class JsonStorage {
     return {
       grades: [],         // 已出成绩
       gradeChanges: [],   // 成绩变化记录
+      timetable: [],      // 课表缓存
       evaluation: {       // 评教状态
         status: 'unknown', // unknown | pending | completed
         lastCheckedAt: null,
@@ -57,6 +58,7 @@ class JsonStorage {
     if (!this.data) this.data = this._getDefaultData();
     if (!Array.isArray(this.data.grades)) this.data.grades = [];
     if (!Array.isArray(this.data.gradeChanges)) this.data.gradeChanges = [];
+    if (!Array.isArray(this.data.timetable)) this.data.timetable = [];
   }
 
   _value(grade, lower, upper) {
@@ -194,6 +196,30 @@ class JsonStorage {
       .slice()
       .sort((a, b) => String(b.createdAt || b.detectedAt || "").localeCompare(String(a.createdAt || a.detectedAt || "")))
       .slice(0, limit);
+  }
+
+  // ========== 课表相关 ==========
+
+  getTimetable(termYear, termSemester) {
+    this._load();
+    this._ensureShape();
+    return (this.data.timetable || []).filter(item =>
+      String(item.termYear) === String(termYear) &&
+      String(item.termSemester) === String(termSemester)
+    );
+  }
+
+  replaceTimetableForTerm(termYear, termSemester, rows) {
+    this._load();
+    this._ensureShape();
+    const nextRows = Array.isArray(rows) ? rows : [];
+    this.data.timetable = (this.data.timetable || []).filter(item =>
+      String(item.termYear) !== String(termYear) ||
+      String(item.termSemester) !== String(termSemester)
+    );
+    this.data.timetable.push(...nextRows);
+    this.data.timetableLastSyncAt = new Date().toISOString();
+    this._save();
   }
 
   // 获取所有未通知的变化

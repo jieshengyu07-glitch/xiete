@@ -6,12 +6,23 @@ function isTimeoutError(err) {
   return message.includes("timeout") || message.includes("timed out");
 }
 
+function errorText(err) {
+  if (!err) return "";
+  if (err.message) return String(err.message);
+  if (err.errMsg) return String(err.errMsg);
+  if (err.data && err.data.message) return String(err.data.message);
+  if (err.data && err.data.error) return String(err.data.error);
+  if (err.statusCode) return "HTTP " + err.statusCode;
+  return "";
+}
+
 Page({
   data: {
     apiAddr: app.globalData.apiBase,
     version: app.globalData.clientVersion || "0.1.4-jwt",
     clientVersion: app.globalData.clientVersion || "0.1.4-jwt",
     loginStatus: "未连接",
+    connectionError: "",
     studentId: "",
     password: "",
     binding: false,
@@ -29,8 +40,11 @@ Page({
       clientVersion: app.globalData.clientVersion || "0.1.4-jwt"
     });
     api.request("/status")
-      .then(() => this.setData({ loginStatus: "已连接" }))
-      .catch(() => this.setData({ loginStatus: "未连接" }));
+      .then(() => this.setData({ loginStatus: "已连接", connectionError: "" }))
+      .catch(err => this.setData({
+        loginStatus: "未连接",
+        connectionError: errorText(err) || app.globalData.lastLoginError || "无法连接 API"
+      }));
   },
 
   onStudentIdInput(e) {
@@ -100,7 +114,11 @@ Page({
         });
         return;
       }
-      wx.showToast({ title: "绑定失败", icon: "none" });
+      wx.showModal({
+        title: "绑定失败",
+        content: errorText(err) || app.globalData.lastLoginError || "请检查 API 域名、微信登录配置和后端日志。",
+        showCancel: false
+      });
     }
   },
 

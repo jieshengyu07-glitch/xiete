@@ -9,6 +9,8 @@ const auth = require("./middleware/auth");
 const { signToken } = require("./utils/jwt");
 const { safeUserId } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
+const { currentTermInfo, loadConfiguredTerm } = require("./timetable/calendar");
+const { syncTimetableForUser } = require("./timetable/sync");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
@@ -262,6 +264,128 @@ app.post("/check", auth, async (req, res) => {
   const r = req.userId ? await runCycleForUser(req.userId) : await runCycle();
   if (r.success) res.json({ checked: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, changeCount: r.changeCount || 0, error: null, cookieStatus: r.cookieStatus || "cookie_valid" });
   else res.json({ checked: false, gradesCount: 0, added: [], changed: [], changeCount: 0, error: r.error, message: r.message, cookieStatus: r.cookieStatus || r.error || "query_error" });
+});
+
+function timetableAppliesToWeek(item, weekNumber) {
+  const start = Number(item.weekStart || 1);
+  const end = Number(item.weekEnd || start);
+  if (weekNumber < start || weekNumber > end) return false;
+  if (item.weekType === "ODD") return weekNumber % 2 === 1;
+  if (item.weekType === "EVEN") return weekNumber % 2 === 0;
+  return true;
+}
+
+function compactTimetableItem(item) {
+  return {
+    id: item.id,
+    weekday: item.weekday,
+    section: item.section,
+    courseName: item.courseName,
+    teacherName: item.teacherName || "",
+    classroomRaw: item.classroomRaw || "",
+    building: item.building || "",
+    room: item.room || "",
+    displayRoom: [item.building, item.room].filter(Boolean).join("") || item.classroomRaw || "",
+    weeksRaw: item.weeksRaw || "",
+    weekStart: item.weekStart,
+    weekEnd: item.weekEnd,
+    weekType: item.weekType || "ALL",
+    updatedAt: item.updatedAt
+  };
+}
+
+function fillDaySections(rows) {
+  const bySection = {};
+  rows.forEach(item => {
+    const section = Number(item.section);
+    if (!bySection[section]) bySection[section] = [];
+    bySection[section].push(compactTimetableItem(item));
+  });
+  return [1, 2, 3, 4].map(section => ({
+    section,
+    title: "第" + section + "大节",
+    courses: bySection[section] || []
+  }));
+}
+
+function termRowsForRequest(req) {
+  const term = loadConfiguredTerm();
+  const rows = requestStorage(req).getTimetable(term.termYear, term.termSemester);
+  return { term, rows };
+}
+
+// GET /timetable/config
+app.get("/timetable/config", auth, (req, res) => {
+  if (!ensureValidScope(req, res)) return;
+  const info = currentTermInfo();
+  const activeStorage = requestStorage(req);
+  const cachedRows = activeStorage.getTimetable(info.termYear, info.termSemester);
+  res.json({
+    success: true,
+    ...info,
+    hasTimetable: cachedRows.length > 0,
+    timetableCount: cachedRows.length
+  });
+});
+
+// GET /timetable/today
+app.get("/timetable/today", auth, (req, res) => {
+  if (!ensureValidScope(req, res)) return;
+  const info = currentTermInfo();
+  const { rows } = termRowsForRequest(req);
+  const todayRows = rows
+    .filter(item => Number(item.weekday) === Number(info.weekday))
+    .filter(item => timetableAppliesToWeek(item, info.weekNumber))
+    .sort((a, b) => Number(a.section) - Number(b.section));
+
+  res.json({
+    success: true,
+    ...info,
+    hasTimetable: rows.length > 0,
+    sections: fillDaySections(todayRows)
+  });
+});
+
+// GET /timetable/week
+app.get("/timetable/week", auth, (req, res) => {
+  if (!ensureValidScope(req, res)) return;
+  const info = currentTermInfo();
+  const { rows } = termRowsForRequest(req);
+  const filtered = rows
+    .filter(item => timetableAppliesToWeek(item, info.weekNumber))
+    .sort((a, b) => Number(a.weekday) - Number(b.weekday) || Number(a.section) - Number(b.section));
+
+  const days = [1, 2, 3, 4, 5, 6, 7].map(weekday => ({
+    weekday,
+    sections: fillDaySections(filtered.filter(item => Number(item.weekday) === weekday))
+  }));
+
+  res.json({
+    success: true,
+    ...info,
+    hasTimetable: rows.length > 0,
+    days
+  });
+});
+
+// POST /timetable/sync
+app.post("/timetable/sync", auth, async (req, res) => {
+  if (!ensureValidScope(req, res)) return;
+  try {
+    console.log("[timetable] sync start user=" + req.userId);
+    const result = await syncTimetableForUser(req.userId, requestStorage(req), {
+      term: loadConfiguredTerm()
+    });
+    console.log("[timetable] sync success count=" + result.count);
+    res.json(result);
+  } catch (err) {
+    console.log("[timetable] sync failed " + (err && err.message));
+    res.status(err && err.code === "LOGIN_REQUIRED" ? 400 : 500).json({
+      success: false,
+      error: err && err.code ? err.code : "TIMETABLE_SYNC_FAILED",
+      message: err && err.message ? err.message : "课表同步失败"
+    });
+  }
 });
 
 // POST /bind-account

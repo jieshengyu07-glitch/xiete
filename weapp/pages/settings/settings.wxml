@@ -13,6 +13,10 @@
       <text class="label">登录状态</text>
       <text class="value">{{loginStatus}}</text>
     </view>
+    <view wx:if="{{connectionError}}" class="diagnostic">
+      <view class="diagnostic-title">连接诊断</view>
+      <view class="diagnostic-text">{{connectionError}}</view>
+    </view>
   </view>
 
   <view class="card">

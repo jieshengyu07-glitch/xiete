@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/index/index",
+    "pages/timetable/timetable",
     "pages/grades/grades",
     "pages/settings/settings"
   ],
@@ -18,6 +19,7 @@
     "borderStyle": "white",
     "list": [
       { "pagePath": "pages/index/index", "text": "首页" },
+      { "pagePath": "pages/timetable/timetable", "text": "课表" },
       { "pagePath": "pages/grades/grades", "text": "成绩" },
       { "pagePath": "pages/settings/settings", "text": "设置" }
     ]

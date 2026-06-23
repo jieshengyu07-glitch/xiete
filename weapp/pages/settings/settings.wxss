@@ -8,6 +8,28 @@
   line-height: 1.6;
 }
 
+.diagnostic {
+  margin-top: 18rpx;
+  padding: 18rpx 20rpx;
+  border: 1rpx solid #fed7aa;
+  border-radius: 14rpx;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 24rpx;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.diagnostic-title {
+  margin-bottom: 6rpx;
+  color: #7c2d12;
+  font-weight: 600;
+}
+
+.diagnostic-text {
+  color: #9a3412;
+}
+
 .input {
   box-sizing: border-box;
   width: 100%;

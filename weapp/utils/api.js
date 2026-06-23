@@ -49,7 +49,15 @@ function normalizeError(res) {
   return {
     statusCode: res.statusCode,
     data: res.data,
-    message: res.data && res.data.message
+    error: res.data && res.data.error,
+    message: (res.data && (res.data.message || res.data.error)) || ("HTTP " + res.statusCode)
+  };
+}
+
+function normalizeFailError(err) {
+  return {
+    errMsg: err && err.errMsg,
+    message: (err && (err.message || err.errMsg)) || "request failed"
   };
 }
 
@@ -87,7 +95,7 @@ function send(path, method, data, options, retried) {
 
         resolve(res.data);
       },
-      fail: err => reject(err)
+      fail: err => reject(normalizeFailError(err))
     });
   }));
 }
