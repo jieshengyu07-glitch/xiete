@@ -12,6 +12,11 @@ const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
+
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", version: "1.0.0" });
+});
+
 app.use(express.json({ limit: "1mb" }));
 app.use(optionalAuth);
 
@@ -109,10 +114,6 @@ const scheduler = new Scheduler(async () => {
   else console.log("[bg] " + (r.error || r.message));
 });
 scheduler.start();
-
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", version: "1.0.0" });
-});
 
 // GET /status
 function buildUnevaluatedCourses(activeStorage) {
