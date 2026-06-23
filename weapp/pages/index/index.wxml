@@ -4,7 +4,7 @@
   </view>
 
   <view class="card" wx:elif="{{error}}">
-    <view class="card-title">连接异常</view>
+    <view class="card-title">{{errorTitle || '连接异常'}}</view>
     <view class="row">
       <text class="label">{{error}}</text>
     </view>
@@ -27,6 +27,7 @@
 
     <view class="card">
       <view class="card-title">服务状态</view>
+      <view wx:if="{{statusMessage}}" class="tips">{{statusMessage}}</view>
       <view class="status-grid">
         <view class="status-cell">
           <view class="status-label">服务</view>
@@ -37,7 +38,7 @@
         <view class="status-cell">
           <view class="status-label">Cookie</view>
           <view class="status-value">
-            <text class="status-dot {{status.cookieValid || status.cookieStatus==='account_saved'?'status-ok':'status-err'}}"></text>{{status.cookieValid?'有效':(status.cookieStatus==='account_saved'?'已保存':'需登录')}}
+            <text class="status-dot {{status.cookieValid || status.cookieStatus==='account_saved' || status.cookieStatus==='pending_verify'?'status-ok':'status-err'}}"></text>{{status.cookieValid?'有效':(status.cookieStatus==='account_saved' || status.cookieStatus==='pending_verify'?'已保存':(status.cookieStatus==='jwxt_unavailable'?'暂不可用':'需绑定'))}}
           </view>
         </view>
         <view class="status-cell wide">

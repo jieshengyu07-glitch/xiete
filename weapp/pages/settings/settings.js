@@ -1,6 +1,20 @@
 const api = require("../../utils/api");
 const app = getApp();
 
+function isLoginStateError(err) {
+  return Boolean(err && (
+    err.statusCode === 401 ||
+    err.error === "INVALID_TOKEN" ||
+    err.code === "INVALID_TOKEN" ||
+    err.code === "LOGIN_STATE_INVALID"
+  ));
+}
+
+function isTimeoutError(err) {
+  const message = String((err && (err.message || err.errMsg)) || "").toLowerCase();
+  return message.includes("timeout") || message.includes("timed out");
+}
+
 Page({
   data: {
     apiAddr: app.globalData.apiBase,
@@ -19,7 +33,7 @@ Page({
     this.setData({ password: e.detail.value });
   },
 
-  bindAccount() {
+  async bindAccount() {
     const studentId = String(this.data.studentId || "").trim();
     const password = String(this.data.password || "");
 
@@ -31,19 +45,30 @@ Page({
     this.setData({ binding: true });
     wx.showLoading({ title: "绑定中..." });
 
-    api.post("/bind-account", { studentId, password }, { timeout: 120000 }).then(data => {
+    try {
+      const data = await api.post("/bind-account", { studentId, password }, { timeout: 120000 });
       wx.hideLoading();
-      if (data && data.success) {
+
+      if (isLoginStateError(data)) {
+        this.setData({ binding: false });
+        wx.showToast({ title: "登录状态异常，请重新打开小程序", icon: "none" });
+        return;
+      }
+
+      if (data && data.success === true && data.bound === true && data.verified === false) {
         this.setData({ password: "", binding: false });
-        if (data.verified === false && data.reason === "jwxt_unavailable") {
-          wx.showToast({ title: "账号已保存", icon: "success" });
-          wx.showModal({
-            title: "账号已保存",
-            content: "账号已保存，教务系统暂时不可用，稍后可在首页点击检查成绩",
-            showCancel: false
-          });
-          return;
-        }
+        wx.showModal({
+          title: "账号已保存",
+          content: data.reason === "jwxt_unavailable" ?
+            "教务系统暂时不可用，稍后可在首页点击检查成绩。" :
+            "账号已保存，稍后可在首页点击检查成绩。",
+          showCancel: false
+        });
+        return;
+      }
+
+      if (data && data.success === true && data.bound === true && data.verified === true) {
+        this.setData({ password: "", binding: false });
         wx.showToast({ title: "绑定成功", icon: "success" });
         wx.showModal({
           title: "绑定成功",
@@ -52,6 +77,10 @@ Page({
         });
       } else {
         this.setData({ binding: false });
+        if (isLoginStateError(data)) {
+          wx.showToast({ title: "登录状态异常，请重新打开小程序", icon: "none" });
+          return;
+        }
         if (data && data.error === "invalid_credentials") {
           wx.showToast({ title: "账号或密码错误", icon: "none" });
           return;
@@ -62,11 +91,23 @@ Page({
         }
         wx.showToast({ title: (data && data.message) || "绑定失败", icon: "none" });
       }
-    }).catch(() => {
+    } catch (err) {
       wx.hideLoading();
       this.setData({ binding: false });
-      wx.showToast({ title: "教务系统不可用", icon: "none" });
-    });
+      if (isLoginStateError(err)) {
+        wx.showToast({ title: "登录状态异常，请重新打开小程序", icon: "none" });
+        return;
+      }
+      if (isTimeoutError(err)) {
+        wx.showModal({
+          title: "绑定超时",
+          content: "教务系统响应较慢，请稍后重试。",
+          showCancel: false
+        });
+        return;
+      }
+      wx.showToast({ title: "绑定失败", icon: "none" });
+    }
   },
 
   unbindAccount() {

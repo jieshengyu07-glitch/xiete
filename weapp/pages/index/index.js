@@ -5,7 +5,9 @@ Page({
     status: null,
     gradeChanges: [],
     loading: true,
-    error: null
+    error: null,
+    errorTitle: "",
+    statusMessage: ""
   },
 
   onShow() {
@@ -50,32 +52,66 @@ Page({
     };
   },
 
-  loadStatus() {
-    this.setData({ loading: true, error: null });
-    return Promise.all([
-      api.request("/status"),
-      api.request("/grade-changes")
-    ]).then(([status, changesData]) => {
+  isLoginStateError(e) {
+    return Boolean(e && (
+      e.statusCode === 401 ||
+      e.error === "INVALID_TOKEN" ||
+      e.code === "INVALID_TOKEN" ||
+      e.code === "LOGIN_STATE_INVALID"
+    ));
+  },
+
+  isNetworkError(e) {
+    const text = String((e && (e.errMsg || e.message)) || "").toLowerCase();
+    return text.includes("request:fail") ||
+      text.includes("timeout") ||
+      text.includes("timed out") ||
+      text.includes("network") ||
+      text.includes("无法连接");
+  },
+
+  statusMessage(cookieStatus) {
+    if (cookieStatus === "login_required") return "请先绑定教务账号";
+    if (cookieStatus === "account_saved" || cookieStatus === "pending_verify") return "账号已保存，请点击立即检查成绩";
+    if (cookieStatus === "jwxt_unavailable") return "教务系统暂时不可用，请稍后再试";
+    return "";
+  },
+
+  async loadStatus() {
+    this.setData({ loading: true, error: null, errorTitle: "", statusMessage: "" });
+    try {
+      const status = await api.request("/status");
+      let changesData = { changes: [] };
+      try {
+        changesData = await api.request("/grade-changes");
+      } catch (changesErr) {
+        if (this.isLoginStateError(changesErr)) throw changesErr;
+      }
+
       status.lastCheckAtFormatted = this.formatTime(status.lastCheckAt);
       const changes = (changesData.changes || []).map(change => this.formatChange(change));
       this.setData({
         status,
         gradeChanges: changes,
+        statusMessage: this.statusMessage(status.cookieStatus),
         loading: false
       });
-    }).catch(e => {
-      if (e && e.code === "LOGIN_STATE_INVALID") {
+    } catch (e) {
+      if (this.isLoginStateError(e)) {
         this.setData({
+          errorTitle: "登录状态异常",
           error: "登录状态异常，请重新打开小程序",
           loading: false
         });
         return;
       }
+      const networkError = this.isNetworkError(e);
       this.setData({
-        error: "连接失败: " + (e.errMsg || e.message || "无法连接"),
+        errorTitle: networkError ? "连接异常" : "加载失败",
+        error: networkError ? "连接异常" : "加载失败",
         loading: false
       });
-    });
+    }
   },
 
   refresh() {
