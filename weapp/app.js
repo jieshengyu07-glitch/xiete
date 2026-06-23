@@ -14,11 +14,21 @@ function pickToken(data) {
     "";
 }
 
+function requestErrorText(prefix, detail) {
+  const parts = [prefix];
+  if (detail && detail.statusCode) parts.push("HTTP " + detail.statusCode);
+  if (detail && detail.errMsg) parts.push(detail.errMsg);
+  if (detail && detail.data && detail.data.message) parts.push(detail.data.message);
+  if (detail && detail.data && detail.data.error) parts.push(detail.data.error);
+  return parts.filter(Boolean).join(": ");
+}
+
 App({
   globalData: {
     apiBase: API_BASES[API_ENV],
     clientVersion: "0.1.4-jwt",
-    loginPromise: null
+    loginPromise: null,
+    lastLoginError: ""
   },
 
   onLaunch() {
@@ -44,20 +54,24 @@ App({
             success: res => {
               const token = pickToken(res.data || {});
               if (token) {
+                this.globalData.lastLoginError = "";
                 wx.setStorageSync("token", token);
                 resolve(token);
                 return;
               }
+              this.globalData.lastLoginError = requestErrorText("微信登录失败", res);
               wx.removeStorageSync("token");
-              reject(new Error("wechat login failed"));
+              reject(new Error(this.globalData.lastLoginError || "wechat login failed"));
             },
             fail: err => {
+              this.globalData.lastLoginError = requestErrorText("微信登录请求失败", err);
               wx.removeStorageSync("token");
               reject(err);
             }
           });
         },
         fail: err => {
+          this.globalData.lastLoginError = requestErrorText("wx.login 失败", err);
           wx.removeStorageSync("token");
           reject(err);
         }
