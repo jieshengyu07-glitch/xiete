@@ -1,4 +1,5 @@
 const api = require("../../utils/api");
+const { formatJwxtErrorMessage, isCaptchaRequired } = require("../../utils/jwxtError");
 
 function showCaptchaRequired() {
   wx.showModal({
@@ -125,7 +126,7 @@ Page({
           });
         }
       } else {
-        if (d.cookieStatus === "JWXT_CAPTCHA_REQUIRED" || d.error === "JWXT_CAPTCHA_REQUIRED") {
+        if (isCaptchaRequired(d)) {
           showCaptchaRequired();
           this.loadStatus();
           return;
@@ -133,22 +134,22 @@ Page({
         if (d.cookieStatus === "jwxt_unavailable" || d.error === "jwxt_unavailable") {
           wx.showModal({
             title: "检查失败",
-            content: "教务系统暂时不可用，请稍后再试",
+            content: formatJwxtErrorMessage(d, "教务系统暂时不可用，请稍后再试"),
             showCancel: false
           });
           this.loadStatus();
           return;
         }
-        wx.showToast({ title: d.error || "检查失败", icon: "none" });
+        wx.showToast({ title: formatJwxtErrorMessage(d, "检查失败"), icon: "none" });
       }
       this.loadStatus();
     }).catch(e => {
       wx.hideLoading();
-      if (e && e.error === "JWXT_CAPTCHA_REQUIRED") {
+      if (isCaptchaRequired(e)) {
         showCaptchaRequired();
         return;
       }
-      wx.showToast({ title: "请求失败", icon: "none" });
+      wx.showToast({ title: formatJwxtErrorMessage(e, "请求失败"), icon: "none" });
     });
   }
 });

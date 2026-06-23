@@ -1,4 +1,5 @@
 const api = require("../../utils/api");
+const { formatJwxtErrorMessage } = require("../../utils/jwxtError");
 
 Page({
   data: {
@@ -57,7 +58,7 @@ Page({
       });
     }).catch(e => {
       this.setData({
-        error: "连接失败: " + (e.errMsg || e.message),
+        error: formatJwxtErrorMessage(e, "成绩加载失败"),
         loading: false
       });
     });
