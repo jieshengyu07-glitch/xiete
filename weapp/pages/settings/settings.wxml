@@ -21,16 +21,16 @@
 
   <view class="card">
     <view class="card-title">绑定教务账号</view>
-    <view class="hint">密码只提交给后端用于自动刷新 Cookie，小程序不保存密码。</view>
+    <view class="hint">教务账号仅用于查询课表和成绩。遇到验证码时，可在小程序内手动输入验证码完成验证。</view>
     <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
     <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
-    <button class="captcha-btn" loading="{{captchaLoading}}" disabled="{{captchaLoading}}" bindtap="getCaptcha">获取验证码</button>
-    <view wx:if="{{captchaImage}}" class="captcha-panel">
-      <image class="captcha-image" src="{{captchaImage}}" mode="aspectFit" bindtap="getCaptcha" />
+    <view wx:if="{{captchaExpanded}}" class="captcha-panel">
+      <button class="captcha-btn" loading="{{captchaLoading}}" disabled="{{captchaLoading}}" bindtap="getCaptcha">{{captchaImage ? '重新获取验证码' : '获取验证码'}}</button>
+      <image wx:if="{{captchaImage}}" class="captcha-image" src="{{captchaImage}}" mode="aspectFit" bindtap="getCaptcha" />
       <input class="input" placeholder="请输入验证码" value="{{captchaCode}}" bindinput="onCaptchaInput" />
-      <button class="bind-btn" loading="{{captchaBinding}}" disabled="{{captchaBinding}}" bindtap="bindAccountWithCaptcha">绑定教务账号</button>
     </view>
-    <button class="bind-btn" loading="{{binding}}" disabled="{{binding}}" bindtap="bindAccount">绑定</button>
+    <button class="bind-btn" loading="{{binding || captchaBinding}}" disabled="{{binding || captchaBinding}}" bindtap="bindAccount">{{captchaExpanded ? '验证码绑定' : '绑定教务账号'}}</button>
+    <view class="captcha-link" bindtap="toggleCaptcha">{{captchaExpanded ? '暂不使用验证码' : '遇到验证码？点此验证'}}</view>
     <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
   </view>
 
