@@ -1,15 +1,6 @@
 const api = require("../../utils/api");
 const app = getApp();
 
-function isLoginStateError(err) {
-  return Boolean(err && (
-    err.statusCode === 401 ||
-    err.error === "INVALID_TOKEN" ||
-    err.code === "INVALID_TOKEN" ||
-    err.code === "LOGIN_STATE_INVALID"
-  ));
-}
-
 function isTimeoutError(err) {
   const message = String((err && (err.message || err.errMsg)) || "").toLowerCase();
   return message.includes("timeout") || message.includes("timed out");
@@ -18,11 +9,28 @@ function isTimeoutError(err) {
 Page({
   data: {
     apiAddr: app.globalData.apiBase,
-    version: "1.0.0",
+    version: app.globalData.clientVersion || "0.1.4-jwt",
+    clientVersion: app.globalData.clientVersion || "0.1.4-jwt",
+    loginStatus: "未连接",
     studentId: "",
     password: "",
     binding: false,
     unbinding: false
+  },
+
+  onShow() {
+    this.refreshDebugInfo();
+  },
+
+  refreshDebugInfo() {
+    this.setData({
+      apiAddr: app.globalData.apiBase,
+      version: app.globalData.clientVersion || "0.1.4-jwt",
+      clientVersion: app.globalData.clientVersion || "0.1.4-jwt"
+    });
+    api.request("/status")
+      .then(() => this.setData({ loginStatus: "已连接" }))
+      .catch(() => this.setData({ loginStatus: "未连接" }));
   },
 
   onStudentIdInput(e) {
@@ -49,12 +57,6 @@ Page({
       const data = await api.post("/bind-account", { studentId, password }, { timeout: 120000 });
       wx.hideLoading();
 
-      if (isLoginStateError(data)) {
-        this.setData({ binding: false });
-        wx.showToast({ title: "登录状态异常，请重新打开小程序", icon: "none" });
-        return;
-      }
-
       if (data && data.success === true && data.bound === true && data.verified === false) {
         this.setData({ password: "", binding: false });
         wx.showModal({
@@ -77,10 +79,6 @@ Page({
         });
       } else {
         this.setData({ binding: false });
-        if (isLoginStateError(data)) {
-          wx.showToast({ title: "登录状态异常，请重新打开小程序", icon: "none" });
-          return;
-        }
         if (data && data.error === "invalid_credentials") {
           wx.showToast({ title: "账号或密码错误", icon: "none" });
           return;
@@ -94,10 +92,6 @@ Page({
     } catch (err) {
       wx.hideLoading();
       this.setData({ binding: false });
-      if (isLoginStateError(err)) {
-        wx.showToast({ title: "登录状态异常，请重新打开小程序", icon: "none" });
-        return;
-      }
       if (isTimeoutError(err)) {
         wx.showModal({
           title: "绑定超时",

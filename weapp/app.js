@@ -5,15 +5,23 @@ const API_BASES = {
   development: "http://192.168.1.14:3456"
 };
 
+function pickToken(data) {
+  if (!data || typeof data !== "object") return "";
+  return data.token ||
+    (data.data && data.data.token) ||
+    data.accessToken ||
+    data.jwt ||
+    "";
+}
+
 App({
   globalData: {
     apiBase: API_BASES[API_ENV],
-    token: "",
+    clientVersion: "0.1.4-jwt",
     loginPromise: null
   },
 
   onLaunch() {
-    this.globalData.token = wx.getStorageSync("authToken") || "";
     this.loginWithWechat().catch(() => {});
   },
 
@@ -30,27 +38,34 @@ App({
           wx.request({
             url: this.globalData.apiBase + "/auth/wechat-login",
             method: "POST",
+            header: { "Content-Type": "application/json" },
             data: { code: loginRes.code },
             timeout: 10000,
             success: res => {
-              const data = res.data || {};
-              if (data.success && data.token) {
-                this.globalData.token = data.token;
-                wx.setStorageSync("authToken", data.token);
-                resolve(data.token);
+              const token = pickToken(res.data || {});
+              if (token) {
+                wx.setStorageSync("token", token);
+                resolve(token);
                 return;
               }
-              reject(new Error(data.message || data.error || "wechat login failed"));
+              wx.removeStorageSync("token");
+              reject(new Error("wechat login failed"));
             },
-            fail: err => reject(err)
+            fail: err => {
+              wx.removeStorageSync("token");
+              reject(err);
+            }
           });
         },
-        fail: err => reject(err)
+        fail: err => {
+          wx.removeStorageSync("token");
+          reject(err);
+        }
       });
     }).then(
-      token => {
+      value => {
         this.globalData.loginPromise = null;
-        return token;
+        return value;
       },
       err => {
         this.globalData.loginPromise = null;
