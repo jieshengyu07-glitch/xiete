@@ -52,7 +52,7 @@
 }
 
 .captcha-btn {
-  margin-top: 2rpx;
+  margin-top: 0;
   margin-bottom: 18rpx;
   border-radius: 16rpx;
   background: #eaf2ff;
@@ -61,7 +61,7 @@
 }
 
 .captcha-panel {
-  margin-bottom: 20rpx;
+  margin-bottom: 18rpx;
   padding: 20rpx;
   border-radius: 16rpx;
   background: #f6f9ff;
@@ -73,6 +73,13 @@
   margin-bottom: 18rpx;
   border-radius: 10rpx;
   background: #ffffff;
+}
+
+.captcha-link {
+  padding: 22rpx 0 8rpx;
+  color: #1677ff;
+  font-size: 25rpx;
+  text-align: center;
 }
 
 .unbind-btn {
