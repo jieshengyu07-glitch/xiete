@@ -3,7 +3,7 @@
     <view class="loading">加载中...</view>
   </view>
 
-  <view class="card" wx:elif="{{error}}">
+  <view class="card" wx:elif="{{error && grades.length===0}}">
     <view class="card-title">连接异常</view>
     <view class="row">
       <text class="label">{{error}}</text>
@@ -11,6 +11,10 @@
   </view>
 
   <block wx:else>
+    <view wx:if="{{error}}" class="card">
+      <view class="tips">{{error}}</view>
+    </view>
+
     <view class="summary-card">
       <view>
         <view class="summary-title">成绩列表</view>

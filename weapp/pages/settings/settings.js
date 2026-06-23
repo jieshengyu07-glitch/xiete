@@ -1,5 +1,6 @@
 const api = require("../../utils/api");
 const app = getApp();
+const { formatJwxtErrorMessage, isCaptchaRequired, isInvalidCredentials } = require("../../utils/jwxtError");
 
 function isTimeoutError(err) {
   const message = String((err && (err.message || err.errMsg)) || "").toLowerCase();
@@ -16,6 +17,16 @@ function errorText(err) {
   return "";
 }
 
+function statusFromApi(status) {
+  const cookieStatus = status && status.cookieStatus;
+  if (cookieStatus === "JWXT_CAPTCHA_REQUIRED") return { text: "需要验证码", tone: "warn" };
+  if (cookieStatus === "cookie_valid" || cookieStatus === "account_saved" || cookieStatus === "pending_verify") {
+    return { text: "已绑定", tone: "ok" };
+  }
+  if (cookieStatus === "login_required") return { text: "未绑定", tone: "muted" };
+  return { text: "未绑定", tone: "muted" };
+}
+
 Page({
   data: {
     apiAddr: app.globalData.apiBase,
@@ -23,6 +34,9 @@ Page({
     clientVersion: app.globalData.clientVersion || "0.1.4-jwt",
     loginStatus: "未连接",
     connectionError: "",
+    jwxtStatusText: "未绑定",
+    jwxtStatusTone: "muted",
+    debugExpanded: false,
     studentId: "",
     password: "",
     captchaSessionId: "",
@@ -46,11 +60,25 @@ Page({
       clientVersion: app.globalData.clientVersion || "0.1.4-jwt"
     });
     api.request("/status")
-      .then(() => this.setData({ loginStatus: "已连接", connectionError: "" }))
+      .then(status => {
+        const jwxt = statusFromApi(status || {});
+        this.setData({
+          loginStatus: "已连接",
+          connectionError: "",
+          jwxtStatusText: jwxt.text,
+          jwxtStatusTone: jwxt.tone
+        });
+      })
       .catch(err => this.setData({
         loginStatus: "未连接",
-        connectionError: errorText(err) || app.globalData.lastLoginError || "无法连接 API"
+        jwxtStatusText: "登录失败",
+        jwxtStatusTone: "err",
+        connectionError: formatJwxtErrorMessage(err, app.globalData.lastLoginError || "无法连接 API")
       }));
+  },
+
+  toggleDebug() {
+    this.setData({ debugExpanded: !this.data.debugExpanded });
   },
 
   onStudentIdInput(e) {
@@ -66,7 +94,7 @@ Page({
   },
 
   expandCaptcha(message) {
-    this.setData({ captchaExpanded: true });
+    this.setData({ captchaExpanded: true, jwxtStatusText: "需要验证码", jwxtStatusTone: "warn" });
     if (message) {
       wx.showModal({
         title: "需要验证码",
@@ -103,7 +131,7 @@ Page({
       this.setData({ captchaLoading: false });
       wx.showModal({
         title: "获取验证码失败",
-        content: errorText(err) || "请稍后再试",
+        content: formatJwxtErrorMessage(err, "请稍后再试"),
         showCancel: false
       });
     }
@@ -141,7 +169,9 @@ Page({
         captchaCode: "",
         captchaSessionId: "",
         captchaImage: "",
-        captchaExpanded: false
+        captchaExpanded: false,
+        jwxtStatusText: "已绑定",
+        jwxtStatusTone: "ok"
       });
       wx.showModal({
         title: "绑定成功",
@@ -153,7 +183,7 @@ Page({
       this.setData({ captchaBinding: false });
       wx.showModal({
         title: "验证失败",
-        content: errorText(err) || "请重新获取验证码后再试",
+        content: formatJwxtErrorMessage(err, "请重新获取验证码后再试"),
         showCancel: false
       });
     }
@@ -181,56 +211,54 @@ Page({
       wx.hideLoading();
 
       if (data && data.success === true && data.bound === true && data.verified === false) {
-        this.setData({ password: "", binding: false });
+        this.setData({ password: "", binding: false, jwxtStatusText: "已绑定", jwxtStatusTone: "ok" });
         wx.showModal({
           title: "账号已保存",
-          content: data.reason === "jwxt_unavailable" ?
-            "教务系统暂时不可用，稍后可在首页点击检查成绩。" :
-            "账号已保存，稍后可在首页点击检查成绩。",
+          content: "账号已保存，稍后可在首页检查成绩或刷新课表。",
           showCancel: false
         });
         return;
       }
 
       if (data && data.success === true && data.bound === true && data.verified === true) {
-        this.setData({ password: "", binding: false });
+        this.setData({ password: "", binding: false, jwxtStatusText: "已绑定", jwxtStatusTone: "ok" });
         wx.showToast({ title: "绑定成功", icon: "success" });
         wx.showModal({
           title: "绑定成功",
-          content: "绑定成功，之后可自动查成绩。请回首页点击“立即检查成绩”。",
+          content: "教务账号绑定成功，可用于查询课表和成绩。",
           showCancel: false
         });
       } else {
         this.setData({ binding: false });
-        if (data && data.error === "invalid_credentials") {
-          wx.showToast({ title: "账号或密码错误", icon: "none" });
+        if (isInvalidCredentials(data)) {
+          wx.showToast({ title: "学号或教务密码错误，请检查后重试", icon: "none" });
           return;
         }
-        if (data && (data.error === "captcha_required" || data.error === "JWXT_CAPTCHA_REQUIRED")) {
-          this.expandCaptcha("教务系统需要验证码，请输入下方验证码完成绑定。");
+        if (isCaptchaRequired(data) || String((data && data.message) || "").includes("验证码")) {
+          this.expandCaptcha("教务系统需要验证码，请输入验证码完成绑定。");
           return;
         }
-        wx.showToast({ title: (data && data.message) || "绑定失败", icon: "none" });
+        wx.showToast({ title: formatJwxtErrorMessage(data, "绑定失败"), icon: "none" });
       }
     } catch (err) {
       wx.hideLoading();
       this.setData({ binding: false });
       const text = errorText(err);
-      if ((err && err.error === "JWXT_CAPTCHA_REQUIRED") || text.includes("验证码")) {
-        this.expandCaptcha("教务系统需要验证码，请输入下方验证码完成绑定。");
+      if (isCaptchaRequired(err) || text.includes("验证码")) {
+        this.expandCaptcha("教务系统需要验证码，请输入验证码完成绑定。");
         return;
       }
       if (isTimeoutError(err)) {
         wx.showModal({
           title: "绑定超时",
-          content: "教务系统响应较慢，请稍后重试。",
+          content: "教务系统暂时不可用，请稍后再试",
           showCancel: false
         });
         return;
       }
       wx.showModal({
         title: "绑定失败",
-        content: errorText(err) || app.globalData.lastLoginError || "请检查 API 域名、微信登录配置和后端日志。",
+        content: formatJwxtErrorMessage(err, app.globalData.lastLoginError || "请稍后再试"),
         showCancel: false
       });
     }
@@ -257,6 +285,7 @@ Page({
       wx.hideLoading();
       this.setData({ unbinding: false, password: "" });
       if (data && data.success) {
+        this.setData({ jwxtStatusText: "未绑定", jwxtStatusTone: "muted" });
         wx.showToast({ title: "已解除绑定", icon: "success" });
       } else {
         wx.showToast({ title: "解除失败", icon: "none" });

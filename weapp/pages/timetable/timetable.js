@@ -1,4 +1,5 @@
 const api = require("../../utils/api");
+const { formatJwxtErrorMessage, isCaptchaRequired, isLoginRequired } = require("../../utils/jwxtError");
 
 const WEEKDAY_NAMES = ["", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
 
@@ -84,14 +85,14 @@ Page({
       this.setData({ syncing: false });
 
       if (result && result.success === false) {
-        if (result.error === "JWXT_CAPTCHA_REQUIRED") {
+        if (isCaptchaRequired(result)) {
           showCaptchaRequired();
           await this.loadToday();
           return;
         }
         wx.showModal({
           title: "刷新失败",
-          content: result.message || "课表同步失败",
+          content: formatJwxtErrorMessage(result, "课表同步失败"),
           showCancel: false
         });
         await this.loadToday();
@@ -111,15 +112,23 @@ Page({
       wx.hideLoading();
       this.setData({
         syncing: false,
-        error: (err && (err.message || err.errMsg)) || "课表刷新失败"
+        error: formatJwxtErrorMessage(err, "课表刷新失败")
       });
-      if (err && err.error === "JWXT_CAPTCHA_REQUIRED") {
+      if (isCaptchaRequired(err)) {
         showCaptchaRequired();
+        return;
+      }
+      if (isLoginRequired(err)) {
+        wx.showModal({
+          title: "请先绑定",
+          content: "请先绑定教务账号",
+          showCancel: false
+        });
         return;
       }
       wx.showModal({
         title: "刷新失败",
-        content: (err && (err.message || err.errMsg)) || "请先确认已绑定教务账号，并稍后再试。",
+        content: formatJwxtErrorMessage(err, "请先确认已绑定教务账号，并稍后再试。"),
         showCancel: false
       });
     }
