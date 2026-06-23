@@ -27,14 +27,16 @@ function defaultTermConfig(today) {
     return {
       termYear: String(year),
       termSemester: "3",
-      semesterStartDate: firstMonday(year, 8)
+      semesterStartDate: firstMonday(year, 8),
+      teachingWeekStartDate: ""
     };
   }
 
   return {
     termYear: String(year - 1),
     termSemester: "12",
-    semesterStartDate: process.env.SEMESTER_START_DATE || (year === 2026 ? "2026-02-24" : firstMonday(year, 1))
+    semesterStartDate: process.env.SEMESTER_START_DATE || (year === 2026 ? "2026-02-24" : firstMonday(year, 1)),
+    teachingWeekStartDate: process.env.TEACHING_WEEK_START_DATE || ""
   };
 }
 
@@ -52,7 +54,8 @@ function loadConfiguredTerm() {
   return {
     termYear: String(process.env.TIMETABLE_TERM_YEAR || fileConfig.termYear || fallback.termYear),
     termSemester: String(process.env.TIMETABLE_TERM_SEMESTER || fileConfig.termSemester || fallback.termSemester),
-    semesterStartDate: String(process.env.SEMESTER_START_DATE || fileConfig.semesterStartDate || fallback.semesterStartDate)
+    semesterStartDate: String(process.env.SEMESTER_START_DATE || fileConfig.semesterStartDate || fallback.semesterStartDate || ""),
+    teachingWeekStartDate: String(process.env.TEACHING_WEEK_START_DATE || fileConfig.teachingWeekStartDate || fallback.teachingWeekStartDate || "")
   };
 }
 
@@ -72,19 +75,28 @@ function startOfChinaDay(value) {
 }
 
 function teachingWeekInfo(termConfig, date) {
+  if (!termConfig || !parseDateOnly(termConfig.teachingWeekStartDate)) {
+    const err = new Error("teachingWeekStartDate is required in data/term_config.json");
+    err.code = "TERM_CONFIG_INVALID";
+    throw err;
+  }
+
   const today = startOfChinaDay(date);
-  const start = startOfChinaDay(termConfig.semesterStartDate);
+  const start = startOfChinaDay(termConfig.teachingWeekStartDate);
   const diffDays = Math.floor((today.getTime() - start.getTime()) / 86400000);
   const weekNumber = Math.max(1, Math.floor(diffDays / 7) + 1);
   const weekday = today.getDay() === 0 ? 7 : today.getDay();
+  const weekType = weekNumber % 2 === 1 ? "ODD" : "EVEN";
   return {
     termYear: String(termConfig.termYear),
     termSemester: String(termConfig.termSemester),
     semesterStartDate: termConfig.semesterStartDate,
-    currentTeachingWeek: weekNumber,
+    teachingWeekStartDate: termConfig.teachingWeekStartDate,
     weekNumber,
-    weekType: weekNumber % 2 === 1 ? "ODD" : "EVEN",
-    weekTypeName: weekNumber % 2 === 1 ? "单周" : "双周",
+    currentTeachingWeek: weekNumber,
+    weekType,
+    weekTypeText: weekType === "ODD" ? "单周" : "双周",
+    weekTypeName: weekType === "ODD" ? "单周" : "双周",
     weekday,
     date: dateOnly(today)
   };

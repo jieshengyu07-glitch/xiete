@@ -314,24 +314,82 @@ function termRowsForRequest(req) {
   return { term, rows };
 }
 
+function dateParam(req) {
+  const value = req.query && req.query.date ? String(req.query.date).trim() : "";
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  const date = new Date(y, m - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return false;
+  return value;
+}
+
+function timetableDebug(info, totalCached, matchedCount) {
+  return {
+    date: info.date,
+    weekday: info.weekday,
+    weekNumber: info.weekNumber,
+    weekType: info.weekType,
+    totalCached,
+    matchedCount
+  };
+}
+
+function sendTermConfigError(res, err) {
+  if (err && err.code === "TERM_CONFIG_INVALID") {
+    res.status(500).json({
+      success: false,
+      error: "TERM_CONFIG_INVALID",
+      message: err.message
+    });
+    return true;
+  }
+  return false;
+}
+
 // GET /timetable/config
 app.get("/timetable/config", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
-  const info = currentTermInfo();
-  const activeStorage = requestStorage(req);
-  const cachedRows = activeStorage.getTimetable(info.termYear, info.termSemester);
-  res.json({
-    success: true,
-    ...info,
-    hasTimetable: cachedRows.length > 0,
-    timetableCount: cachedRows.length
-  });
+  try {
+    const info = currentTermInfo();
+    const activeStorage = requestStorage(req);
+    const cachedRows = activeStorage.getTimetable(info.termYear, info.termSemester);
+    res.json({
+      success: true,
+      termYear: info.termYear,
+      termSemester: info.termSemester,
+      date: info.date,
+      weekday: info.weekday,
+      teachingWeekStartDate: info.teachingWeekStartDate,
+      weekNumber: info.weekNumber,
+      weekType: info.weekType,
+      weekTypeText: info.weekTypeText,
+      hasTimetable: cachedRows.length > 0,
+      timetableCount: cachedRows.length
+    });
+  } catch (err) {
+    if (sendTermConfigError(res, err)) return;
+    res.status(500).json({ success: false, error: "TIMETABLE_CONFIG_FAILED", message: err.message });
+  }
 });
 
 // GET /timetable/today
 app.get("/timetable/today", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
-  const info = currentTermInfo();
+  const requestedDate = dateParam(req);
+  if (requestedDate === false) {
+    return res.status(400).json({ success: false, error: "INVALID_DATE", message: "date must be YYYY-MM-DD" });
+  }
+  let info;
+  try {
+    info = currentTermInfo(requestedDate || undefined);
+  } catch (err) {
+    if (sendTermConfigError(res, err)) return;
+    return res.status(500).json({ success: false, error: "TIMETABLE_TODAY_FAILED", message: err.message });
+  }
   const { rows } = termRowsForRequest(req);
   const todayRows = rows
     .filter(item => Number(item.weekday) === Number(info.weekday))
@@ -342,6 +400,7 @@ app.get("/timetable/today", auth, (req, res) => {
     success: true,
     ...info,
     hasTimetable: rows.length > 0,
+    debug: timetableDebug(info, rows.length, todayRows.length),
     sections: fillDaySections(todayRows)
   });
 });
@@ -349,7 +408,17 @@ app.get("/timetable/today", auth, (req, res) => {
 // GET /timetable/week
 app.get("/timetable/week", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
-  const info = currentTermInfo();
+  const requestedDate = dateParam(req);
+  if (requestedDate === false) {
+    return res.status(400).json({ success: false, error: "INVALID_DATE", message: "date must be YYYY-MM-DD" });
+  }
+  let info;
+  try {
+    info = currentTermInfo(requestedDate || undefined);
+  } catch (err) {
+    if (sendTermConfigError(res, err)) return;
+    return res.status(500).json({ success: false, error: "TIMETABLE_WEEK_FAILED", message: err.message });
+  }
   const { rows } = termRowsForRequest(req);
   const filtered = rows
     .filter(item => timetableAppliesToWeek(item, info.weekNumber))
@@ -364,6 +433,7 @@ app.get("/timetable/week", auth, (req, res) => {
     success: true,
     ...info,
     hasTimetable: rows.length > 0,
+    debug: timetableDebug(info, rows.length, filtered.length),
     days
   });
 });
@@ -376,7 +446,11 @@ app.post("/timetable/sync", auth, async (req, res) => {
     const result = await syncTimetableForUser(req.userId, requestStorage(req), {
       term: loadConfiguredTerm()
     });
-    console.log("[timetable] sync success count=" + result.count);
+    if (result && result.success === false) {
+      console.log("[timetable] sync empty rawCount=" + result.rawCount);
+      return res.json(result);
+    }
+    console.log("[timetable] sync success syncedCount=" + result.syncedCount);
     res.json(result);
   } catch (err) {
     console.log("[timetable] sync failed " + (err && err.message));
