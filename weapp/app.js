@@ -8,32 +8,56 @@ const API_BASES = {
 App({
   globalData: {
     apiBase: API_BASES[API_ENV],
-    token: ""
+    token: "",
+    loginPromise: null
   },
 
   onLaunch() {
     this.globalData.token = wx.getStorageSync("authToken") || "";
-    this.loginWithWechat();
+    this.loginWithWechat().catch(() => {});
   },
 
-  loginWithWechat() {
-    wx.login({
-      success: loginRes => {
-        if (!loginRes.code) return;
-        wx.request({
-          url: this.globalData.apiBase + "/auth/wechat-login",
-          method: "POST",
-          data: { code: loginRes.code },
-          timeout: 10000,
-          success: res => {
-            const data = res.data || {};
-            if (data.success && data.token) {
-              this.globalData.token = data.token;
-              wx.setStorageSync("authToken", data.token);
-            }
+  loginWithWechat(force) {
+    if (!force && this.globalData.loginPromise) return this.globalData.loginPromise;
+
+    this.globalData.loginPromise = new Promise((resolve, reject) => {
+      wx.login({
+        success: loginRes => {
+          if (!loginRes.code) {
+            reject(new Error("wx.login did not return code"));
+            return;
           }
-        });
+          wx.request({
+            url: this.globalData.apiBase + "/auth/wechat-login",
+            method: "POST",
+            data: { code: loginRes.code },
+            timeout: 10000,
+            success: res => {
+              const data = res.data || {};
+              if (data.success && data.token) {
+                this.globalData.token = data.token;
+                wx.setStorageSync("authToken", data.token);
+                resolve(data.token);
+                return;
+              }
+              reject(new Error(data.message || data.error || "wechat login failed"));
+            },
+            fail: err => reject(err)
+          });
+        },
+        fail: err => reject(err)
+      });
+    }).then(
+      token => {
+        this.globalData.loginPromise = null;
+        return token;
+      },
+      err => {
+        this.globalData.loginPromise = null;
+        throw err;
       }
-    });
+    );
+
+    return this.globalData.loginPromise;
   }
 });

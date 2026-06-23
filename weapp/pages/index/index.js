@@ -64,6 +64,13 @@ Page({
         loading: false
       });
     }).catch(e => {
+      if (e && e.code === "LOGIN_STATE_INVALID") {
+        this.setData({
+          error: "登录状态异常，请重新打开小程序",
+          loading: false
+        });
+        return;
+      }
       this.setData({
         error: "连接失败: " + (e.errMsg || e.message || "无法连接"),
         loading: false
@@ -101,8 +108,12 @@ Page({
         wx.showToast({ title: d.error || "检查失败", icon: "none" });
       }
       this.loadStatus();
-    }).catch(() => {
+    }).catch(e => {
       wx.hideLoading();
+      if (e && e.code === "LOGIN_STATE_INVALID") {
+        wx.showToast({ title: "登录状态异常，请重新打开小程序", icon: "none" });
+        return;
+      }
       wx.showToast({ title: "请求失败", icon: "none" });
     });
   }
