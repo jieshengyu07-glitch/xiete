@@ -8,6 +8,8 @@ data/*dump*
 data/*trace*
 logs/
 reports/
+.codex-remote-attachments/
+body.json
 .env
 *.log
 *.cookie

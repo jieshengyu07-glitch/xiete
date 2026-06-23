@@ -36,11 +36,19 @@ async function ensureCookies(userId) {
     throw err;
   }
 
-  const login = await httpJwxtLogin(credentials.studentId, credentials.password);
+  let login;
+  try {
+    login = await httpJwxtLogin(credentials.studentId, credentials.password);
+  } catch (cause) {
+    const err = new Error(cause && cause.message ? cause.message : "教务系统登录失败");
+    err.code = "JWXT_LOGIN_FAILED";
+    throw err;
+  }
+
   cookies = selectJwxtCookies(login.cookies);
   if (!cookieHeader(cookies)) {
-    const err = new Error("未获取到有效教务系统 Cookie");
-    err.code = "COOKIE_REFRESH_FAILED";
+    const err = new Error("教务系统登录失败，未获取到有效 Cookie");
+    err.code = "JWXT_LOGIN_FAILED";
     throw err;
   }
   writeCookies(cookies, userId);
@@ -270,7 +278,14 @@ async function syncTimetableForUser(userId, storage, options) {
     if (err.code !== "COOKIE_EXPIRED") throw err;
     const credentials = credentialStore.getJwxtCredentials(userId);
     if (!credentials) throw err;
-    const login = await httpJwxtLogin(credentials.studentId, credentials.password);
+    let login;
+    try {
+      login = await httpJwxtLogin(credentials.studentId, credentials.password);
+    } catch (cause) {
+      const nextErr = new Error(cause && cause.message ? cause.message : "教务系统登录失败");
+      nextErr.code = "JWXT_LOGIN_FAILED";
+      throw nextErr;
+    }
     cookies = selectJwxtCookies(login.cookies);
     writeCookies(cookies, userId);
     rawItems = await fetchTimetable(cookies, term);
