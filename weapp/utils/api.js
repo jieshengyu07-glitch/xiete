@@ -1,5 +1,4 @@
 const app = getApp();
-let refreshTokenPromise = null;
 
 function authHeader() {
   const token = app.globalData.token || wx.getStorageSync("authToken") || "";
@@ -16,52 +15,37 @@ function isInvalidTokenResponse(res) {
   return res.statusCode === 401 || data.error === "INVALID_TOKEN" || data.code === "INVALID_TOKEN";
 }
 
-function refreshAuthToken() {
-  if (refreshTokenPromise) return refreshTokenPromise;
+function loginError() {
+  const err = new Error("登录状态异常，请重新打开小程序");
+  err.code = "LOGIN_STATE_INVALID";
+  return err;
+}
 
-  clearAuthToken();
-  const loginPromise = new Promise((resolve, reject) => {
-    wx.login({
-      success: loginRes => {
-        if (!loginRes.code) {
-          reject(new Error("wx.login did not return code"));
-          return;
-        }
-
-        wx.request({
-          url: app.globalData.apiBase + "/auth/wechat-login",
-          method: "POST",
-          data: { code: loginRes.code },
-          timeout: 10000,
-          success: res => {
-            const data = res.data || {};
-            if (data.success && data.token) {
-              app.globalData.token = data.token;
-              wx.setStorageSync("authToken", data.token);
-              resolve(data.token);
-              return;
-            }
-            reject(data);
-          },
-          fail: err => reject(err)
-        });
-      },
-      fail: err => reject(err)
-    });
-  });
-
-  refreshTokenPromise = loginPromise.then(
-    token => {
-      refreshTokenPromise = null;
+function ensureLogin(force) {
+  if (!force && app.globalData.loginPromise) {
+    return app.globalData.loginPromise.then(token => {
+      if (!token) throw loginError();
       return token;
-    },
-    err => {
-      refreshTokenPromise = null;
-      throw err;
-    }
-  );
+    }).catch(() => {
+      throw loginError();
+    });
+  }
 
-  return refreshTokenPromise;
+  const token = app.globalData.token || wx.getStorageSync("authToken") || "";
+  if (!force && token) {
+    app.globalData.token = token;
+    return Promise.resolve(token);
+  }
+
+  if (force) clearAuthToken();
+  if (typeof app.loginWithWechat !== "function") return Promise.reject(loginError());
+
+  return app.loginWithWechat(Boolean(force)).then(token => {
+    if (!token) throw loginError();
+    return token;
+  }).catch(() => {
+    throw loginError();
+  });
 }
 
 function mergeHeader(header) {
@@ -69,7 +53,7 @@ function mergeHeader(header) {
 }
 
 function send(path, method, data, options, hasRetried) {
-  return new Promise((resolve, reject) => {
+  return ensureLogin(false).then(() => new Promise((resolve, reject) => {
     wx.request({
       url: app.globalData.apiBase + path,
       method: method,
@@ -78,17 +62,22 @@ function send(path, method, data, options, hasRetried) {
       timeout: options && options.timeout ? options.timeout : 30000,
       success: res => {
         if (isInvalidTokenResponse(res) && !hasRetried) {
-          refreshAuthToken()
+          ensureLogin(true)
             .then(() => send(path, method, data, options, true))
             .then(resolve)
             .catch(reject);
+          return;
+        }
+        if (isInvalidTokenResponse(res)) {
+          clearAuthToken();
+          reject(loginError());
           return;
         }
         resolve(res.data);
       },
       fail: err => reject(err)
     });
-  });
+  }));
 }
 
 function request(path, options) {
@@ -99,4 +88,4 @@ function post(path, data, options) {
   return send(path, "POST", data, options, false);
 }
 
-module.exports = { request, post };
+module.exports = { request, get: request, post, ensureLogin };
