@@ -120,20 +120,31 @@ function parseWeekRanges(weeksRaw) {
 
 function parseClassroom(classroomRaw) {
   const text = String(classroomRaw || "").trim();
-  if (!text) return { building: "", room: "" };
+  if (!text) return { building: "", room: "", displayLocation: "地点待定" };
 
-  const roomMatch = text.match(/([A-Za-z]?\d{3,4}[A-Za-z]?|[一二三四五六七八九十]+零[一二三四五六七八九十]+)/);
-  const room = roomMatch ? roomMatch[0] : "";
-  let building = "";
+  if (/^\d{5}$/.test(text)) {
+    const buildingNo = String(Number(text.slice(0, 2)));
+    const room = text.slice(2);
+    const building = buildingNo + "号楼";
+    return {
+      building,
+      room,
+      displayLocation: building + room + "教室"
+    };
+  }
 
-  if (room) {
-    building = text.slice(0, text.indexOf(room)).replace(/[（(].*$/, "").replace(/[-_\s]+$/, "").trim();
+  if (/^\d{4}$/.test(text)) {
+    const buildingNo = String(Number(text.slice(0, 1)));
+    const room = text.slice(1);
+    const building = buildingNo + "号楼";
+    return {
+      building,
+      room,
+      displayLocation: building + room + "教室"
+    };
   }
-  if (!building) {
-    const buildingMatch = text.match(/([\u4e00-\u9fa5A-Za-z0-9]+(?:楼|馆|实验室|中心|校区|区))/);
-    building = buildingMatch ? buildingMatch[1] : "";
-  }
-  return { building, room };
+
+  return { building: "", room: "", displayLocation: text };
 }
 
 function responseItems(data) {
@@ -175,6 +186,7 @@ function normalizeTimetableItems(rawItems, term, userId) {
         classroomRaw,
         building: classroom.building,
         room: classroom.room,
+        displayLocation: classroom.displayLocation,
         weeksRaw,
         weekStart: range.weekStart,
         weekEnd: range.weekEnd,
@@ -253,13 +265,26 @@ async function syncTimetableForUser(userId, storage, options) {
   }
 
   const rows = normalizeTimetableItems(rawItems, term, userId);
+  if (rows.length === 0) {
+    return {
+      success: false,
+      error: "TIMETABLE_EMPTY",
+      message: "已登录教务系统，但没有解析到课表数据",
+      termYear: String(term.termYear),
+      termSemester: String(term.termSemester),
+      rawCount: rawItems.length,
+      syncedCount: 0,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
   storage.replaceTimetableForTerm(term.termYear, term.termSemester, rows);
   return {
     success: true,
     termYear: String(term.termYear),
     termSemester: String(term.termSemester),
-    sourceCount: rawItems.length,
-    count: rows.length,
+    rawCount: rawItems.length,
+    syncedCount: rows.length,
     updatedAt: new Date().toISOString()
   };
 }
