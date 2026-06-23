@@ -2,12 +2,16 @@
   <view class="card">
     <view class="card-title">配置信息</view>
     <view class="row">
-      <text class="label">API 地址</text>
+      <text class="label">apiBase</text>
       <text class="value">{{apiAddr}}</text>
     </view>
     <view class="row">
-      <text class="label">客户端版本</text>
-      <text class="value">{{version}}</text>
+      <text class="label">clientVersion</text>
+      <text class="value">{{clientVersion}}</text>
+    </view>
+    <view class="row">
+      <text class="label">登录状态</text>
+      <text class="value">{{loginStatus}}</text>
     </view>
   </view>
 

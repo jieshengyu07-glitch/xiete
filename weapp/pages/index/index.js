@@ -52,15 +52,6 @@ Page({
     };
   },
 
-  isLoginStateError(e) {
-    return Boolean(e && (
-      e.statusCode === 401 ||
-      e.error === "INVALID_TOKEN" ||
-      e.code === "INVALID_TOKEN" ||
-      e.code === "LOGIN_STATE_INVALID"
-    ));
-  },
-
   isNetworkError(e) {
     const text = String((e && (e.errMsg || e.message)) || "").toLowerCase();
     return text.includes("request:fail") ||
@@ -84,9 +75,7 @@ Page({
       let changesData = { changes: [] };
       try {
         changesData = await api.request("/grade-changes");
-      } catch (changesErr) {
-        if (this.isLoginStateError(changesErr)) throw changesErr;
-      }
+      } catch (changesErr) {}
 
       status.lastCheckAtFormatted = this.formatTime(status.lastCheckAt);
       const changes = (changesData.changes || []).map(change => this.formatChange(change));
@@ -97,14 +86,6 @@ Page({
         loading: false
       });
     } catch (e) {
-      if (this.isLoginStateError(e)) {
-        this.setData({
-          errorTitle: "登录状态异常",
-          error: "登录状态异常，请重新打开小程序",
-          loading: false
-        });
-        return;
-      }
       const networkError = this.isNetworkError(e);
       this.setData({
         errorTitle: networkError ? "连接异常" : "加载失败",
@@ -146,10 +127,6 @@ Page({
       this.loadStatus();
     }).catch(e => {
       wx.hideLoading();
-      if (e && e.code === "LOGIN_STATE_INVALID") {
-        wx.showToast({ title: "登录状态异常，请重新打开小程序", icon: "none" });
-        return;
-      }
       wx.showToast({ title: "请求失败", icon: "none" });
     });
   }

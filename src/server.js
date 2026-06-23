@@ -5,40 +5,38 @@ const storage = require("./db/storage");
 const Scheduler = require("./scheduler/cron");
 const { httpJwxtLogin } = require("./login/httpJwxtLogin");
 const credentialStore = require("./services/credentialStore");
-const tokenStore = require("./auth/tokenStore");
-const { optionalAuth } = require("./auth/authMiddleware");
+const auth = require("./middleware/auth");
+const { signToken } = require("./utils/jwt");
 const { safeUserId } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
 
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 app.get("/health", (req, res) => {
   res.json({ status: "ok", version: "1.0.0" });
 });
 
 app.use(express.json({ limit: "1mb" }));
-app.use(optionalAuth);
-
-function isProduction() {
-  return process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
-}
 
 function requestStorage(req) {
   return req.userId ? storage.createStorageForUser(req.userId) : storage;
 }
 
-function hasAuthHeader(req) {
-  return Boolean(req.headers.authorization);
-}
-
 function ensureValidScope(req, res) {
-  if (isProduction() && !req.userId) {
-    res.status(401).json({ success: false, error: "INVALID_TOKEN", message: "Invalid or expired token" });
-    return false;
-  }
-  if (hasAuthHeader(req) && !req.userId) {
-    res.status(401).json({ success: false, error: "INVALID_TOKEN", message: "Invalid or expired token" });
+  if (!req.userId) {
+    res.status(401).json({ success: false, error: "UNAUTHORIZED", message: "Missing authorization token" });
     return false;
   }
   return true;
@@ -130,9 +128,16 @@ app.post("/auth/wechat-login", async (req, res) => {
   try {
     const code = req.body && req.body.code;
     const userId = await resolveWechatOpenid(code);
-    const token = tokenStore.createToken(userId);
+    const token = signToken({ userId });
     console.log("[auth] wechat-login success");
-    res.json({ success: true, token, userId });
+    res.json({
+      code: 0,
+      token,
+      user: {
+        id: userId,
+        nickname: ""
+      }
+    });
   } catch (err) {
     res.status(400).json({
       success: false,
@@ -166,7 +171,7 @@ function buildUnevaluatedCourses(activeStorage) {
     });
 }
 
-app.get("/status", (req, res) => {
+app.get("/status", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /status");
   const activeStorage = requestStorage(req);
@@ -230,7 +235,7 @@ function buildGroupedGrades(grades) {
   });
 }
 
-app.get("/grades", (req, res) => {
+app.get("/grades", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /grades");
   const activeStorage = requestStorage(req);
@@ -242,7 +247,7 @@ app.get("/grades", (req, res) => {
 });
 
 // GET /grade-changes
-app.get("/grade-changes", (req, res) => {
+app.get("/grade-changes", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /grade-changes");
   const activeStorage = requestStorage(req);
@@ -251,7 +256,7 @@ app.get("/grade-changes", (req, res) => {
 });
 
 // POST /check
-app.post("/check", async (req, res) => {
+app.post("/check", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "POST /check");
   const r = req.userId ? await runCycleForUser(req.userId) : await runCycle();
@@ -260,7 +265,7 @@ app.post("/check", async (req, res) => {
 });
 
 // POST /bind-account
-app.post("/bind-account", async (req, res) => {
+app.post("/bind-account", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   console.log("[bind] start scope=" + (req.userId ? "user" : "legacy"));
   logUserScope(req, "POST /bind-account");
@@ -369,7 +374,7 @@ app.post("/bind-account", async (req, res) => {
 });
 
 // POST /unbind-account
-app.post("/unbind-account", (req, res) => {
+app.post("/unbind-account", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "POST /unbind-account");
   try {
@@ -387,7 +392,7 @@ app.post("/unbind-account", (req, res) => {
 });
 
 // POST /upload-cookies
-app.post("/upload-cookies", (req, res) => {
+app.post("/upload-cookies", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   try {
     const data = req.body;
@@ -416,7 +421,7 @@ app.post("/upload-cookies", (req, res) => {
 
 
 // POST /grades/import
-app.post("/grades/import", (req, res) => {
+app.post("/grades/import", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   try {
     var d = req.body;
