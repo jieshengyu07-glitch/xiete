@@ -51,6 +51,30 @@
   box-shadow: 0 10rpx 24rpx rgba(22, 119, 255, 0.2);
 }
 
+.captcha-btn {
+  margin-top: 2rpx;
+  margin-bottom: 18rpx;
+  border-radius: 16rpx;
+  background: #eaf2ff;
+  color: #1677ff;
+  font-weight: 600;
+}
+
+.captcha-panel {
+  margin-bottom: 20rpx;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background: #f6f9ff;
+}
+
+.captcha-image {
+  width: 260rpx;
+  height: 92rpx;
+  margin-bottom: 18rpx;
+  border-radius: 10rpx;
+  background: #ffffff;
+}
+
 .unbind-btn {
   margin-top: 18rpx;
   border: 1rpx solid #ffd6d6;

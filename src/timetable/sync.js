@@ -25,6 +25,14 @@ function cookieHeader(cookies) {
   return selected.map(c => c.name + "=" + c.value).join("; ");
 }
 
+function jwxtLoginErrorCode(err) {
+  const message = String((err && err.message) || "").toLowerCase();
+  if (message.includes("captcha") || message.includes("验证码") || message.includes("风控")) {
+    return "JWXT_CAPTCHA_REQUIRED";
+  }
+  return "JWXT_LOGIN_FAILED";
+}
+
 async function ensureCookies(userId) {
   let cookies = loadCookies(userId);
   if (cookieHeader(cookies)) return cookies;
@@ -41,7 +49,7 @@ async function ensureCookies(userId) {
     login = await httpJwxtLogin(credentials.studentId, credentials.password);
   } catch (cause) {
     const err = new Error(cause && cause.message ? cause.message : "教务系统登录失败");
-    err.code = "JWXT_LOGIN_FAILED";
+    err.code = jwxtLoginErrorCode(cause);
     throw err;
   }
 
@@ -283,7 +291,7 @@ async function syncTimetableForUser(userId, storage, options) {
       login = await httpJwxtLogin(credentials.studentId, credentials.password);
     } catch (cause) {
       const nextErr = new Error(cause && cause.message ? cause.message : "教务系统登录失败");
-      nextErr.code = "JWXT_LOGIN_FAILED";
+      nextErr.code = jwxtLoginErrorCode(cause);
       throw nextErr;
     }
     cookies = selectJwxtCookies(login.cookies);
