@@ -43,7 +43,7 @@ Page({
       dateText: displayDate(data.date),
       weekdayText: WEEKDAY_NAMES[data.weekday] || "",
       weekText: "第" + (data.currentTeachingWeek || data.weekNumber || "-") + "教学周",
-      weekTypeText: data.weekTypeName || (data.weekType === "ODD" ? "单周" : "双周"),
+      weekTypeText: data.weekTypeText || data.weekTypeName || (data.weekType === "ODD" ? "单周" : "双周"),
       hasTimetable: Boolean(data.hasTimetable),
       sections: data.sections || defaultSections()
     });
@@ -70,9 +70,20 @@ Page({
       const result = await api.post("/timetable/sync", {}, { timeout: 120000 });
       wx.hideLoading();
       this.setData({ syncing: false });
+
+      if (result && result.success === false) {
+        wx.showModal({
+          title: "刷新失败",
+          content: result.message || "课表同步失败",
+          showCancel: false
+        });
+        await this.loadToday();
+        return;
+      }
+
       wx.showToast({ title: "课表已刷新", icon: "success" });
       await this.loadToday();
-      if (result && result.count === 0) {
+      if (result && (result.syncedCount === 0 || result.count === 0)) {
         wx.showModal({
           title: "未发现课表",
           content: "教务系统返回了空课表，请确认本学期是否已开放课表。",
