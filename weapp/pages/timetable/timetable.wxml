@@ -31,7 +31,7 @@
 
         <view wx:for="{{item.courses}}" wx:for-item="course" wx:key="id" class="course-block">
           <view class="course-name">{{course.courseName}}</view>
-          <view class="course-room">{{course.displayRoom || course.classroomRaw || '教室待定'}}</view>
+          <view class="course-room">{{course.displayLocation || course.classroomRaw || '地点待定'}}</view>
           <view wx:if="{{course.teacherName || course.weeksRaw}}" class="course-meta">
             <text wx:if="{{course.teacherName}}">{{course.teacherName}}</text>
             <text wx:if="{{course.teacherName && course.weeksRaw}}"> · </text>
