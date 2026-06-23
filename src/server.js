@@ -340,6 +340,10 @@ function timetableDebug(info, totalCached, matchedCount) {
   };
 }
 
+function emptyTimetableMessage(rows) {
+  return rows.length ? "" : "暂无课表，请点击刷新课表";
+}
+
 function sendTermConfigError(res, err) {
   if (err && err.code === "TERM_CONFIG_INVALID") {
     res.status(500).json({
@@ -402,6 +406,7 @@ app.get("/timetable/today", auth, (req, res) => {
     success: true,
     ...info,
     hasTimetable: rows.length > 0,
+    message: emptyTimetableMessage(rows),
     debug: timetableDebug(info, rows.length, todayRows.length),
     sections: fillDaySections(todayRows)
   });
@@ -435,6 +440,7 @@ app.get("/timetable/week", auth, (req, res) => {
     success: true,
     ...info,
     hasTimetable: rows.length > 0,
+    message: emptyTimetableMessage(rows),
     debug: timetableDebug(info, rows.length, filtered.length),
     days
   });
@@ -456,9 +462,12 @@ app.post("/timetable/sync", auth, async (req, res) => {
     res.json(result);
   } catch (err) {
     console.log("[timetable] sync failed " + (err && err.message));
-    res.status(err && err.code === "LOGIN_REQUIRED" ? 400 : 500).json({
+    if (sendTermConfigError(res, err)) return;
+    const code = err && err.code ? err.code : "TIMETABLE_SYNC_FAILED";
+    const status = code === "LOGIN_REQUIRED" ? 400 : 500;
+    res.status(status).json({
       success: false,
-      error: err && err.code ? err.code : "TIMETABLE_SYNC_FAILED",
+      error: code,
       message: err && err.message ? err.message : "课表同步失败"
     });
   }

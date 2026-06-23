@@ -14,7 +14,7 @@
 
     <view wx:if="{{!hasTimetable}}" class="card">
       <view class="card-title">暂无课表缓存</view>
-      <view class="tips">首次使用或新学期开始后，请点击刷新课表同步本学期数据。之后打开小程序会直接读取缓存。</view>
+      <view class="tips">暂无课表，请点击刷新课表。首次使用或新学期开始后，需要先同步本学期数据。</view>
     </view>
 
     <view wx:if="{{error}}" class="card error-card">
