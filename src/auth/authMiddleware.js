@@ -7,10 +7,11 @@ function optionalAuth(req, res, next) {
   if (match) {
     const token = match[1];
     const userId = tokenStore.getUserId(token);
-    console.log("[auth] middleware token=" + token.slice(0, 8) + " userId=" + (userId || "(none)"));
     if (userId) {
       req.userId = userId;
-      console.log("[auth] userId=" + userId + " " + req.method + " " + req.path);
+      console.log("[auth] authenticated " + req.method + " " + req.path);
+    } else {
+      console.log("[auth] invalid token " + req.method + " " + req.path);
     }
   }
 

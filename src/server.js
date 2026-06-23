@@ -7,13 +7,17 @@ const { httpJwxtLogin } = require("./login/httpJwxtLogin");
 const credentialStore = require("./services/credentialStore");
 const tokenStore = require("./auth/tokenStore");
 const { optionalAuth } = require("./auth/authMiddleware");
-const { safeUserId, getUserPaths } = require("./services/userPaths");
+const { safeUserId } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
 app.use(express.json({ limit: "1mb" }));
 app.use(optionalAuth);
+
+function isProduction() {
+  return process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+}
 
 function requestStorage(req) {
   return req.userId ? storage.createStorageForUser(req.userId) : storage;
@@ -24,6 +28,10 @@ function hasAuthHeader(req) {
 }
 
 function ensureValidScope(req, res) {
+  if (isProduction() && !req.userId) {
+    res.status(401).json({ success: false, error: "INVALID_TOKEN", message: "Invalid or expired token" });
+    return false;
+  }
   if (hasAuthHeader(req) && !req.userId) {
     res.status(401).json({ success: false, error: "INVALID_TOKEN", message: "Invalid or expired token" });
     return false;
@@ -32,11 +40,7 @@ function ensureValidScope(req, res) {
 }
 
 function logUserScope(req, label) {
-  const paths = getUserPaths(req.userId);
-  console.log("[user-scope] " + label + " userId=" + (req.userId || "(legacy)"));
-  console.log("[user-scope] accountPath=" + paths.accountPath);
-  console.log("[user-scope] cookiesPath=" + paths.cookiesPath);
-  console.log("[user-scope] campusPath=" + paths.campusPath);
+  console.log("[user-scope] " + label + " scope=" + (req.userId ? "user" : "legacy"));
 }
 
 function isJwglxtPath(cookiePath) {
@@ -87,7 +91,7 @@ app.post("/auth/wechat-login", async (req, res) => {
     const code = req.body && req.body.code;
     const userId = await resolveWechatOpenid(code);
     const token = tokenStore.createToken(userId);
-    console.log("[auth] login token=" + token.slice(0, 8) + " userId=" + userId);
+    console.log("[auth] wechat-login success");
     res.json({ success: true, token, userId });
   } catch (err) {
     res.status(400).json({
@@ -105,6 +109,10 @@ const scheduler = new Scheduler(async () => {
   else console.log("[bg] " + (r.error || r.message));
 });
 scheduler.start();
+
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", version: "1.0.0" });
+});
 
 // GET /status
 function buildUnevaluatedCourses(activeStorage) {
@@ -230,7 +238,7 @@ app.post("/bind-account", async (req, res) => {
     });
   }
 
-  console.log("[user-scope] bind-account saving userId=" + (req.userId || "(legacy)") + " accountPath=" + getUserPaths(req.userId).accountPath);
+  console.log("[user-scope] bind-account saving scope=" + (req.userId ? "user" : "legacy"));
   credentialStore.saveBoundAccount(studentId, password, req.userId);
   deleteCookies(req.userId);
 
@@ -242,7 +250,7 @@ app.post("/bind-account", async (req, res) => {
     const hasRememberMe = jwxtCookies.some(c => c.name === "rememberMe");
 
     if (!hasRoute || !hasJSession || !hasRememberMe) {
-      console.log("[api] JWXT account saved but verification unavailable for studentId=" + studentId);
+      console.log("[api] JWXT account saved but verification unavailable");
       return res.json({
         success: true,
         bound: true,
@@ -253,7 +261,7 @@ app.post("/bind-account", async (req, res) => {
     }
 
     writeCookies(jwxtCookies, req.userId);
-    console.log("[api] JWXT account bound and verified for studentId=" + studentId);
+    console.log("[api] JWXT account bound and verified");
     res.json({
       success: true,
       bound: true,
@@ -263,7 +271,7 @@ app.post("/bind-account", async (req, res) => {
     });
   } catch (err) {
     const classified = classifyJwxtLoginError(err);
-    console.log("[api] JWXT account bind verification result for studentId=" + studentId + ": " + classified.error);
+    console.log("[api] JWXT account bind verification result: " + classified.error);
 
     if (classified.error === "invalid_credentials") {
       credentialStore.deleteBoundAccount(req.userId);
@@ -317,6 +325,7 @@ app.post("/unbind-account", (req, res) => {
 
 // POST /upload-cookies
 app.post("/upload-cookies", (req, res) => {
+  if (!ensureValidScope(req, res)) return;
   try {
     const data = req.body;
     if (!Array.isArray(data)) {
@@ -327,14 +336,13 @@ app.post("/upload-cookies", (req, res) => {
         return res.status(400).json({ success: false, error: "INVALID_ENTRY", message: "Each cookie needs name and value" });
       }
     }
-    writeCookies(data);
     const hasJSession = data.some(c => c.name === "JSESSIONID");
     if (!hasJSession) {
-      writeCookies(data);
+      writeCookies(data, req.userId);
       console.log("[api] Cookies uploaded (WARNING: no JSESSIONID)");
       return res.json({ success: true, saved: true, error: "NO_JSESSIONID", message: "No JSESSIONID found. Grade queries will not work.", count: data.length, hasJSession: false });
     }
-    writeCookies(data);
+    writeCookies(data, req.userId);
     console.log("[api] Cookies uploaded: " + data.length + " entries (includes JSESSIONID)");
     res.json({ success: true, saved: true, count: data.length, hasJSession: true });
   } catch (err) {
@@ -346,13 +354,14 @@ app.post("/upload-cookies", (req, res) => {
 
 // POST /grades/import
 app.post("/grades/import", (req, res) => {
+  if (!ensureValidScope(req, res)) return;
   try {
     var d = req.body;
     if (!d || !d.grades) return res.status(400).json({success:false,message:"Missing grades field"});
     var g = d.grades;
     if (typeof g === "string") try { g = JSON.parse(g); } catch(e) {}
     if (!Array.isArray(g)) return res.status(400).json({success:false,message:"grades must be array"});
-    require("./db/storage").mergeGrades(g);
+    requestStorage(req).mergeGrades(g);
     console.log("[api] Imported " + g.length + " grades");
     res.json({success:true,count:g.length});
   } catch(err) {
