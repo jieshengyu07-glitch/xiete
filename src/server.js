@@ -11,6 +11,7 @@ const { safeUserId } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 const { currentTermInfo, loadConfiguredTerm } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
+const { createCaptchaSession, loginWithCaptcha } = require("./login/captchaSession");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
@@ -264,6 +265,46 @@ app.post("/check", auth, async (req, res) => {
   const r = req.userId ? await runCycleForUser(req.userId) : await runCycle();
   if (r.success) res.json({ checked: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, changeCount: r.changeCount || 0, error: null, cookieStatus: r.cookieStatus || "cookie_valid" });
   else res.json({ checked: false, gradesCount: 0, added: [], changed: [], changeCount: 0, error: r.error, message: r.message, cookieStatus: r.cookieStatus || r.error || "query_error" });
+});
+
+function apiErrorStatus(code) {
+  if (code === "LOGIN_REQUIRED" || code === "INVALID_CAPTCHA_LOGIN_INPUT") return 400;
+  if (code === "JWXT_CAPTCHA_REQUIRED") return 400;
+  if (code === "INVALID_CREDENTIALS" || code === "CAPTCHA_LOGIN_FAILED" || code === "CAPTCHA_SESSION_EXPIRED") return 400;
+  if (code === "RATE_LIMITED") return 429;
+  return 500;
+}
+
+// GET /jwxt/captcha-session
+app.get("/jwxt/captcha-session", auth, async (req, res) => {
+  if (!ensureValidScope(req, res)) return;
+  try {
+    const result = await createCaptchaSession(req.userId);
+    res.json(result);
+  } catch (err) {
+    const code = err && err.code ? err.code : "CAPTCHA_SESSION_FAILED";
+    res.status(apiErrorStatus(code)).json({
+      success: false,
+      error: code,
+      message: err && err.message ? err.message : "获取验证码失败"
+    });
+  }
+});
+
+// POST /jwxt/login-with-captcha
+app.post("/jwxt/login-with-captcha", auth, async (req, res) => {
+  if (!ensureValidScope(req, res)) return;
+  try {
+    const result = await loginWithCaptcha(req.userId, req.body || {});
+    res.json(result);
+  } catch (err) {
+    const code = err && err.code ? err.code : "JWXT_LOGIN_FAILED";
+    res.status(apiErrorStatus(code)).json({
+      success: false,
+      error: code,
+      message: err && err.message ? err.message : "教务验证码登录失败"
+    });
+  }
 });
 
 function timetableAppliesToWeek(item, weekNumber) {
@@ -560,15 +601,15 @@ app.post("/bind-account", auth, async (req, res) => {
       });
     }
 
-    if (classified.error === "captcha_required") {
+    if (classified.error === "captcha_required" || classified.error === "JWXT_CAPTCHA_REQUIRED") {
       credentialStore.deleteBoundAccount(req.userId);
       deleteCookies(req.userId);
       return res.status(400).json({
         success: false,
         bound: false,
         verified: false,
-        error: "captcha_required",
-        message: "当前账号登录需要验证码或风控校验，请稍后重试"
+        error: "JWXT_CAPTCHA_REQUIRED",
+        message: "教务系统需要验证码验证，请在小程序内完成一次验证。"
       });
     }
 

@@ -239,7 +239,8 @@ async function requestNoRedirect(cookieJar, method, url, options) {
     headers,
     maxRedirects: 0,
     validateStatus: () => true,
-    timeout: options && options.timeout ? options.timeout : 15000
+    timeout: options && options.timeout ? options.timeout : 15000,
+    responseType: options && options.responseType
   });
 
   storeCookies(cookieJar, response.headers["set-cookie"], url);
@@ -392,5 +393,19 @@ async function httpJwxtLogin(studentId, password, options) {
 }
 
 module.exports = {
-  httpJwxtLogin
+  httpJwxtLogin,
+  createCookieJar,
+  parseHiddenValue,
+  requestNoRedirect,
+  followRedirects,
+  getAndFollow,
+  encryptPassword,
+  isInvalidCredentialPage,
+  findJwxtJSessionId,
+  LOGIN_URL,
+  LOGIN_POST_URL,
+  CAS_ORIGIN,
+  PORTAL_ORIGIN,
+  JWXT_SSO_URL,
+  userAgent
 };

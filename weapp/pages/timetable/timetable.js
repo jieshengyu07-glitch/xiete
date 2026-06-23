@@ -17,6 +17,18 @@ function displayDate(value) {
   return Number(parts[1]) + "月" + Number(parts[2]) + "日";
 }
 
+function showCaptchaRequired() {
+  wx.showModal({
+    title: "需要验证码",
+    content: "教务系统需要验证码验证，请在小程序内完成一次验证。",
+    confirmText: "去验证",
+    cancelText: "稍后再说",
+    success: result => {
+      if (result.confirm) wx.switchTab({ url: "/pages/settings/settings" });
+    }
+  });
+}
+
 Page({
   data: {
     loading: true,
@@ -72,6 +84,11 @@ Page({
       this.setData({ syncing: false });
 
       if (result && result.success === false) {
+        if (result.error === "JWXT_CAPTCHA_REQUIRED") {
+          showCaptchaRequired();
+          await this.loadToday();
+          return;
+        }
         wx.showModal({
           title: "刷新失败",
           content: result.message || "课表同步失败",
@@ -96,6 +113,10 @@ Page({
         syncing: false,
         error: (err && (err.message || err.errMsg)) || "课表刷新失败"
       });
+      if (err && err.error === "JWXT_CAPTCHA_REQUIRED") {
+        showCaptchaRequired();
+        return;
+      }
       wx.showModal({
         title: "刷新失败",
         content: (err && (err.message || err.errMsg)) || "请先确认已绑定教务账号，并稍后再试。",

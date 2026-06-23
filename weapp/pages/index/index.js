@@ -1,5 +1,17 @@
 const api = require("../../utils/api");
 
+function showCaptchaRequired() {
+  wx.showModal({
+    title: "需要验证码",
+    content: "教务系统需要验证码验证，请在小程序内完成一次验证。",
+    confirmText: "去验证",
+    cancelText: "稍后再说",
+    success: result => {
+      if (result.confirm) wx.switchTab({ url: "/pages/settings/settings" });
+    }
+  });
+}
+
 Page({
   data: {
     status: null,
@@ -113,6 +125,11 @@ Page({
           });
         }
       } else {
+        if (d.cookieStatus === "JWXT_CAPTCHA_REQUIRED" || d.error === "JWXT_CAPTCHA_REQUIRED") {
+          showCaptchaRequired();
+          this.loadStatus();
+          return;
+        }
         if (d.cookieStatus === "jwxt_unavailable" || d.error === "jwxt_unavailable") {
           wx.showModal({
             title: "检查失败",
@@ -127,6 +144,10 @@ Page({
       this.loadStatus();
     }).catch(e => {
       wx.hideLoading();
+      if (e && e.error === "JWXT_CAPTCHA_REQUIRED") {
+        showCaptchaRequired();
+        return;
+      }
       wx.showToast({ title: "请求失败", icon: "none" });
     });
   }

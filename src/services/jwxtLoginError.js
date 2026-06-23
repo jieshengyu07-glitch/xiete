@@ -40,9 +40,9 @@ function classifyJwxtLoginError(err) {
 
   if (lower.includes("captcha") || message.includes("验证码") || message.includes("风控")) {
     return {
-      error: "captcha_required",
-      reason: "captcha_required",
-      message: "当前账号登录需要验证码或风控校验，请稍后重试"
+      error: "JWXT_CAPTCHA_REQUIRED",
+      reason: "JWXT_CAPTCHA_REQUIRED",
+      message: "教务系统需要验证码验证，请在小程序内完成一次验证。"
     };
   }
 

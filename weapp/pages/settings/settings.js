@@ -25,6 +25,11 @@ Page({
     connectionError: "",
     studentId: "",
     password: "",
+    captchaSessionId: "",
+    captchaImage: "",
+    captchaCode: "",
+    captchaLoading: false,
+    captchaBinding: false,
     binding: false,
     unbinding: false
   },
@@ -53,6 +58,71 @@ Page({
 
   onPasswordInput(e) {
     this.setData({ password: e.detail.value });
+  },
+
+  onCaptchaInput(e) {
+    this.setData({ captchaCode: e.detail.value });
+  },
+
+  async getCaptcha() {
+    this.setData({ captchaLoading: true, captchaCode: "" });
+    wx.showLoading({ title: "获取验证码..." });
+    try {
+      const data = await api.request("/jwxt/captcha-session", { timeout: 30000 });
+      wx.hideLoading();
+      this.setData({
+        captchaLoading: false,
+        captchaSessionId: data.sessionId || "",
+        captchaImage: data.captchaImage || ""
+      });
+    } catch (err) {
+      wx.hideLoading();
+      this.setData({ captchaLoading: false });
+      wx.showModal({
+        title: "获取验证码失败",
+        content: errorText(err) || "请稍后再试",
+        showCancel: false
+      });
+    }
+  },
+
+  async bindAccountWithCaptcha() {
+    const studentId = String(this.data.studentId || "").trim();
+    const password = String(this.data.password || "");
+    const captcha = String(this.data.captchaCode || "").trim();
+    const sessionId = String(this.data.captchaSessionId || "");
+
+    if (!studentId || !password || !captcha || !sessionId) {
+      wx.showToast({ title: "请填写学号、密码和验证码", icon: "none" });
+      return;
+    }
+
+    this.setData({ captchaBinding: true });
+    wx.showLoading({ title: "验证中..." });
+    try {
+      const data = await api.post("/jwxt/login-with-captcha", { sessionId, studentId, password, captcha }, { timeout: 120000 });
+      wx.hideLoading();
+      this.setData({
+        captchaBinding: false,
+        password: "",
+        captchaCode: "",
+        captchaSessionId: "",
+        captchaImage: ""
+      });
+      wx.showModal({
+        title: "绑定成功",
+        content: (data && data.message) || "教务账号绑定成功",
+        showCancel: false
+      });
+    } catch (err) {
+      wx.hideLoading();
+      this.setData({ captchaBinding: false });
+      wx.showModal({
+        title: "验证失败",
+        content: errorText(err) || "请重新获取验证码后再试",
+        showCancel: false
+      });
+    }
   },
 
   async bindAccount() {
@@ -97,8 +167,12 @@ Page({
           wx.showToast({ title: "账号或密码错误", icon: "none" });
           return;
         }
-        if (data && data.error === "captcha_required") {
-          wx.showToast({ title: "需要验证码或风控校验", icon: "none" });
+        if (data && (data.error === "captcha_required" || data.error === "JWXT_CAPTCHA_REQUIRED")) {
+          wx.showModal({
+            title: "需要验证码",
+            content: "教务系统需要验证码验证，请点击获取验证码后完成绑定。",
+            showCancel: false
+          });
           return;
         }
         wx.showToast({ title: (data && data.message) || "绑定失败", icon: "none" });
@@ -106,6 +180,14 @@ Page({
     } catch (err) {
       wx.hideLoading();
       this.setData({ binding: false });
+      if (err && err.error === "JWXT_CAPTCHA_REQUIRED") {
+        wx.showModal({
+          title: "需要验证码",
+          content: "教务系统需要验证码验证，请点击获取验证码后完成绑定。",
+          showCancel: false
+        });
+        return;
+      }
       if (isTimeoutError(err)) {
         wx.showModal({
           title: "绑定超时",
