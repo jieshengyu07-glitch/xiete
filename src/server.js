@@ -10,7 +10,7 @@ const { signToken } = require("./utils/jwt");
 const { safeUserId } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 const { currentTermInfo, loadConfiguredTerm } = require("./timetable/calendar");
-const { syncTimetableForUser } = require("./timetable/sync");
+const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
@@ -276,6 +276,7 @@ function timetableAppliesToWeek(item, weekNumber) {
 }
 
 function compactTimetableItem(item) {
+  const parsed = parseClassroom(item.classroomRaw || item.displayLocation || item.displayRoom);
   return {
     id: item.id,
     weekday: item.weekday,
@@ -283,10 +284,10 @@ function compactTimetableItem(item) {
     courseName: item.courseName,
     teacherName: item.teacherName || "",
     classroomRaw: item.classroomRaw || "",
-    building: item.building || "",
-    room: item.room || "",
-    displayLocation: item.displayLocation || item.classroomRaw || "地点待定",
-    displayRoom: item.displayLocation || [item.building, item.room].filter(Boolean).join("") || item.classroomRaw || "",
+    building: parsed.building || item.building || "",
+    room: parsed.room || item.room || "",
+    displayLocation: parsed.displayLocation,
+    displayRoom: item.displayRoom || "",
     weeksRaw: item.weeksRaw || "",
     weekStart: item.weekStart,
     weekEnd: item.weekEnd,
