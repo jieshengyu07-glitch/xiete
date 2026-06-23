@@ -1,6 +1,32 @@
 <view class="container">
-  <view class="card">
-    <view class="card-title">配置信息</view>
+  <view class="status-card">
+    <view>
+      <view class="status-label">教务状态</view>
+      <view class="status-value status-{{jwxtStatusTone}}">{{jwxtStatusText}}</view>
+      <view class="status-desc">用于查询课表和成绩</view>
+    </view>
+  </view>
+
+  <view class="card bind-card">
+    <view class="card-title">绑定教务账号</view>
+    <view class="hint">教务账号仅用于查询课表和成绩。遇到验证码时，可在小程序内手动输入验证码完成验证。</view>
+    <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
+    <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
+
+    <view wx:if="{{!captchaExpanded}}" class="captcha-help" bindtap="toggleCaptcha">绑定失败或提示验证码？<text>使用验证码绑定 &gt;</text></view>
+
+    <view wx:if="{{captchaExpanded}}" class="captcha-panel">
+      <image wx:if="{{captchaImage}}" class="captcha-image" src="{{captchaImage}}" mode="aspectFit" bindtap="getCaptcha" />
+      <input class="input captcha-input" placeholder="请输入验证码" value="{{captchaCode}}" bindinput="onCaptchaInput" />
+      <button class="captcha-btn" loading="{{captchaLoading}}" disabled="{{captchaLoading}}" bindtap="getCaptcha">{{captchaImage ? '重新获取' : '获取验证码'}}</button>
+    </view>
+
+    <button class="bind-btn" loading="{{binding || captchaBinding}}" disabled="{{binding || captchaBinding}}" bindtap="bindAccount">{{captchaExpanded ? '验证码绑定' : '绑定教务账号'}}</button>
+    <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
+  </view>
+
+  <view class="debug-toggle" bindtap="toggleDebug">关于与调试 {{debugExpanded ? '⌃' : '⌄'}}</view>
+  <view wx:if="{{debugExpanded}}" class="card debug-card">
     <view class="row">
       <text class="label">apiBase</text>
       <text class="value">{{apiAddr}}</text>
@@ -17,30 +43,6 @@
       <view class="diagnostic-title">连接诊断</view>
       <view class="diagnostic-text">{{connectionError}}</view>
     </view>
-  </view>
-
-  <view class="card">
-    <view class="card-title">绑定教务账号</view>
-    <view class="hint">教务账号仅用于查询课表和成绩。遇到验证码时，可在小程序内手动输入验证码完成验证。</view>
-    <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
-    <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
-    <view wx:if="{{captchaExpanded}}" class="captcha-panel">
-      <button class="captcha-btn" loading="{{captchaLoading}}" disabled="{{captchaLoading}}" bindtap="getCaptcha">{{captchaImage ? '重新获取验证码' : '获取验证码'}}</button>
-      <image wx:if="{{captchaImage}}" class="captcha-image" src="{{captchaImage}}" mode="aspectFit" bindtap="getCaptcha" />
-      <input class="input" placeholder="请输入验证码" value="{{captchaCode}}" bindinput="onCaptchaInput" />
-    </view>
-    <button class="bind-btn" loading="{{binding || captchaBinding}}" disabled="{{binding || captchaBinding}}" bindtap="bindAccount">{{captchaExpanded ? '验证码绑定' : '绑定教务账号'}}</button>
-    <view class="captcha-link" bindtap="toggleCaptcha">{{captchaExpanded ? '暂不使用验证码' : '遇到验证码？点此验证'}}</view>
-    <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
-  </view>
-
-  <view class="card">
-    <view class="card-title">使用说明</view>
-    <view class="desc">
-      <view>1. 后端运行 npm start 启动 API。</view>
-      <view>2. 可继续使用手动 login/setup 方案。</view>
-      <view>3. 绑定教务账号后，Cookie 过期时后端会自动刷新。</view>
-      <view>4. 解除绑定不会删除已存成绩。</view>
-    </view>
+    <view class="debug-desc">后端 API 需保持在线；绑定后可查询课表和成绩。</view>
   </view>
 </view>
