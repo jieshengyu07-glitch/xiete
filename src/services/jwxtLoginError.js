@@ -98,6 +98,7 @@ function normalizeJwxtLoginError(rawText, context) {
       "用户名不存在",
       "账号不存在",
       "认证失败",
+      "登录失败",
       "登录失败，用户名或密码",
       "学号或教务密码错误"
     ])
@@ -207,6 +208,12 @@ function normalizeJwxtLoginError(rawText, context) {
     ])
   ) {
     return normalizeJwxtError("JWXT_UNAVAILABLE");
+  }
+
+  // A reachable CAS/portal response that stays on the login page usually means
+  // the credentials were rejected even when the page does not expose a JSON error.
+  if (context && (context.portalLoginPageReturned || context.stillOnLoginPage)) {
+    return normalizeJwxtError("JWXT_INVALID_CREDENTIALS");
   }
 
   // 7. Known but nonspecific login failure, or final fallback.
