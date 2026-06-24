@@ -264,6 +264,13 @@ async function refreshCookiesFromEnv(userId) {
   const credentials = credentialStore.getJwxtCredentials(userId);
   if (!credentials) {
     console.log("[checker] Cookie 失效，但未配置 JWXT_STUDENT_ID/JWXT_PASSWORD，保持原返回");
+    if (userId && credentialStore.hasBoundAccount(userId)) {
+      return {
+        errorResult: fail("JWXT_LOGIN_FAILED", "教务账号已绑定，但登录凭据不可用，请重新绑定教务账号", {
+          error: "JWXT_LOGIN_FAILED"
+        })
+      };
+    }
     return null;
   }
 
@@ -276,18 +283,21 @@ async function refreshCookiesFromEnv(userId) {
     const hasRememberMe = selected.some(function(c) { return c.name === "rememberMe"; });
     if (!hasRoute || !hasJSession || !hasRememberMe) {
       console.log("[checker] 自动刷新失败：未获取完整 route/JSESSIONID/rememberMe Cookie");
+      credentialStore.updateBoundAccountStatus(userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
       return {
-        errorResult: fail("jwxt_unavailable", "账号已保存，教务系统暂时不可用，稍后可再检查成绩", {
-          error: "jwxt_unavailable"
+        errorResult: fail("JWXT_SSO_FAILED", "教务系统登录态获取失败，请尝试验证码绑定；如果仍失败，请确认你能在官网登录并进入教务系统", {
+          error: "JWXT_SSO_FAILED"
         })
       };
     }
     writeCookies(selected, userId);
+    credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
     console.log("[checker] 自动刷新成功，已更新 cookies.json（未打印 Cookie 值）");
     return selected;
   } catch (err) {
     const classified = classifyJwxtLoginError(err);
     console.log("[checker] 自动刷新失败：" + classified.error);
+    credentialStore.updateBoundAccountStatus(userId, classified.error, { clearLastJwxtLoginAt: true });
     return {
       errorResult: fail(classified.reason || classified.error, classified.message, {
         error: classified.error

@@ -2,6 +2,7 @@ const axios = require("axios");
 const { loadCookies, writeCookies } = require("../checker");
 const { httpJwxtLogin } = require("../login/httpJwxtLogin");
 const credentialStore = require("../services/credentialStore");
+const { classifyJwxtLoginError } = require("../services/jwxtLoginError");
 const { loadConfiguredTerm } = require("./calendar");
 
 const JWXT_BASE = "https://newjwc.tyust.edu.cn/jwglxt";
@@ -26,11 +27,7 @@ function cookieHeader(cookies) {
 }
 
 function jwxtLoginErrorCode(err) {
-  const message = String((err && err.message) || "").toLowerCase();
-  if (message.includes("captcha") || message.includes("验证码") || message.includes("风控")) {
-    return "JWXT_CAPTCHA_REQUIRED";
-  }
-  return "JWXT_LOGIN_FAILED";
+  return classifyJwxtLoginError(err).error;
 }
 
 async function ensureCookies(userId) {
@@ -48,18 +45,22 @@ async function ensureCookies(userId) {
   try {
     login = await httpJwxtLogin(credentials.studentId, credentials.password);
   } catch (cause) {
-    const err = new Error(cause && cause.message ? cause.message : "教务系统登录失败");
-    err.code = jwxtLoginErrorCode(cause);
+    const classified = classifyJwxtLoginError(cause);
+    credentialStore.updateBoundAccountStatus(userId, classified.error, { clearLastJwxtLoginAt: true });
+    const err = new Error(classified.message);
+    err.code = classified.error;
     throw err;
   }
 
   cookies = selectJwxtCookies(login.cookies);
   if (!cookieHeader(cookies)) {
-    const err = new Error("教务系统登录失败，未获取到有效 Cookie");
-    err.code = "JWXT_LOGIN_FAILED";
+    credentialStore.updateBoundAccountStatus(userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
+    const err = new Error("教务系统登录态获取失败，请尝试验证码绑定；如果仍失败，请确认你能在官网登录并进入教务系统");
+    err.code = "JWXT_SSO_FAILED";
     throw err;
   }
   writeCookies(cookies, userId);
+  credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
   return cookies;
 }
 
@@ -290,12 +291,15 @@ async function syncTimetableForUser(userId, storage, options) {
     try {
       login = await httpJwxtLogin(credentials.studentId, credentials.password);
     } catch (cause) {
-      const nextErr = new Error(cause && cause.message ? cause.message : "教务系统登录失败");
-      nextErr.code = jwxtLoginErrorCode(cause);
+      const classified = classifyJwxtLoginError(cause);
+      credentialStore.updateBoundAccountStatus(userId, classified.error, { clearLastJwxtLoginAt: true });
+      const nextErr = new Error(classified.message);
+      nextErr.code = classified.error;
       throw nextErr;
     }
     cookies = selectJwxtCookies(login.cookies);
     writeCookies(cookies, userId);
+    credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
     rawItems = await fetchTimetable(cookies, term);
   }
 

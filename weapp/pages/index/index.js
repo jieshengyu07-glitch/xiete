@@ -75,9 +75,12 @@ Page({
   },
 
   statusMessage(cookieStatus) {
-    if (cookieStatus === "login_required") return "请先绑定教务账号";
+    if (cookieStatus === "login_required" || cookieStatus === "LOGIN_REQUIRED") return "请先绑定教务账号";
+    if (cookieStatus === "cookie_expired" || cookieStatus === "COOKIE_EXPIRED") return "已绑定，登录态已过期；需要时可重新验证";
+    if (cookieStatus === "JWXT_CAPTCHA_REQUIRED" || cookieStatus === "CAPTCHA_REQUIRED") return "已绑定，教务系统需要验证码验证";
+    if (cookieStatus === "login_failed" || cookieStatus === "LOGIN_FAILED") return "已绑定，最近登录失败，请到设置页处理";
     if (cookieStatus === "account_saved" || cookieStatus === "pending_verify") return "账号已保存，请点击立即检查成绩";
-    if (cookieStatus === "jwxt_unavailable") return "教务系统暂时不可用，请稍后再试";
+    if (cookieStatus === "jwxt_unavailable" || cookieStatus === "JWXT_UNAVAILABLE") return "教务系统暂时不可用，请稍后再试";
     return "";
   },
 
