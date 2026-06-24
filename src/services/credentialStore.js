@@ -98,6 +98,9 @@ function readBoundAccountMeta(userId) {
     return {
       studentId: String(data.studentId),
       hasPassword: Boolean(data.passwordEnc || data.password),
+      portalAuthStatus: data.portalAuthStatus || "",
+      boundAt: data.boundAt || data.updatedAt || null,
+      jwxtStatus: data.jwxtStatus || data.lastJwxtStatus || "",
       lastJwxtStatus: data.lastJwxtStatus || "",
       lastJwxtLoginAt: data.lastJwxtLoginAt || null,
       updatedAt: data.updatedAt || null,
@@ -121,6 +124,9 @@ function saveBoundAccount(studentId, password, userId) {
   fs.writeFileSync(file, JSON.stringify({
     studentId: String(studentId),
     passwordEnc: encryptSecret(password),
+    boundAt: existing.boundAt || new Date().toISOString(),
+    portalAuthStatus: "OK",
+    jwxtStatus: existing.jwxtStatus || existing.lastJwxtStatus || "COOKIE_EXPIRED",
     lastJwxtStatus: existing.lastJwxtStatus || "COOKIE_EXPIRED",
     lastJwxtLoginAt: existing.lastJwxtLoginAt || null,
     updatedAt: new Date().toISOString()
@@ -133,7 +139,9 @@ function updateBoundAccountStatus(userId, status, extra) {
   try {
     const data = JSON.parse(fs.readFileSync(file, "utf8"));
     if (!data || !data.studentId) return false;
+    data.jwxtStatus = status || data.jwxtStatus || data.lastJwxtStatus || "";
     data.lastJwxtStatus = status || data.lastJwxtStatus || "";
+    if (extra && extra.portalAuthStatus) data.portalAuthStatus = extra.portalAuthStatus;
     if (extra && extra.lastJwxtLoginAt !== undefined) data.lastJwxtLoginAt = extra.lastJwxtLoginAt;
     if (extra && extra.clearLastJwxtLoginAt) data.lastJwxtLoginAt = null;
     data.updatedAt = new Date().toISOString();

@@ -285,7 +285,7 @@ async function refreshCookiesFromEnv(userId) {
       console.log("[checker] 自动刷新失败：未获取完整 route/JSESSIONID/rememberMe Cookie");
       credentialStore.updateBoundAccountStatus(userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
       return {
-        errorResult: fail("JWXT_SSO_FAILED", "教务系统登录态获取失败，请先到官网登录完成验证后再回到小程序重试；如果仍失败，请确认你能在官网登录并进入教务系统", {
+        errorResult: fail("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统", {
           error: "JWXT_SSO_FAILED"
         })
       };

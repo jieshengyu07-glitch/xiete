@@ -26,6 +26,10 @@ function statusFromApi(status) {
   if (!bound && (jwxtStatus === "LOGIN_REQUIRED" || cookieStatus === "login_required")) return { text: "未绑定", tone: "muted" };
   if (jwxtStatus === "CAPTCHA_REQUIRED" || cookieStatus === "JWXT_CAPTCHA_REQUIRED") return { text: "已绑定，需验证码验证", tone: "warn" };
   if (jwxtStatus === "COOKIE_EXPIRED" || cookieStatus === "cookie_expired") return { text: "已绑定，登录态已过期", tone: "warn" };
+  if (jwxtStatus === "UNAVAILABLE" || cookieStatus === "JWXT_UNAVAILABLE") return { text: "已绑定，教务系统暂时不可用", tone: "warn" };
+  if (jwxtStatus === "SSO_FAILED" || cookieStatus === "JWXT_SSO_FAILED") return { text: "已绑定，教务登录态获取失败", tone: "warn" };
+  if (jwxtStatus === "TIMEOUT" || cookieStatus === "JWXT_TIMEOUT") return { text: "已绑定，教务系统响应超时", tone: "warn" };
+  if (jwxtStatus === "OK") return { text: "已绑定", tone: "ok" };
   if (jwxtStatus === "LOGIN_FAILED" || cookieStatus === "login_failed") return { text: "已绑定，最近登录失败", tone: "err" };
   if (bound || cookieStatus === "cookie_valid" || cookieStatus === "account_saved" || cookieStatus === "pending_verify") {
     return { text: "已绑定", tone: "ok" };
@@ -235,6 +239,16 @@ Page({
     try {
       const data = await api.post("/bind-account", { studentId, password }, { timeout: 120000 });
       wx.hideLoading();
+
+      if (data && data.success === true && data.bound === true && data.warning === true) {
+        this.setData({ password: "", binding: false, jwxtStatusText: "已绑定，教务系统暂时不可用", jwxtStatusTone: "warn" });
+        wx.showModal({
+          title: "绑定已保存",
+          content: "教务账号已保存，但教务系统暂时不可用。稍后可在课表或成绩页重新刷新。",
+          showCancel: false
+        });
+        return;
+      }
 
       if (data && data.success === true && data.bound === true && data.verified === false) {
         this.setData({ password: "", binding: false, jwxtStatusText: "已绑定", jwxtStatusTone: "ok" });

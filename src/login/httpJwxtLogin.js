@@ -333,8 +333,8 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   const needsCaptcha = await checkCaptcha(cookieJar, studentId).catch(() => false);
 
   if (needsCaptcha) throwJwxtError("JWXT_CAPTCHA_REQUIRED", "教务系统需要验证码，请输入验证码完成验证");
-  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请先到官网登录完成验证后再回到小程序重试；如果仍失败，请确认你能在官网登录并进入教务系统");
-  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请先到官网登录完成验证后再回到小程序重试；如果仍失败，请确认你能在官网登录并进入教务系统");
+  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统");
+  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统");
 
   const encryptedPassword = encryptPassword(loginCroypto, password);
   if (!encryptedPassword) throw new Error("DES password encryption failed.");
@@ -368,6 +368,9 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   if (isInvalidCredentialPage(followed.response && followed.response.data)) {
     throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或教务密码错误，请检查后重试");
   }
+  if (!String(followed.finalUrl || "").includes(PORTAL_ORIGIN)) {
+    throwJwxtError("JWXT_LOGIN_FAILED", "统一认证登录失败，请稍后重试");
+  }
   return followed;
 }
 
@@ -375,8 +378,25 @@ async function httpJwxtLogin(studentId, password, options) {
   if (!studentId) throw new Error("studentId is required.");
   if (!password) throw new Error("password is required.");
 
+  const portal = await httpPortalLogin(studentId, password);
+  return continueJwxtSso(portal.cookieJar, options);
+}
+
+async function httpPortalLogin(studentId, password) {
+  if (!studentId) throw new Error("studentId is required.");
+  if (!password) throw new Error("password is required.");
+
   const cookieJar = createCookieJar();
-  await loginCasToPortal(cookieJar, studentId, password);
+  const portal = await loginCasToPortal(cookieJar, studentId, password);
+  return {
+    success: true,
+    cookieJar,
+    cookies: cookieJar.slice(),
+    finalUrl: portal.finalUrl
+  };
+}
+
+async function continueJwxtSso(cookieJar, options) {
   const jwxtTraceUrls = [];
   const debug = Boolean(options && options.debug);
   if (debug) printCasCookieSummary(cookieJar, "before JWXT SSO");
@@ -402,6 +422,8 @@ async function httpJwxtLogin(studentId, password, options) {
 
 module.exports = {
   httpJwxtLogin,
+  httpPortalLogin,
+  continueJwxtSso,
   createCookieJar,
   parseHiddenValue,
   requestNoRedirect,
