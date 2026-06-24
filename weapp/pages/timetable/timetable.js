@@ -18,14 +18,14 @@ function displayDate(value) {
   return Number(parts[1]) + "月" + Number(parts[2]) + "日";
 }
 
-function showCaptchaRequired() {
+function showCaptchaRequired(onRetry) {
   wx.showModal({
-    title: "需要验证码",
-    content: "教务系统需要验证码验证，请在小程序内完成一次验证。",
-    confirmText: "去验证",
+    title: "需要验证码验证",
+    content: "教务系统需要验证码验证，请先到官网登录教务系统完成验证后，再回到小程序重试。",
+    confirmText: "我已完成验证，重试",
     cancelText: "稍后再说",
     success: result => {
-      if (result.confirm) wx.switchTab({ url: "/pages/settings/settings" });
+      if (result.confirm && typeof onRetry === "function") onRetry();
     }
   });
 }
@@ -86,7 +86,7 @@ Page({
 
       if (result && result.success === false) {
         if (isCaptchaRequired(result)) {
-          showCaptchaRequired();
+          showCaptchaRequired(() => this.syncTimetable());
           await this.loadToday();
           return;
         }
@@ -115,7 +115,7 @@ Page({
         error: formatJwxtErrorMessage(err, "课表刷新失败")
       });
       if (isCaptchaRequired(err)) {
-        showCaptchaRequired();
+        showCaptchaRequired(() => this.syncTimetable());
         return;
       }
       if (isLoginRequired(err)) {

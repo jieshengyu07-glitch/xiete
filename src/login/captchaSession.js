@@ -60,6 +60,20 @@ function mimeType(headers) {
   return contentType || "image/png";
 }
 
+function parseHiddenInputs(html) {
+  const fields = {};
+  const text = String(html || "");
+  const re = /<input\b[^>]*type=["']?hidden["']?[^>]*>/gi;
+  let match;
+  while ((match = re.exec(text))) {
+    const tag = match[0];
+    const name = (tag.match(/\bname=["']([^"']+)["']/i) || [])[1];
+    const value = (tag.match(/\bvalue=["']([^"']*)["']/i) || [])[1] || "";
+    if (name) fields[name] = value;
+  }
+  return fields;
+}
+
 async function createCaptchaSession(userId) {
   cleanupExpiredSessions();
   checkRateLimit(userId, "captcha-session");
@@ -75,6 +89,10 @@ async function createCaptchaSession(userId) {
   const html = String(loginPage.data || "");
   const execution = parseHiddenValue(html, "login-page-flowkey");
   const loginCroypto = parseHiddenValue(html, "login-croypto");
+  const hiddenFields = Object.assign({}, parseHiddenInputs(html), {
+    execution,
+    croypto: loginCroypto
+  });
   if (!execution || !loginCroypto) {
     const err = new Error("教务登录页缺少必要字段，请稍后重试");
     err.code = "JWXT_LOGIN_PAGE_INVALID";
@@ -102,8 +120,12 @@ async function createCaptchaSession(userId) {
   sessions.set(sessionId, {
     userId: String(userId),
     cookieJar,
+    loginPageHtml: html,
     execution,
     loginCroypto,
+    hiddenFields,
+    captchaUrl,
+    createdAt: new Date().toISOString(),
     expiresAt: now() + SESSION_TTL_MS
   });
 
@@ -120,7 +142,8 @@ function getSession(sessionId, userId) {
   const session = sessions.get(String(sessionId || ""));
   if (!session || session.userId !== String(userId)) {
     const err = new Error("验证码会话已过期，请重新获取验证码");
-    err.code = "CAPTCHA_SESSION_EXPIRED";
+    err.message = "验证码已过期，请重新获取";
+    err.code = "JWXT_CAPTCHA_SESSION_EXPIRED";
     throw err;
   }
   return session;
@@ -155,16 +178,21 @@ async function loginWithCaptcha(userId, payload) {
     throw err;
   }
 
-  const form = new URLSearchParams({
+  const form = new URLSearchParams(Object.assign({}, session.hiddenFields || {}, {
     username: studentId,
     password: encryptedPassword,
     type: "UsernamePassword",
     _eventId: "submit",
     geolocation: "",
     execution: session.execution,
+    captcha,
     captcha_code: captcha,
+    verifyCode: captcha,
+    validateCode: captcha,
+    yzm: captcha,
+    code: captcha,
     croypto: session.loginCroypto
-  }).toString();
+  })).toString();
 
   const loginResponse = await requestNoRedirect(session.cookieJar, "POST", LOGIN_POST_URL, {
     data: form,

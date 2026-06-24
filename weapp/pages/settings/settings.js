@@ -1,6 +1,8 @@
 const api = require("../../utils/api");
 const app = getApp();
-const { formatJwxtErrorMessage, isCaptchaRequired, isInvalidCredentials } = require("../../utils/jwxtError");
+const { formatJwxtErrorMessage, isInvalidCredentials } = require("../../utils/jwxtError");
+
+const CAPTCHA_RELAY_ENABLED = false;
 
 function isTimeoutError(err) {
   const message = String((err && (err.message || err.errMsg)) || "").toLowerCase();
@@ -31,6 +33,14 @@ function statusFromApi(status) {
   return { text: "未绑定", tone: "muted" };
 }
 
+function shouldShowCaptchaFallback(err) {
+  const code = String((err && (err.error || err.code || (err.data && err.data.error))) || "");
+  const message = errorText(err) || String((err && err.message) || "");
+  return code === "JWXT_CAPTCHA_REQUIRED" ||
+    message.includes("需要验证码") ||
+    message.includes("验证码验证");
+}
+
 Page({
   data: {
     apiAddr: app.globalData.apiBase,
@@ -47,6 +57,8 @@ Page({
     captchaImage: "",
     captchaCode: "",
     captchaExpanded: false,
+    captchaRelayEnabled: CAPTCHA_RELAY_ENABLED,
+    captchaFailureCount: 0,
     captchaLoading: false,
     captchaBinding: false,
     binding: false,
@@ -98,25 +110,26 @@ Page({
   },
 
   expandCaptcha(message) {
-    this.setData({ captchaExpanded: true, jwxtStatusText: "需要验证码", jwxtStatusTone: "warn" });
-    if (message) {
-      wx.showModal({
-        title: "需要验证码",
-        content: message,
-        showCancel: false
-      });
-    }
-  },
-
-  toggleCaptcha() {
-    const next = !this.data.captchaExpanded;
-    const data = { captchaExpanded: next };
-    if (!next) {
-      data.captchaSessionId = "";
-      data.captchaImage = "";
-      data.captchaCode = "";
-    }
-    this.setData(data);
+    const nextCount = Number(this.data.captchaFailureCount || 0) + 1;
+    const content = nextCount >= 2
+      ? "验证码验证失败，请先到官网登录完成验证后再回来重试。"
+      : (message || "教务系统需要验证码验证，请先到官网登录教务系统完成验证后，再回到小程序重新绑定或刷新。");
+    this.setData({
+      captchaExpanded: true,
+      captchaRelayEnabled: CAPTCHA_RELAY_ENABLED,
+      captchaFailureCount: nextCount,
+      jwxtStatusText: "需要验证码验证",
+      jwxtStatusTone: "warn"
+    });
+    wx.showModal({
+      title: "需要验证码验证",
+      content,
+      confirmText: "我已完成验证，重试",
+      cancelText: "稍后再说",
+      success: result => {
+        if (result.confirm) this.retryAfterOfficialCaptcha();
+      }
+    });
   },
 
   async getCaptcha() {
@@ -184,7 +197,16 @@ Page({
       });
     } catch (err) {
       wx.hideLoading();
-      this.setData({ captchaBinding: false });
+      const nextCount = Number(this.data.captchaFailureCount || 0) + 1;
+      this.setData({ captchaBinding: false, captchaFailureCount: nextCount });
+      if (nextCount >= 2) {
+        wx.showModal({
+          title: "验证码验证失败",
+          content: "验证码验证失败，请先到官网登录完成验证后再回来重试。",
+          showCancel: false
+        });
+        return;
+      }
       wx.showModal({
         title: "验证失败",
         content: formatJwxtErrorMessage(err, "请重新获取验证码后再试"),
@@ -194,7 +216,7 @@ Page({
   },
 
   async bindAccount() {
-    if (this.data.captchaExpanded) {
+    if (this.data.captchaExpanded && this.data.captchaRelayEnabled) {
       await this.bindAccountWithCaptcha();
       return;
     }
@@ -238,8 +260,8 @@ Page({
           wx.showToast({ title: "学号或教务密码错误，请检查后重试", icon: "none" });
           return;
         }
-        if (isCaptchaRequired(data) || String((data && data.message) || "").includes("验证码")) {
-          this.expandCaptcha("教务系统需要验证码，请输入验证码完成绑定。");
+        if (shouldShowCaptchaFallback(data)) {
+          this.expandCaptcha("教务系统需要验证码验证，请先到官网登录教务系统完成验证后，再回到小程序重新绑定或刷新。");
           return;
         }
         wx.showToast({ title: formatJwxtErrorMessage(data, "绑定失败"), icon: "none" });
@@ -248,8 +270,8 @@ Page({
       wx.hideLoading();
       this.setData({ binding: false });
       const text = errorText(err);
-      if (isCaptchaRequired(err) || text.includes("验证码")) {
-        this.expandCaptcha("教务系统需要验证码，请输入验证码完成绑定。");
+      if (shouldShowCaptchaFallback(err)) {
+        this.expandCaptcha("教务系统需要验证码验证，请先到官网登录教务系统完成验证后，再回到小程序重新绑定或刷新。");
         return;
       }
       if (isTimeoutError(err)) {
@@ -266,6 +288,16 @@ Page({
         showCancel: false
       });
     }
+  },
+
+  retryAfterOfficialCaptcha() {
+    this.setData({
+      captchaExpanded: false,
+      captchaSessionId: "",
+      captchaImage: "",
+      captchaCode: ""
+    });
+    this.bindAccount();
   },
 
   unbindAccount() {

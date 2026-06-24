@@ -308,7 +308,7 @@ app.post("/check", auth, async (req, res) => {
 function apiErrorStatus(code) {
   if (code === "LOGIN_REQUIRED" || code === "INVALID_CAPTCHA_LOGIN_INPUT") return 400;
   if (code === "JWXT_CAPTCHA_REQUIRED" || code === "JWXT_CAPTCHA_INVALID") return 400;
-  if (code === "JWXT_INVALID_CREDENTIALS" || code === "INVALID_CREDENTIALS" || code === "CAPTCHA_LOGIN_FAILED" || code === "CAPTCHA_SESSION_EXPIRED") return 400;
+  if (code === "JWXT_INVALID_CREDENTIALS" || code === "INVALID_CREDENTIALS" || code === "CAPTCHA_LOGIN_FAILED" || code === "CAPTCHA_SESSION_EXPIRED" || code === "JWXT_CAPTCHA_SESSION_EXPIRED") return 400;
   if (code === "JWXT_SSO_FAILED") return 502;
   if (code === "JWXT_TIMEOUT") return 504;
   if (code === "JWXT_UNAVAILABLE") return 503;
@@ -621,7 +621,7 @@ app.post("/bind-account", auth, async (req, res) => {
         verified: false,
         reason: "JWXT_SSO_FAILED",
         error: "JWXT_SSO_FAILED",
-        message: "教务系统登录态获取失败，请尝试验证码绑定；如果仍失败，请确认你能在官网登录并进入教务系统"
+        message: "教务系统登录态获取失败，请先到官网登录完成验证后再回到小程序重试；如果仍失败，请确认你能在官网登录并进入教务系统"
       });
     }
 

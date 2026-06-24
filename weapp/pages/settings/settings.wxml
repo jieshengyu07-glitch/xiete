@@ -9,19 +9,24 @@
 
   <view class="card bind-card">
     <view class="card-title">绑定教务账号</view>
-    <view class="hint">教务账号仅用于查询课表和成绩。遇到验证码时，可在小程序内手动输入验证码完成验证。</view>
+    <view class="hint">教务账号仅用于查询课表和成绩。若教务系统要求验证码，请先到官网登录完成验证后再重试。</view>
     <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
     <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
 
-    <view wx:if="{{!captchaExpanded}}" class="captcha-help" bindtap="toggleCaptcha">绑定失败或提示验证码？<text>使用验证码绑定 &gt;</text></view>
-
     <view wx:if="{{captchaExpanded}}" class="captcha-panel">
-      <image wx:if="{{captchaImage}}" class="captcha-image" src="{{captchaImage}}" mode="aspectFit" bindtap="getCaptcha" />
-      <input class="input captcha-input" placeholder="请输入验证码" value="{{captchaCode}}" bindinput="onCaptchaInput" />
-      <button class="captcha-btn" loading="{{captchaLoading}}" disabled="{{captchaLoading}}" bindtap="getCaptcha">{{captchaImage ? '重新获取' : '获取验证码'}}</button>
+      <view wx:if="{{!captchaRelayEnabled}}" class="captcha-fallback">
+        <view class="captcha-title">教务系统需要验证码验证</view>
+        <view class="captcha-desc">请先到官网登录教务系统完成验证后，再回到小程序重试绑定。</view>
+        <button class="captcha-btn" loading="{{binding}}" disabled="{{binding}}" bindtap="retryAfterOfficialCaptcha">我已完成验证，重试</button>
+      </view>
+      <block wx:else>
+        <image wx:if="{{captchaImage}}" class="captcha-image" src="{{captchaImage}}" mode="aspectFit" bindtap="getCaptcha" />
+        <input class="input captcha-input" placeholder="请输入验证码" value="{{captchaCode}}" bindinput="onCaptchaInput" />
+        <button class="captcha-btn" loading="{{captchaLoading}}" disabled="{{captchaLoading}}" bindtap="getCaptcha">{{captchaImage ? '重新获取' : '获取验证码'}}</button>
+      </block>
     </view>
 
-    <button class="bind-btn" loading="{{binding || captchaBinding}}" disabled="{{binding || captchaBinding}}" bindtap="bindAccount">{{captchaExpanded ? '验证码绑定' : '绑定教务账号'}}</button>
+    <button class="bind-btn" loading="{{binding || captchaBinding}}" disabled="{{binding || captchaBinding}}" bindtap="bindAccount">{{captchaExpanded && captchaRelayEnabled ? '验证码绑定' : '绑定教务账号'}}</button>
     <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
   </view>
 
