@@ -3,7 +3,7 @@ const ERROR_MESSAGES = {
   JWXT_CAPTCHA_INVALID: "验证码错误，请重新输入或刷新验证码",
   JWXT_CAPTCHA_REQUIRED: "教务系统需要验证码，请输入验证码完成验证",
   JWXT_CAPTCHA_SESSION_EXPIRED: "验证码已过期，请重新获取",
-  JWXT_SSO_FAILED: "教务系统登录态获取失败，请先到官网登录完成验证后再回到小程序重试；如果仍失败，请确认你能在官网登录并进入教务系统",
+  JWXT_SSO_FAILED: "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统",
   JWXT_TIMEOUT: "教务系统响应超时，请稍后再试",
   JWXT_UNAVAILABLE: "教务系统暂时不可用，请稍后再试",
   JWXT_LOGIN_FAILED: "教务登录失败，请稍后再试",

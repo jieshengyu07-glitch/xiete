@@ -4,7 +4,7 @@ const { runCycle, runCycleForUser, loadCookies, writeCookies, deleteCookies } = 
 const axios = require("axios");
 const storage = require("./db/storage");
 const Scheduler = require("./scheduler/cron");
-const { httpJwxtLogin } = require("./login/httpJwxtLogin");
+const { httpJwxtLogin, httpPortalLogin, continueJwxtSso } = require("./login/httpJwxtLogin");
 const credentialStore = require("./services/credentialStore");
 const auth = require("./middleware/auth");
 const { signToken } = require("./utils/jwt");
@@ -62,20 +62,50 @@ function hasJwxtSessionCookie(cookies) {
 
 function publicJwxtStatus(bound, cookieValid, accountMeta, credentials) {
   if (!bound) return "LOGIN_REQUIRED";
-  if (cookieValid) return "COOKIE_VALID";
+  if (cookieValid) return "OK";
   if (!credentials) return "LOGIN_FAILED";
-  const last = String((accountMeta && accountMeta.lastJwxtStatus) || "");
-  if (last === "JWXT_CAPTCHA_REQUIRED" || last === "JWXT_CAPTCHA_INVALID") return "CAPTCHA_REQUIRED";
+  const last = String((accountMeta && (accountMeta.jwxtStatus || accountMeta.lastJwxtStatus)) || "");
+  if (last === "OK" || last === "COOKIE_VALID") return "COOKIE_EXPIRED";
+  if (last === "JWXT_CAPTCHA_REQUIRED" || last === "CAPTCHA_REQUIRED") return "CAPTCHA_REQUIRED";
+  if (last === "JWXT_SSO_FAILED" || last === "SSO_FAILED") return "SSO_FAILED";
+  if (last === "JWXT_UNAVAILABLE" || last === "UNAVAILABLE") return "UNAVAILABLE";
+  if (last === "JWXT_TIMEOUT" || last === "TIMEOUT") return "TIMEOUT";
+  if (last === "JWXT_LOGIN_FAILED" || last === "LOGIN_FAILED") return "LOGIN_FAILED";
   if (last === "COOKIE_EXPIRED" || !last) return "COOKIE_EXPIRED";
   return "LOGIN_FAILED";
 }
 
 function legacyCookieStatus(jwxtStatus) {
   if (jwxtStatus === "LOGIN_REQUIRED") return "login_required";
-  if (jwxtStatus === "COOKIE_VALID") return "cookie_valid";
+  if (jwxtStatus === "OK") return "cookie_valid";
   if (jwxtStatus === "CAPTCHA_REQUIRED") return "JWXT_CAPTCHA_REQUIRED";
   if (jwxtStatus === "COOKIE_EXPIRED") return "cookie_expired";
+  if (jwxtStatus === "SSO_FAILED") return "JWXT_SSO_FAILED";
+  if (jwxtStatus === "UNAVAILABLE") return "JWXT_UNAVAILABLE";
+  if (jwxtStatus === "TIMEOUT") return "JWXT_TIMEOUT";
   return "login_failed";
+}
+
+function jwxtPublicStatusFromError(code) {
+  if (code === "JWXT_SSO_FAILED") return "SSO_FAILED";
+  if (code === "JWXT_UNAVAILABLE") return "UNAVAILABLE";
+  if (code === "JWXT_TIMEOUT") return "TIMEOUT";
+  if (code === "JWXT_CAPTCHA_REQUIRED") return "CAPTCHA_REQUIRED";
+  if (code === "JWXT_INVALID_CREDENTIALS") return "LOGIN_FAILED";
+  return "LOGIN_FAILED";
+}
+
+function bindWarningResponse(jwxtStatus) {
+  return {
+    success: true,
+    warning: true,
+    code: 0,
+    bound: true,
+    verified: false,
+    portalAuthStatus: "OK",
+    jwxtStatus,
+    message: "教务账号已验证并保存，但教务系统暂时不可用，课表和成绩稍后可重试刷新。"
+  };
 }
 
 function safeUrlHostPath(value) {
@@ -217,6 +247,7 @@ app.get("/status", auth, (req, res) => {
   res.json({
     status: "running",
     bound,
+    portalAuthStatus: bound ? ((accountMeta && accountMeta.portalAuthStatus) || (credentials ? "OK" : "FAILED")) : "FAILED",
     jwxtStatus,
     cookieValid: valid,
     cookieStatus: legacyCookieStatus(jwxtStatus),
@@ -574,32 +605,64 @@ app.post("/bind-account", auth, async (req, res) => {
     });
   }
 
+  let portal;
   try {
-    console.log("[bind] verifying jwxt");
-    const login = await httpJwxtLogin(studentId, password);
-    if (!login || login.success === false) {
-      logBindVerifyFailed(null, {
-        errorType: "success_false",
-        step: "httpJwxtLogin",
-        finalUrl: login && login.finalUrl,
-        message: login && (login.message || login.error)
+    console.log("[bind] verifying portal credentials");
+    portal = await httpPortalLogin(studentId, password);
+  } catch (err) {
+    const classified = classifyJwxtLoginError(err);
+    console.log("[bind] portal classified error=" + classified.error);
+
+    if (classified.error === "JWXT_INVALID_CREDENTIALS") {
+      credentialStore.updateBoundAccountStatus(req.userId, "LOGIN_FAILED", {
+        portalAuthStatus: "INVALID_CREDENTIALS",
+        clearLastJwxtLoginAt: true
       });
-      const classified = classifyJwxtLoginError(login && (login.message || login.error));
-      console.log("[bind] classified error=" + classified.error);
-      credentialStore.saveBoundAccount(studentId, password, req.userId);
-      credentialStore.updateBoundAccountStatus(req.userId, classified.error, { clearLastJwxtLoginAt: true });
-      deleteCookies(req.userId);
-      return res.json({
-        success: true,
-        bound: true,
-        verified: false,
-        reason: classified.error,
-        error: classified.error,
+      return res.status(400).json({
+        success: false,
+        bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
+        portalAuthStatus: "INVALID_CREDENTIALS",
+        jwxtStatus: "LOGIN_FAILED",
+        error: "JWXT_INVALID_CREDENTIALS",
         message: classified.message
       });
     }
-    console.log("[bind] jwxt verified success");
-    const jwxtCookies = selectJwxtGradeCookies(login.cookies);
+
+    if (classified.error === "JWXT_CAPTCHA_REQUIRED") {
+      credentialStore.updateBoundAccountStatus(req.userId, "CAPTCHA_REQUIRED", {
+        portalAuthStatus: "CAPTCHA_REQUIRED",
+        clearLastJwxtLoginAt: true
+      });
+      return res.status(400).json({
+        success: false,
+        bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
+        portalAuthStatus: "CAPTCHA_REQUIRED",
+        jwxtStatus: "CAPTCHA_REQUIRED",
+        error: "JWXT_CAPTCHA_REQUIRED",
+        message: classified.message
+      });
+    }
+
+    return res.status(apiErrorStatus(classified.error)).json({
+      success: false,
+      bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
+      portalAuthStatus: "FAILED",
+      jwxtStatus: "LOGIN_FAILED",
+      error: classified.error,
+      message: classified.message
+    });
+  }
+
+  credentialStore.saveBoundAccount(studentId, password, req.userId);
+  credentialStore.updateBoundAccountStatus(req.userId, "COOKIE_EXPIRED", {
+    portalAuthStatus: "OK",
+    clearLastJwxtLoginAt: true
+  });
+
+  try {
+    console.log("[bind] portal ok; trying jwxt sso");
+    const jwxt = await continueJwxtSso(portal.cookieJar);
+    const jwxtCookies = selectJwxtGradeCookies(jwxt.cookies);
     const hasRoute = jwxtCookies.some(c => c.name === "route");
     const hasJSession = jwxtCookies.some(c => c.name === "JSESSIONID");
     const hasRememberMe = jwxtCookies.some(c => c.name === "rememberMe");
@@ -608,74 +671,44 @@ app.post("/bind-account", auth, async (req, res) => {
       logBindVerifyFailed(null, {
         errorType: "missing_required_cookies",
         step: "selectJwxtGradeCookies",
-        finalUrl: login.finalUrl,
+        finalUrl: jwxt.finalUrl,
         message: "Missing required JWXT cookie names"
       });
-      console.log("[api] JWXT account saved but verification unavailable");
-      credentialStore.saveBoundAccount(studentId, password, req.userId);
-      credentialStore.updateBoundAccountStatus(req.userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
-      deleteCookies(req.userId);
-      return res.json({
-        success: true,
-        bound: true,
-        verified: false,
-        reason: "JWXT_SSO_FAILED",
-        error: "JWXT_SSO_FAILED",
-        message: "教务系统登录态获取失败，请先到官网登录完成验证后再回到小程序重试；如果仍失败，请确认你能在官网登录并进入教务系统"
+      credentialStore.updateBoundAccountStatus(req.userId, "SSO_FAILED", {
+        portalAuthStatus: "OK",
+        clearLastJwxtLoginAt: true
       });
+      deleteCookies(req.userId);
+      return res.json(bindWarningResponse("SSO_FAILED"));
     }
 
-    credentialStore.saveBoundAccount(studentId, password, req.userId);
-    credentialStore.updateBoundAccountStatus(req.userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
+    credentialStore.updateBoundAccountStatus(req.userId, "OK", {
+      portalAuthStatus: "OK",
+      lastJwxtLoginAt: new Date().toISOString()
+    });
     writeCookies(jwxtCookies, req.userId);
-    console.log("[api] JWXT account bound and verified");
+    console.log("[api] portal verified and JWXT cookies refreshed");
     res.json({
       success: true,
+      warning: false,
+      code: 0,
       bound: true,
       verified: true,
-      finalUrl: login.finalUrl,
-      hasJSession: Boolean(login.jwxtJSessionId)
+      portalAuthStatus: "OK",
+      jwxtStatus: "OK",
+      finalUrl: jwxt.finalUrl,
+      hasJSession: Boolean(jwxt.jwxtJSessionId)
     });
   } catch (err) {
-    logBindVerifyFailed(err, { step: "httpJwxtLogin" });
     const classified = classifyJwxtLoginError(err);
-    console.log("[bind] classified error=" + classified.error);
-
-    if (classified.error === "JWXT_INVALID_CREDENTIALS") {
-      credentialStore.updateBoundAccountStatus(req.userId, "JWXT_INVALID_CREDENTIALS", { clearLastJwxtLoginAt: true });
-      return res.status(400).json({
-        success: false,
-        bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
-        verified: false,
-        error: "JWXT_INVALID_CREDENTIALS",
-        message: classified.message
-      });
-    }
-
-    if (classified.error === "JWXT_CAPTCHA_REQUIRED") {
-      credentialStore.saveBoundAccount(studentId, password, req.userId);
-      credentialStore.updateBoundAccountStatus(req.userId, "JWXT_CAPTCHA_REQUIRED", { clearLastJwxtLoginAt: true });
-      deleteCookies(req.userId);
-      return res.status(400).json({
-        success: false,
-        bound: true,
-        verified: false,
-        error: "JWXT_CAPTCHA_REQUIRED",
-        message: classified.message
-      });
-    }
-
-    credentialStore.saveBoundAccount(studentId, password, req.userId);
-    credentialStore.updateBoundAccountStatus(req.userId, classified.error, { clearLastJwxtLoginAt: true });
-    deleteCookies(req.userId);
-    res.status(apiErrorStatus(classified.error)).json({
-      success: false,
-      error: classified.error,
-      bound: true,
-      verified: false,
-      reason: classified.error,
-      message: classified.message
+    const publicStatus = jwxtPublicStatusFromError(classified.error);
+    console.log("[bind] portal ok; jwxt classified error=" + classified.error);
+    credentialStore.updateBoundAccountStatus(req.userId, publicStatus, {
+      portalAuthStatus: "OK",
+      clearLastJwxtLoginAt: true
     });
+    deleteCookies(req.userId);
+    return res.json(bindWarningResponse(publicStatus));
   }
 });
 
