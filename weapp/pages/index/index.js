@@ -1,14 +1,14 @@
 const api = require("../../utils/api");
 const { formatJwxtErrorMessage, isCaptchaRequired } = require("../../utils/jwxtError");
 
-function showCaptchaRequired() {
+function showCaptchaRequired(onRetry) {
   wx.showModal({
-    title: "需要验证码",
-    content: "教务系统需要验证码验证，请在小程序内完成一次验证。",
-    confirmText: "去验证",
+    title: "需要验证码验证",
+    content: "教务系统需要验证码验证，请先到官网登录教务系统完成验证后，再回到小程序重试。",
+    confirmText: "我已完成验证，重试",
     cancelText: "稍后再说",
     success: result => {
-      if (result.confirm) wx.switchTab({ url: "/pages/settings/settings" });
+      if (result.confirm && typeof onRetry === "function") onRetry();
     }
   });
 }
@@ -130,7 +130,7 @@ Page({
         }
       } else {
         if (isCaptchaRequired(d)) {
-          showCaptchaRequired();
+          showCaptchaRequired(() => this.doCheck());
           this.loadStatus();
           return;
         }
@@ -149,7 +149,7 @@ Page({
     }).catch(e => {
       wx.hideLoading();
       if (isCaptchaRequired(e)) {
-        showCaptchaRequired();
+        showCaptchaRequired(() => this.doCheck());
         return;
       }
       wx.showToast({ title: formatJwxtErrorMessage(e, "请求失败"), icon: "none" });

@@ -333,8 +333,8 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   const needsCaptcha = await checkCaptcha(cookieJar, studentId).catch(() => false);
 
   if (needsCaptcha) throwJwxtError("JWXT_CAPTCHA_REQUIRED", "教务系统需要验证码，请输入验证码完成验证");
-  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请尝试验证码绑定；如果仍失败，请确认你能在官网登录并进入教务系统");
-  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请尝试验证码绑定；如果仍失败，请确认你能在官网登录并进入教务系统");
+  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请先到官网登录完成验证后再回到小程序重试；如果仍失败，请确认你能在官网登录并进入教务系统");
+  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请先到官网登录完成验证后再回到小程序重试；如果仍失败，请确认你能在官网登录并进入教务系统");
 
   const encryptedPassword = encryptPassword(loginCroypto, password);
   if (!encryptedPassword) throw new Error("DES password encryption failed.");
