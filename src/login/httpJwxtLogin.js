@@ -1,5 +1,6 @@
 const axios = require("axios");
 const CryptoJS = require("crypto-js");
+const { normalizeJwxtLoginError } = require("../services/jwxtLoginError");
 
 const CAS_ORIGIN = "https://sso1.tyust.edu.cn";
 const PORTAL_ORIGIN = "https://ronghemenhu.tyust.edu.cn";
@@ -43,6 +44,7 @@ function isInvalidCredentialPage(html) {
     text.includes("用户名或密码") ||
     text.includes("账号或密码") ||
     text.includes("用户名不存在") ||
+    text.includes("登录失败") ||
     text.includes("认证失败") ||
     text.toLowerCase().includes("invalid credentials");
 }
@@ -327,6 +329,10 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     }
   });
 
+  if (loginPage.status >= 500) {
+    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");
+  }
+
   const html = String(loginPage.data || "");
   const execution = parseHiddenValue(html, "login-page-flowkey");
   const loginCroypto = parseHiddenValue(html, "login-croypto");
@@ -361,7 +367,15 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     }
   });
 
+  if (loginResponse.status >= 500) {
+    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");
+  }
+
   const followed = await followRedirects(cookieJar, loginResponse, LOGIN_POST_URL);
+  if (followed.response && followed.response.status >= 500) {
+    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");
+  }
+
   if (followed.finalUrl.includes(PORTAL_ORIGIN + "/sso/login?code=")) {
     return getAndFollow(cookieJar, followed.finalUrl, LOGIN_POST_URL);
   }
@@ -369,7 +383,12 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或教务密码错误，请检查后重试");
   }
   if (!String(followed.finalUrl || "").includes(PORTAL_ORIGIN)) {
-    throwJwxtError("JWXT_LOGIN_FAILED", "统一认证登录失败，请稍后重试");
+    const classified = normalizeJwxtLoginError(followed.response && followed.response.data, {
+      portalLoginPageReturned: true,
+      finalUrl: followed.finalUrl,
+      status: followed.response && followed.response.status
+    });
+    throwJwxtError(classified.error, classified.message);
   }
   return followed;
 }
