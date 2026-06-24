@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const credentialStore = require("../services/credentialStore");
 const { writeCookies } = require("../checker");
+const { classifyJwxtLoginError } = require("../services/jwxtLoginError");
 const {
   createCookieJar,
   parseHiddenValue,
@@ -32,6 +33,13 @@ function cleanupExpiredSessions() {
   const t = now();
   for (const [id, session] of sessions.entries()) {
     if (!session || session.expiresAt <= t) sessions.delete(id);
+  }
+}
+
+function clearCaptchaSessionsForUser(userId) {
+  const expected = String(userId || "");
+  for (const [id, session] of sessions.entries()) {
+    if (session && session.userId === expected) sessions.delete(id);
   }
 }
 
@@ -178,26 +186,38 @@ async function loginWithCaptcha(userId, payload) {
   const body = String((portal.response && portal.response.data) || "");
   if (isInvalidCredentialPage(body)) {
     const err = new Error("账号或密码错误");
-    err.code = "INVALID_CREDENTIALS";
+    err.message = "学号或教务密码错误，请检查后重试";
+    err.code = "JWXT_INVALID_CREDENTIALS";
     throw err;
   }
 
   if (!portal.finalUrl || !portal.finalUrl.includes(PORTAL_ORIGIN)) {
     const err = new Error("验证码或登录信息错误，请重新获取验证码");
-    err.code = "CAPTCHA_LOGIN_FAILED";
+    err.message = "验证码错误，请重新输入或刷新验证码";
+    err.code = "JWXT_CAPTCHA_INVALID";
     throw err;
   }
 
-  const jwxt = await getAndFollow(session.cookieJar, JWXT_SSO_URL, PORTAL_ORIGIN + "/index");
+  let jwxt;
+  try {
+    jwxt = await getAndFollow(session.cookieJar, JWXT_SSO_URL, PORTAL_ORIGIN + "/index");
+  } catch (err) {
+    const classified = classifyJwxtLoginError(err);
+    err.code = classified.error;
+    err.message = classified.message;
+    throw err;
+  }
   const jwxtJSessionId = findJwxtJSessionId(session.cookieJar);
   if (!jwxtJSessionId) {
     const err = new Error("教务系统登录失败，未获取到有效 Cookie");
-    err.code = "JWXT_LOGIN_FAILED";
+    err.message = "JWXT JSESSIONID was not found after SSO redirects.";
+    err.code = "JWXT_SSO_FAILED";
     throw err;
   }
 
   const jwxtCookies = selectJwxtCookies(session.cookieJar);
   credentialStore.saveBoundAccount(studentId, password, userId);
+  credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
   writeCookies(jwxtCookies, userId);
   sessions.delete(String(payload.sessionId || ""));
 
@@ -210,5 +230,6 @@ async function loginWithCaptcha(userId, payload) {
 
 module.exports = {
   createCaptchaSession,
-  loginWithCaptcha
+  loginWithCaptcha,
+  clearCaptchaSessionsForUser
 };

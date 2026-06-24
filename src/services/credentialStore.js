@@ -89,16 +89,59 @@ function readBoundAccount(userId) {
   }
 }
 
+function readBoundAccountMeta(userId) {
+  const file = accountFile(userId);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!data || !data.studentId) return null;
+    return {
+      studentId: String(data.studentId),
+      hasPassword: Boolean(data.passwordEnc || data.password),
+      lastJwxtStatus: data.lastJwxtStatus || "",
+      lastJwxtLoginAt: data.lastJwxtLoginAt || null,
+      updatedAt: data.updatedAt || null,
+      source: "account_file"
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+function hasBoundAccount(userId) {
+  return Boolean(readBoundAccountMeta(userId));
+}
+
 function saveBoundAccount(studentId, password, userId) {
   const file = accountFile(userId);
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   console.log("[user-scope] credentialStore.saveAccount scope=" + (userId ? "user" : "legacy"));
+  const existing = readBoundAccountMeta(userId) || {};
   fs.writeFileSync(file, JSON.stringify({
     studentId: String(studentId),
     passwordEnc: encryptSecret(password),
+    lastJwxtStatus: existing.lastJwxtStatus || "COOKIE_EXPIRED",
+    lastJwxtLoginAt: existing.lastJwxtLoginAt || null,
     updatedAt: new Date().toISOString()
   }, null, 2));
+}
+
+function updateBoundAccountStatus(userId, status, extra) {
+  const file = accountFile(userId);
+  if (!fs.existsSync(file)) return false;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!data || !data.studentId) return false;
+    data.lastJwxtStatus = status || data.lastJwxtStatus || "";
+    if (extra && extra.lastJwxtLoginAt !== undefined) data.lastJwxtLoginAt = extra.lastJwxtLoginAt;
+    if (extra && extra.clearLastJwxtLoginAt) data.lastJwxtLoginAt = null;
+    data.updatedAt = new Date().toISOString();
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 function deleteBoundAccount(userId) {
@@ -109,6 +152,9 @@ function deleteBoundAccount(userId) {
 module.exports = {
   getJwxtCredentials,
   readBoundAccount,
+  readBoundAccountMeta,
+  hasBoundAccount,
   saveBoundAccount,
+  updateBoundAccountStatus,
   deleteBoundAccount
 };

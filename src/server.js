@@ -1,4 +1,5 @@
 ﻿const express = require("express");
+const crypto = require("crypto");
 const { runCycle, runCycleForUser, loadCookies, writeCookies, deleteCookies } = require("./checker");
 const axios = require("axios");
 const storage = require("./db/storage");
@@ -11,7 +12,7 @@ const { safeUserId } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 const { currentTermInfo, loadConfiguredTerm } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
-const { createCaptchaSession, loginWithCaptcha } = require("./login/captchaSession");
+const { createCaptchaSession, loginWithCaptcha, clearCaptchaSessionsForUser } = require("./login/captchaSession");
 
 const app = express();
 const PORT = process.env.PORT || 3456;
@@ -47,6 +48,34 @@ function ensureValidScope(req, res) {
 
 function logUserScope(req, label) {
   console.log("[user-scope] " + label + " scope=" + (req.userId ? "user" : "legacy"));
+}
+
+function safeUserHash(userId) {
+  if (!userId) return "legacy";
+  return crypto.createHash("sha256").update(String(userId)).digest("hex").slice(0, 10);
+}
+
+function hasJwxtSessionCookie(cookies) {
+  const list = Array.isArray(cookies) ? cookies : [];
+  return Boolean(list.find(x => x.name === "JSESSIONID" && String(x.domain || "").includes("newjwc")));
+}
+
+function publicJwxtStatus(bound, cookieValid, accountMeta, credentials) {
+  if (!bound) return "LOGIN_REQUIRED";
+  if (cookieValid) return "COOKIE_VALID";
+  if (!credentials) return "LOGIN_FAILED";
+  const last = String((accountMeta && accountMeta.lastJwxtStatus) || "");
+  if (last === "JWXT_CAPTCHA_REQUIRED" || last === "JWXT_CAPTCHA_INVALID") return "CAPTCHA_REQUIRED";
+  if (last === "COOKIE_EXPIRED" || !last) return "COOKIE_EXPIRED";
+  return "LOGIN_FAILED";
+}
+
+function legacyCookieStatus(jwxtStatus) {
+  if (jwxtStatus === "LOGIN_REQUIRED") return "login_required";
+  if (jwxtStatus === "COOKIE_VALID") return "cookie_valid";
+  if (jwxtStatus === "CAPTCHA_REQUIRED") return "JWXT_CAPTCHA_REQUIRED";
+  if (jwxtStatus === "COOKIE_EXPIRED") return "cookie_expired";
+  return "login_failed";
 }
 
 function safeUrlHostPath(value) {
@@ -179,13 +208,18 @@ app.get("/status", auth, (req, res) => {
   logUserScope(req, "GET /status");
   const activeStorage = requestStorage(req);
   const cookies = loadCookies(req.userId);
-  const valid = !!(cookies?.find(x => x.name === "JSESSIONID" && x.domain?.includes("newjwc")));
-  const hasBoundAccount = req.userId ? Boolean(credentialStore.readBoundAccount(req.userId)) : Boolean(credentialStore.getJwxtCredentials());
+  const valid = hasJwxtSessionCookie(cookies);
+  const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
+  const credentials = req.userId ? credentialStore.getJwxtCredentials(req.userId) : credentialStore.getJwxtCredentials();
+  const bound = req.userId ? Boolean(accountMeta) : Boolean(credentials);
+  const jwxtStatus = publicJwxtStatus(bound, valid, accountMeta, credentials);
   const unevaluatedCourses = buildUnevaluatedCourses(activeStorage);
   res.json({
     status: "running",
+    bound,
+    jwxtStatus,
     cookieValid: valid,
-    cookieStatus: valid ? "cookie_valid" : (hasBoundAccount ? "account_saved" : "login_required"),
+    cookieStatus: legacyCookieStatus(jwxtStatus),
     totalGrades: activeStorage.getGrades().length,
     unevaluatedCount: unevaluatedCourses.length,
     unevaluatedCourses,
@@ -264,13 +298,20 @@ app.post("/check", auth, async (req, res) => {
   logUserScope(req, "POST /check");
   const r = req.userId ? await runCycleForUser(req.userId) : await runCycle();
   if (r.success) res.json({ checked: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, changeCount: r.changeCount || 0, error: null, cookieStatus: r.cookieStatus || "cookie_valid" });
-  else res.json({ checked: false, gradesCount: 0, added: [], changed: [], changeCount: 0, error: r.error, message: r.message, cookieStatus: r.cookieStatus || r.error || "query_error" });
+  else {
+    const classified = classifyJwxtLoginError(r.error || r.message || r);
+    const code = r.error && String(r.error).startsWith("JWXT_") ? r.error : classified.error;
+    res.json({ checked: false, gradesCount: 0, added: [], changed: [], changeCount: 0, error: code, message: r.message || classified.message, cookieStatus: r.cookieStatus || code || "query_error" });
+  }
 });
 
 function apiErrorStatus(code) {
   if (code === "LOGIN_REQUIRED" || code === "INVALID_CAPTCHA_LOGIN_INPUT") return 400;
-  if (code === "JWXT_CAPTCHA_REQUIRED") return 400;
-  if (code === "INVALID_CREDENTIALS" || code === "CAPTCHA_LOGIN_FAILED" || code === "CAPTCHA_SESSION_EXPIRED") return 400;
+  if (code === "JWXT_CAPTCHA_REQUIRED" || code === "JWXT_CAPTCHA_INVALID") return 400;
+  if (code === "JWXT_INVALID_CREDENTIALS" || code === "INVALID_CREDENTIALS" || code === "CAPTCHA_LOGIN_FAILED" || code === "CAPTCHA_SESSION_EXPIRED") return 400;
+  if (code === "JWXT_SSO_FAILED") return 502;
+  if (code === "JWXT_TIMEOUT") return 504;
+  if (code === "JWXT_UNAVAILABLE") return 503;
   if (code === "RATE_LIMITED") return 429;
   return 500;
 }
@@ -298,11 +339,13 @@ app.post("/jwxt/login-with-captcha", auth, async (req, res) => {
     const result = await loginWithCaptcha(req.userId, req.body || {});
     res.json(result);
   } catch (err) {
-    const code = err && err.code ? err.code : "JWXT_LOGIN_FAILED";
+    const classified = classifyJwxtLoginError(err);
+    const code = err && err.code ? err.code : classified.error;
+    credentialStore.updateBoundAccountStatus(req.userId, code, { clearLastJwxtLoginAt: true });
     res.status(apiErrorStatus(code)).json({
       success: false,
       error: code,
-      message: err && err.message ? err.message : "教务验证码登录失败"
+      message: err && err.message ? err.message : classified.message
     });
   }
 });
@@ -491,7 +534,7 @@ app.get("/timetable/week", auth, (req, res) => {
 app.post("/timetable/sync", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   try {
-    console.log("[timetable] sync start user=" + req.userId);
+    console.log("[timetable] sync start userHash=" + safeUserHash(req.userId));
     const result = await syncTimetableForUser(req.userId, requestStorage(req), {
       term: loadConfiguredTerm()
     });
@@ -502,14 +545,15 @@ app.post("/timetable/sync", auth, async (req, res) => {
     console.log("[timetable] sync success syncedCount=" + result.syncedCount);
     res.json(result);
   } catch (err) {
-    console.log("[timetable] sync failed " + (err && err.message));
+    const classified = classifyJwxtLoginError(err);
+    const code = err && err.code ? err.code : classified.error;
+    console.log("[timetable] sync failed code=" + code);
     if (sendTermConfigError(res, err)) return;
-    const code = err && err.code ? err.code : "TIMETABLE_SYNC_FAILED";
-    const status = code === "LOGIN_REQUIRED" ? 400 : 500;
+    const status = apiErrorStatus(code);
     res.status(status).json({
       success: false,
       error: code,
-      message: err && err.message ? err.message : "课表同步失败"
+      message: err && err.message ? err.message : classified.message
     });
   }
 });
@@ -530,10 +574,6 @@ app.post("/bind-account", auth, async (req, res) => {
     });
   }
 
-  console.log("[user-scope] bind-account saving scope=" + (req.userId ? "user" : "legacy"));
-  credentialStore.saveBoundAccount(studentId, password, req.userId);
-  deleteCookies(req.userId);
-
   try {
     console.log("[bind] verifying jwxt");
     const login = await httpJwxtLogin(studentId, password);
@@ -546,12 +586,16 @@ app.post("/bind-account", auth, async (req, res) => {
       });
       const classified = classifyJwxtLoginError(login && (login.message || login.error));
       console.log("[bind] classified error=" + classified.error);
+      credentialStore.saveBoundAccount(studentId, password, req.userId);
+      credentialStore.updateBoundAccountStatus(req.userId, classified.error, { clearLastJwxtLoginAt: true });
+      deleteCookies(req.userId);
       return res.json({
         success: true,
         bound: true,
         verified: false,
-        reason: "jwxt_unavailable",
-        message: "账号已保存，教务系统暂时不可用，稍后可再检查成绩"
+        reason: classified.error,
+        error: classified.error,
+        message: classified.message
       });
     }
     console.log("[bind] jwxt verified success");
@@ -568,15 +612,21 @@ app.post("/bind-account", auth, async (req, res) => {
         message: "Missing required JWXT cookie names"
       });
       console.log("[api] JWXT account saved but verification unavailable");
+      credentialStore.saveBoundAccount(studentId, password, req.userId);
+      credentialStore.updateBoundAccountStatus(req.userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
+      deleteCookies(req.userId);
       return res.json({
         success: true,
         bound: true,
         verified: false,
-        reason: "jwxt_unavailable",
-        message: "账号已保存，教务系统暂时不可用，稍后可再检查成绩"
+        reason: "JWXT_SSO_FAILED",
+        error: "JWXT_SSO_FAILED",
+        message: "教务系统登录态获取失败，请尝试验证码绑定；如果仍失败，请确认你能在官网登录并进入教务系统"
       });
     }
 
+    credentialStore.saveBoundAccount(studentId, password, req.userId);
+    credentialStore.updateBoundAccountStatus(req.userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
     writeCookies(jwxtCookies, req.userId);
     console.log("[api] JWXT account bound and verified");
     res.json({
@@ -591,34 +641,40 @@ app.post("/bind-account", auth, async (req, res) => {
     const classified = classifyJwxtLoginError(err);
     console.log("[bind] classified error=" + classified.error);
 
-    if (classified.error === "invalid_credentials") {
-      credentialStore.deleteBoundAccount(req.userId);
-      deleteCookies(req.userId);
+    if (classified.error === "JWXT_INVALID_CREDENTIALS") {
+      credentialStore.updateBoundAccountStatus(req.userId, "JWXT_INVALID_CREDENTIALS", { clearLastJwxtLoginAt: true });
       return res.status(400).json({
         success: false,
-        error: "invalid_credentials",
-        message: "账号或密码错误"
+        bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
+        verified: false,
+        error: "JWXT_INVALID_CREDENTIALS",
+        message: classified.message
       });
     }
 
-    if (classified.error === "captcha_required" || classified.error === "JWXT_CAPTCHA_REQUIRED") {
-      credentialStore.deleteBoundAccount(req.userId);
+    if (classified.error === "JWXT_CAPTCHA_REQUIRED") {
+      credentialStore.saveBoundAccount(studentId, password, req.userId);
+      credentialStore.updateBoundAccountStatus(req.userId, "JWXT_CAPTCHA_REQUIRED", { clearLastJwxtLoginAt: true });
       deleteCookies(req.userId);
       return res.status(400).json({
         success: false,
-        bound: false,
+        bound: true,
         verified: false,
         error: "JWXT_CAPTCHA_REQUIRED",
-        message: "教务系统需要验证码验证，请在小程序内完成一次验证。"
+        message: classified.message
       });
     }
 
-    res.json({
-      success: true,
+    credentialStore.saveBoundAccount(studentId, password, req.userId);
+    credentialStore.updateBoundAccountStatus(req.userId, classified.error, { clearLastJwxtLoginAt: true });
+    deleteCookies(req.userId);
+    res.status(apiErrorStatus(classified.error)).json({
+      success: false,
+      error: classified.error,
       bound: true,
       verified: false,
-      reason: "jwxt_unavailable",
-      message: "账号已保存，教务系统暂时不可用，稍后可再检查成绩"
+      reason: classified.error,
+      message: classified.message
     });
   }
 });
@@ -630,7 +686,8 @@ app.post("/unbind-account", auth, (req, res) => {
   try {
     credentialStore.deleteBoundAccount(req.userId);
     deleteCookies(req.userId);
-    console.log("[api] JWXT account unbound; account.json and cookies.json removed");
+    clearCaptchaSessionsForUser(req.userId);
+    console.log("[api] JWXT account unbound; credentials and cookies removed; cached grades/timetable kept");
     res.json({ success: true, unbound: true });
   } catch (err) {
     res.status(500).json({

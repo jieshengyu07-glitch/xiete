@@ -40,9 +40,17 @@ function isInvalidCredentialPage(html) {
     text.includes("账号或密码") ||
     text.includes("账户或密码") ||
     text.includes("密码错误") ||
+    text.includes("用户名或密码") ||
+    text.includes("账号或密码") ||
     text.includes("用户名不存在") ||
     text.includes("认证失败") ||
     text.toLowerCase().includes("invalid credentials");
+}
+
+function throwJwxtError(code, message) {
+  const err = new Error(message || code);
+  err.code = code;
+  throw err;
 }
 
 function userAgent() {
@@ -324,9 +332,9 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   const loginCroypto = parseHiddenValue(html, "login-croypto");
   const needsCaptcha = await checkCaptcha(cookieJar, studentId).catch(() => false);
 
-  if (needsCaptcha) throw new Error("Captcha is required; HTTP JWXT login cannot continue.");
-  if (!execution) throw new Error("Missing execution from CAS login page.");
-  if (!loginCroypto) throw new Error("Missing login-croypto from CAS login page.");
+  if (needsCaptcha) throwJwxtError("JWXT_CAPTCHA_REQUIRED", "教务系统需要验证码，请输入验证码完成验证");
+  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请尝试验证码绑定；如果仍失败，请确认你能在官网登录并进入教务系统");
+  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请尝试验证码绑定；如果仍失败，请确认你能在官网登录并进入教务系统");
 
   const encryptedPassword = encryptPassword(loginCroypto, password);
   if (!encryptedPassword) throw new Error("DES password encryption failed.");
@@ -358,7 +366,7 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     return getAndFollow(cookieJar, followed.finalUrl, LOGIN_POST_URL);
   }
   if (isInvalidCredentialPage(followed.response && followed.response.data)) {
-    throw new Error("invalid_credentials");
+    throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或教务密码错误，请检查后重试");
   }
   return followed;
 }
@@ -381,7 +389,7 @@ async function httpJwxtLogin(studentId, password, options) {
   if (debug) printJwxtDebugSummary(cookieJar, jwxt.finalUrl, jwxtTraceUrls);
 
   if (!jwxtJSessionId) {
-    throw new Error("JWXT JSESSIONID was not found after SSO redirects.");
+    throwJwxtError("JWXT_SSO_FAILED", "JWXT JSESSIONID was not found after SSO redirects.");
   }
 
   return {

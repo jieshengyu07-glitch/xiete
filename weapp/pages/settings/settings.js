@@ -18,12 +18,16 @@ function errorText(err) {
 }
 
 function statusFromApi(status) {
+  const bound = Boolean(status && status.bound);
+  const jwxtStatus = String((status && status.jwxtStatus) || "");
   const cookieStatus = status && status.cookieStatus;
-  if (cookieStatus === "JWXT_CAPTCHA_REQUIRED") return { text: "需要验证码", tone: "warn" };
-  if (cookieStatus === "cookie_valid" || cookieStatus === "account_saved" || cookieStatus === "pending_verify") {
+  if (!bound && (jwxtStatus === "LOGIN_REQUIRED" || cookieStatus === "login_required")) return { text: "未绑定", tone: "muted" };
+  if (jwxtStatus === "CAPTCHA_REQUIRED" || cookieStatus === "JWXT_CAPTCHA_REQUIRED") return { text: "已绑定，需验证码验证", tone: "warn" };
+  if (jwxtStatus === "COOKIE_EXPIRED" || cookieStatus === "cookie_expired") return { text: "已绑定，登录态已过期", tone: "warn" };
+  if (jwxtStatus === "LOGIN_FAILED" || cookieStatus === "login_failed") return { text: "已绑定，最近登录失败", tone: "err" };
+  if (bound || cookieStatus === "cookie_valid" || cookieStatus === "account_saved" || cookieStatus === "pending_verify") {
     return { text: "已绑定", tone: "ok" };
   }
-  if (cookieStatus === "login_required") return { text: "未绑定", tone: "muted" };
   return { text: "未绑定", tone: "muted" };
 }
 
