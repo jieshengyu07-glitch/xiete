@@ -1,0 +1,83 @@
+.page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24rpx;
+  background: #f7f9fc;
+}
+
+.search-card,
+.course-card {
+  box-sizing: border-box;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(38, 84, 153, 0.07);
+}
+
+.search-card {
+  margin-bottom: 28rpx;
+  padding: 0 26rpx;
+}
+
+.search-input {
+  height: 88rpx;
+  color: #22304a;
+  font-size: 28rpx;
+}
+
+.section-title {
+  margin: 0 0 18rpx 4rpx;
+  color: #152338;
+  font-size: 30rpx;
+  font-weight: 750;
+}
+
+.course-card {
+  margin-bottom: 18rpx;
+  padding: 26rpx;
+}
+
+.course-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+
+.course-name {
+  color: #22304a;
+  font-size: 31rpx;
+  font-weight: 800;
+}
+
+.course-college {
+  margin-top: 8rpx;
+  color: #98a2b3;
+  font-size: 23rpx;
+}
+
+.score {
+  flex-shrink: 0;
+  color: #ff8a00;
+  font-size: 38rpx;
+  font-weight: 850;
+}
+
+.score text {
+  margin-left: 2rpx;
+  font-size: 20rpx;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 18rpx;
+}
+
+.tag {
+  padding: 7rpx 14rpx;
+  border-radius: 999rpx;
+  background: #eaf2ff;
+  color: #1677ff;
+  font-size: 22rpx;
+  font-weight: 650;
+}

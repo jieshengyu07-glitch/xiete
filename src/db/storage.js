@@ -2,6 +2,8 @@
 const path = require('path');
 const config = require('../config');
 const { getUserPaths } = require('../services/userPaths');
+const { buildGradeFallbackKey, buildGradeKey, normalizeGrade } = require('../grade/gradeNormalizer');
+const { mergeGrades: mergeGradeCollections } = require('../grade/gradeMerger');
 
 class JsonStorage {
   constructor(filePath) {
@@ -50,6 +52,16 @@ class JsonStorage {
         status: 'unknown', // unknown | pending | completed
         lastCheckedAt: null,
       },
+      syncMeta: {
+        grades: {},
+        timetable: {},
+      },
+      xgSession: {
+        scoreUrl: "",
+        cookies: "",
+        updatedAt: null,
+      },
+      xgUnmatchedCandidates: [],
       lastRunAt: null,    // 上次运行时间
     };
   }
@@ -59,6 +71,13 @@ class JsonStorage {
     if (!Array.isArray(this.data.grades)) this.data.grades = [];
     if (!Array.isArray(this.data.gradeChanges)) this.data.gradeChanges = [];
     if (!Array.isArray(this.data.timetable)) this.data.timetable = [];
+    if (!this.data.syncMeta || typeof this.data.syncMeta !== 'object') this.data.syncMeta = {};
+    if (!this.data.syncMeta.grades) this.data.syncMeta.grades = {};
+    if (!this.data.syncMeta.timetable) this.data.syncMeta.timetable = {};
+    if (!this.data.xgSession || typeof this.data.xgSession !== 'object') {
+      this.data.xgSession = { scoreUrl: "", cookies: "", updatedAt: null };
+    }
+    if (!Array.isArray(this.data.xgUnmatchedCandidates)) this.data.xgUnmatchedCandidates = [];
   }
 
   _value(grade, lower, upper) {
@@ -68,33 +87,87 @@ class JsonStorage {
   }
 
   _gradeKey(grade) {
-    const kcmc = String(this._value(grade, 'kcmc', 'KCMC'));
-    const kch = String(this._value(grade, 'kch', 'KCH'));
-    const xnm = String(this._value(grade, 'xnm', 'XNM'));
-    const xqm = String(this._value(grade, 'xqm', 'XQM'));
-    return [kcmc, kch, xnm, xqm].join('|');
+    return buildGradeKey(grade);
   }
 
   _score(grade) {
-    return String(this._value(grade, 'cj', 'CJ'));
+    return normalizeGrade(grade, grade && grade.source).score;
   }
 
   _courseName(grade) {
-    return this._value(grade, 'kcmc', 'KCMC');
+    return normalizeGrade(grade, grade && grade.source).courseName;
   }
 
   _xnm(grade) {
-    return this._value(grade, 'xnm', 'XNM');
+    return normalizeGrade(grade, grade && grade.source).xnm;
   }
 
   _xqm(grade) {
-    return this._value(grade, 'xqm', 'XQM');
+    return normalizeGrade(grade, grade && grade.source).xqm;
+  }
+
+  _hasSource(grade, source) {
+    const normalized = normalizeGrade(grade, grade && grade.source);
+    return normalized.source === source || normalized.sources.includes(source);
+  }
+
+  _hasJwxtBaseline(grades) {
+    return (Array.isArray(grades) ? grades : []).some(grade => this._hasSource(grade, 'jwxt'));
+  }
+
+  _matchesAnyGrade(grade, candidates) {
+    const gradeKey = this._gradeKey(grade);
+    const fallbackKey = buildGradeFallbackKey(grade);
+    return (Array.isArray(candidates) ? candidates : []).some(candidate =>
+      this._gradeKey(candidate) === gradeKey ||
+      buildGradeFallbackKey(candidate) === fallbackKey
+    );
+  }
+
+  // ========== 学工成绩渠道 ==========
+
+  saveXgSession(scoreUrl, cookies) {
+    this._load();
+    this._ensureShape();
+    this.data.xgSession = {
+      scoreUrl: String(scoreUrl || "").trim(),
+      cookies: String(cookies || "").trim(),
+      updatedAt: new Date().toISOString()
+    };
+    this._save();
+  }
+
+  getXgSession() {
+    this._load();
+    this._ensureShape();
+    return this.data.xgSession || { scoreUrl: "", cookies: "", updatedAt: null };
+  }
+
+  hasXgSession() {
+    const session = this.getXgSession();
+    return Boolean(session.scoreUrl && session.cookies);
+  }
+
+  getXgUnmatchedCandidates() {
+    this._load();
+    this._ensureShape();
+    return this.data.xgUnmatchedCandidates;
+  }
+
+  replaceXgUnmatchedCandidates(candidates) {
+    this._load();
+    this._ensureShape();
+    this.data.xgUnmatchedCandidates = (Array.isArray(candidates) ? candidates : [])
+      .map(grade => normalizeGrade({ ...grade, source: 'xg' }, 'xg'));
+    this._save();
   }
 
   // ========== 成绩相关 ==========
 
   // 获取所有已存储的成绩
   getGrades() {
+    this._load();
+    this._ensureShape();
     return this.data.grades;
   }
 
@@ -107,31 +180,40 @@ class JsonStorage {
   diffGrades(newGrades) {
     this._load();
     this._ensureShape();
-    const existing = this.data.grades;
+    const existing = this.data.grades.map(g => normalizeGrade(g, g && g.source));
+    const incoming = (Array.isArray(newGrades) ? newGrades : []).map(g => normalizeGrade(g, g && g.source));
     const added = [];
     const changed = [];
 
     console.log('[diff] oldGrades=' + existing.length);
-    console.log('[diff] newGrades=' + (Array.isArray(newGrades) ? newGrades.length : 0));
+    console.log('[diff] newGrades=' + incoming.length);
 
-    for (const ng of newGrades) {
+    for (const ng of incoming) {
       const newKey = this._gradeKey(ng);
-      const old = existing.find(e => this._gradeKey(e) === newKey);
+      const fallbackKey = buildGradeFallbackKey(ng);
+      const old = existing.find(e => this._gradeKey(e) === newKey || buildGradeFallbackKey(e) === fallbackKey);
       if (!old) {
         added.push(ng);
-      } else if (this._score(old) !== this._score(ng)) {
+      } else {
+        const merged = mergeGradeCollections([old], [ng]).grades[0] || ng;
+        const oldScore = this._score(old);
+        const mergedScore = this._score(merged);
+        if (!oldScore && mergedScore) {
+          added.push(merged);
+        } else if (oldScore !== mergedScore) {
         changed.push({
-          old: this._score(old),
-          new: this._score(ng),
+          old: oldScore,
+          new: mergedScore,
           course: this._courseName(ng),
           oldGrade: old,
-          newGrade: ng,
-          oldCj: this._score(old),
-          newCj: this._score(ng),
+          newGrade: merged,
+          oldCj: oldScore,
+          newCj: mergedScore,
           kcmc: this._courseName(ng),
           xnm: this._xnm(ng),
           xqm: this._xqm(ng)
         });
+        }
       }
     }
 
@@ -143,28 +225,108 @@ class JsonStorage {
   // 合并新成绩到存储
   mergeGrades(newGrades) {
     this._ensureShape();
-    for (const ng of newGrades) {
-      const newKey = this._gradeKey(ng);
-      const idx = this.data.grades.findIndex(e => this._gradeKey(e) === newKey);
-      if (idx === -1) {
-        this.data.grades.push(ng);
-      } else {
-        // 更新已有记录
-        if (this._score(this.data.grades[idx]) !== this._score(ng)) {
-          this.data.grades[idx] = {
-            ...this.data.grades[idx],
-            ...ng,
-            cjBj: '(已更新)'
-          };
+    const existing = this.data.grades.map(g => normalizeGrade(g, g && g.source));
+    const incoming = (Array.isArray(newGrades) ? newGrades : []).map(g => normalizeGrade(g, g && g.source));
+    const incomingHasJwxt = this._hasJwxtBaseline(incoming);
+    const existingHasJwxt = this._hasJwxtBaseline(existing);
+    let mergeBase = this.data.grades;
+    let movedXgCandidates = [];
+
+    if (incomingHasJwxt && !existingHasJwxt && existing.length) {
+      const matchedExisting = [];
+      const unmatchedExisting = [];
+      existing.forEach(grade => {
+        if (this._hasSource(grade, 'xg') && !this._matchesAnyGrade(grade, incoming)) {
+          unmatchedExisting.push(grade);
         } else {
-          this.data.grades[idx] = {
-            ...this.data.grades[idx],
-            ...ng
-          };
+          matchedExisting.push(grade);
         }
-      }
+      });
+      mergeBase = matchedExisting;
+      movedXgCandidates = unmatchedExisting;
     }
+
+    const result = mergeGradeCollections(mergeBase, incoming);
+    const added = Math.max(0, result.stats.final - result.stats.existing);
+    const changed = Math.max(0, result.stats.incoming - result.stats.duplicate - added);
+    console.log('[grade-merge] existing=' + result.stats.existing + ' incoming=' + result.stats.incoming);
+    console.log('[grade-merge] duplicate=' + result.stats.duplicate);
+    console.log('[grade-merge] added=' + added);
+    console.log('[grade-merge] changed=' + changed);
+    console.log('[grade-merge] final=' + result.stats.final);
+    this.data.grades = result.grades;
+    if (movedXgCandidates.length) {
+      this.data.xgUnmatchedCandidates = movedXgCandidates;
+      console.log('[grade-merge] movedXgCandidates=' + movedXgCandidates.length);
+    }
+    this.data.syncMeta.grades.lastSuccessfulSyncAt = new Date().toISOString();
+    this.data.syncMeta.grades.lastError = null;
+    this.data.syncMeta.grades.lastErrorMessage = null;
     this._save();
+  }
+
+  mergeXgFallbackGrades(newGrades) {
+    this._load();
+    this._ensureShape();
+    const existing = this.data.grades.map(g => normalizeGrade(g, g && g.source));
+    const incoming = (Array.isArray(newGrades) ? newGrades : [])
+      .map(g => normalizeGrade({ ...g, source: 'xg' }, 'xg'));
+    const matched = [];
+    const unmatched = [];
+    const hasJwxtBaseline = this._hasJwxtBaseline(existing);
+
+    if (!hasJwxtBaseline) {
+      const result = mergeGradeCollections(this.data.grades, incoming);
+      console.log('[grade-merge] mode=xg-canonical existing=' + result.stats.existing + ' incoming=' + incoming.length);
+      console.log('[grade-merge] mode=xg-canonical final=' + result.stats.final);
+      this.data.grades = result.grades;
+      this.data.xgUnmatchedCandidates = [];
+      this.data.syncMeta.grades.lastSuccessfulSyncAt = new Date().toISOString();
+      this.data.syncMeta.grades.lastError = null;
+      this.data.syncMeta.grades.lastErrorMessage = null;
+      this._save();
+      return {
+        merged: incoming,
+        candidates: [],
+        final: result.grades,
+        stats: {
+          existing: result.stats.existing,
+          incoming: incoming.length,
+          matched: incoming.length,
+          candidates: 0,
+          final: result.stats.final
+        }
+      };
+    }
+
+    for (const grade of incoming) {
+      if (this._matchesAnyGrade(grade, existing)) matched.push(grade);
+      else unmatched.push(grade);
+    }
+
+    const result = mergeGradeCollections(this.data.grades, matched);
+    console.log('[grade-merge] mode=xg-fallback existing=' + result.stats.existing + ' incoming=' + incoming.length);
+    console.log('[grade-merge] mode=xg-fallback matched=' + matched.length);
+    console.log('[grade-merge] mode=xg-fallback candidates=' + unmatched.length);
+    console.log('[grade-merge] mode=xg-fallback final=' + result.stats.final);
+    this.data.grades = result.grades;
+    this.data.xgUnmatchedCandidates = unmatched;
+    this.data.syncMeta.grades.lastSuccessfulSyncAt = new Date().toISOString();
+    this.data.syncMeta.grades.lastError = null;
+    this.data.syncMeta.grades.lastErrorMessage = null;
+    this._save();
+    return {
+      merged: matched,
+      candidates: unmatched,
+      final: result.grades,
+      stats: {
+        existing: result.stats.existing,
+        incoming: incoming.length,
+        matched: matched.length,
+        candidates: unmatched.length,
+        final: result.stats.final
+      }
+    };
   }
 
   // 记录成绩变化
@@ -219,6 +381,40 @@ class JsonStorage {
     );
     this.data.timetable.push(...nextRows);
     this.data.timetableLastSyncAt = new Date().toISOString();
+    this.data.syncMeta.timetable.lastSuccessfulSyncAt = this.data.timetableLastSyncAt;
+    this.data.syncMeta.timetable.lastError = null;
+    this.data.syncMeta.timetable.lastErrorMessage = null;
+    this._save();
+  }
+
+  getSyncMeta(kind) {
+    this._load();
+    this._ensureShape();
+    return this.data.syncMeta[kind] || {};
+  }
+
+  setSyncSuccess(kind, at) {
+    this._load();
+    this._ensureShape();
+    const now = at || new Date().toISOString();
+    this.data.syncMeta[kind] = {
+      ...(this.data.syncMeta[kind] || {}),
+      lastSuccessfulSyncAt: now,
+      lastError: null,
+      lastErrorMessage: null
+    };
+    this._save();
+  }
+
+  setSyncFailure(kind, code, message, at) {
+    this._load();
+    this._ensureShape();
+    this.data.syncMeta[kind] = {
+      ...(this.data.syncMeta[kind] || {}),
+      lastFailedSyncAt: at || new Date().toISOString(),
+      lastError: code || "JWXT_LOGIN_FAILED",
+      lastErrorMessage: message || ""
+    };
     this._save();
   }
 

@@ -7,6 +7,8 @@ const { httpJwxtLogin } = require("./login/httpJwxtLogin");
 const credentialStore = require("./services/credentialStore");
 const { getUserPaths } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
+const { queryXgScores } = require("./grade/xgScoreQuery");
+const { ensureXgScoreSession } = require("./grade/xgSession");
 
 const COOKIE_FILE = path.join(__dirname, "..", "data", "cookies.json");
 
@@ -171,6 +173,7 @@ function attachTermToGrade(grade, term) {
   item.xqm = term.xqm || item.xqm || item.XQM;
   item.XNM = item.xnm;
   item.XQM = item.xqm;
+  item.source = item.source || "jwxt";
   return item;
 }
 
@@ -191,11 +194,11 @@ function termName(xnm, xqm) {
 }
 
 function gradeCourseName(grade) {
-  return grade.KCMC || grade.kcmc || grade.course || "";
+  return grade.KCMC || grade.kcmc || grade.courseName || grade.course || "";
 }
 
 function gradeScore(grade) {
-  return grade.CJ || grade.cj || "";
+  return grade.CJ || grade.cj || grade.score || "";
 }
 
 function gradeXnm(grade) {
@@ -204,6 +207,10 @@ function gradeXnm(grade) {
 
 function gradeXqm(grade) {
   return grade.XQM || grade.xqm || "";
+}
+
+function gradeCredit(grade) {
+  return grade.XF || grade.xf || grade.credit || "";
 }
 
 function addedChangeRecord(grade) {
@@ -345,6 +352,14 @@ async function executeCheck(cookies, activeStorage) {
     console.log("[diff] checker added array=" + Array.isArray(diff.added) + " changed array=" + Array.isArray(diff.changed));
     console.log("[diff] checker added=" + (diff.added || []).length + " changed=" + (diff.changed || []).length);
     activeStorage.mergeGrades(allGrades);
+    var xgCandidates = activeStorage.getXgUnmatchedCandidates ? activeStorage.getXgUnmatchedCandidates() : [];
+    if (xgCandidates.length && activeStorage.mergeXgFallbackGrades) {
+      var rematch = activeStorage.mergeXgFallbackGrades(xgCandidates);
+      gradeCheckLog("xg-candidate-rematch", {
+        matched: rematch.stats.matched,
+        remaining: rematch.stats.candidates
+      });
+    }
     var changeRecords = buildGradeChangeRecords(diff);
     console.log("[changes] checker records=" + changeRecords.length);
     activeStorage.addGradeChanges(changeRecords);
@@ -355,41 +370,222 @@ async function executeCheck(cookies, activeStorage) {
   }
 }
 
-async function runCycle() {
-  const cookies = loadCookies();
-  const first = await executeCheck(cookies, storage);
-  if (!shouldAttemptCookieRefresh(first)) return first;
-
-  const refreshedCookies = await refreshCookiesFromEnv();
-  if (refreshedCookies && refreshedCookies.errorResult) return refreshedCookies.errorResult;
-  if (!refreshedCookies) return first;
-
-  const retry = await executeCheck(refreshedCookies, storage);
-  if (retry.success) {
-    retry.cookieStatus = "cookie_valid";
-    return retry;
-  }
-  if (isCookieExpiredResult(retry)) return fail("cookie_expired", retry.message || "JWXT cookie refresh retry failed");
-  return retry;
+function xgErrorResult(err) {
+  const code = err && err.code ? err.code : "XG_SCORE_QUERY_FAILED";
+  const message = code === "CAMPUS_LOGIN_REQUIRED" || code === "XG_LOGIN_REQUIRED"
+    ? "成绩登录已失效，请重新登录"
+    : "暂时无法同步成绩，请稍后再试";
+  return fail(code, message, { error: code, source: "xg" });
 }
 
-async function runCycleForUser(userId) {
-  const userStorage = createStorageForUser(userId);
+function gradeUnavailableResult(jwxtResult, xgResult) {
+  const jwxtCode = String((jwxtResult && (jwxtResult.error || jwxtResult.cookieStatus)) || "");
+  const xgCode = String((xgResult && (xgResult.error || xgResult.cookieStatus)) || "");
+  const loginCodes = ["CAMPUS_LOGIN_REQUIRED", "XG_LOGIN_REQUIRED", "LOGIN_REQUIRED", "login_required", "COOKIE_EXPIRED", "cookie_expired"];
+  if (loginCodes.includes(xgCode) && (loginCodes.includes(jwxtCode) || !jwxtCode)) {
+    return fail("CAMPUS_LOGIN_REQUIRED", "成绩登录已失效，请重新登录", {
+      error: "CAMPUS_LOGIN_REQUIRED",
+      jwxtError: jwxtCode || null,
+      xgError: xgCode || null
+    });
+  }
+  return fail("GRADE_QUERY_UNAVAILABLE", "成绩系统暂时不可用，请稍后再试", {
+    error: "GRADE_QUERY_UNAVAILABLE",
+    jwxtError: jwxtCode || null,
+    xgError: xgCode || null
+  });
+}
+
+function gradeCheckLog(step, fields) {
+  const suffix = Object.keys(fields || {})
+    .map(key => key + "=" + fields[key])
+    .join(" ");
+  console.log("[grade-check] step=" + step + (suffix ? " " + suffix : ""));
+}
+
+function gradeChannelMode() {
+  const mode = String(process.env.GRADE_CHANNEL_MODE || "auto").trim().toLowerCase();
+  return ["auto", "jwxt", "xg"].includes(mode) ? mode : "auto";
+}
+
+function xgTermParts(term) {
+  const text = String(term || "");
+  const match = text.match(/(\d{4})-(\d{4})学年第(\d)学期/);
+  if (!match) return { xnm: "", xqm: "" };
+  return {
+    xnm: match[1],
+    xqm: match[3] === "1" ? "3" : (match[3] === "2" ? "12" : match[3])
+  };
+}
+
+function normalizeXgGrade(item) {
+  const termParts = xgTermParts(item.term);
+  return {
+    studentId: item.studentId || "",
+    name: item.name || "",
+    courseName: item.courseName || "",
+    courseType: item.courseType || "",
+    score: item.score || "",
+    credit: item.credit || "",
+    term: item.term || "",
+    source: "xg",
+    xh: item.studentId || "",
+    xm: item.name || "",
+    kcmc: item.courseName || "",
+    KCMC: item.courseName || "",
+    kcxz: item.courseType || "",
+    KCXZ: item.courseType || "",
+    cj: item.score || "",
+    CJ: item.score || "",
+    xf: item.credit || "",
+    XF: item.credit || "",
+    xnm: termParts.xnm,
+    XNM: termParts.xnm,
+    xqm: termParts.xqm,
+    XQM: termParts.xqm
+  };
+}
+
+async function executeXgCheck(activeStorage, userId, reason) {
+  activeStorage = activeStorage || storage;
+
+  try {
+    gradeCheckLog("try-xg", { userScope: userId ? "user" : "legacy", reason: reason || "JWXT_FAILED" });
+    const session = await ensureXgScoreSession(userId, activeStorage);
+    gradeCheckLog("xg-session-ready", { fromCache: Boolean(session.fromCache), cookieLength: String(session.cookies || "").length });
+    let scores;
+    if (Array.isArray(session.grades)) {
+      scores = session.grades;
+      gradeCheckLog("use-xg-session-grades", { count: scores.length });
+    } else {
+      gradeCheckLog("query-xg-scores", { reason: "session-has-no-grades" });
+      scores = await queryXgScores({
+        scoreUrl: session.scoreUrl,
+        cookies: session.cookies
+      });
+    }
+    const allGrades = scores.map(normalizeXgGrade);
+    gradeCheckLog("xg-success", { count: allGrades.length });
+    const fallbackMerge = activeStorage.mergeXgFallbackGrades(allGrades);
+    console.log("[diff] xg added=0 changed=0 mode=fallback");
+    gradeCheckLog("xg-fallback-merge", {
+      matched: fallbackMerge.stats.matched,
+      candidates: fallbackMerge.stats.candidates,
+      final: fallbackMerge.stats.final
+    });
+    activeStorage.updateLastRun();
+    return {
+      success: true,
+      cookieStatus: "xg_valid",
+      gradeSource: "xg",
+      source: "xg",
+      gradesCount: allGrades.length,
+      matchedCount: fallbackMerge.stats.matched,
+      xgUnmatchedCandidateCount: fallbackMerge.stats.candidates,
+      added: [],
+      changed: [],
+      changeCount: 0,
+      grades: []
+    };
+  } catch (err) {
+    const code = (err && err.code) || "XG_SCORE_QUERY_FAILED";
+    const message = code === "CAMPUS_LOGIN_REQUIRED" || code === "XG_LOGIN_REQUIRED" ? "login_required" : "sync_unavailable";
+    gradeCheckLog("xg-failed", { code, message });
+    return xgErrorResult(err);
+  }
+}
+
+function shouldPreferXgError(xgResult, jwxtResult) {
+  if (!xgResult || xgResult.success) return false;
+  const xgCode = String(xgResult.error || xgResult.cookieStatus || "");
+  const jwxtCode = String(jwxtResult && (jwxtResult.error || jwxtResult.cookieStatus) || "");
+  if (xgCode === "XG_LOGIN_REQUIRED") return jwxtCode === "login_required" || jwxtCode === "LOGIN_REQUIRED" || jwxtCode === "cookie_expired";
+  return jwxtCode === "login_required" || jwxtCode === "LOGIN_REQUIRED";
+}
+
+async function tryJwxtCheckForUser(userId, userStorage) {
+  gradeCheckLog("try-jwxt", { userScope: userId ? "user" : "legacy" });
   const cookies = loadCookies(userId);
   const first = await executeCheck(cookies, userStorage);
-  if (!shouldAttemptCookieRefresh(first, userId)) return first;
+  if (first && first.success) {
+    first.gradeSource = "jwxt";
+    first.source = "jwxt";
+    gradeCheckLog("jwxt-success", { count: first.gradesCount || 0 });
+    return first;
+  }
+
+  if (!shouldAttemptCookieRefresh(first, userId)) {
+    gradeCheckLog("jwxt-failed", { code: first && (first.error || first.cookieStatus) || "JWXT_FAILED" });
+    return first;
+  }
 
   const refreshedCookies = await refreshCookiesFromEnv(userId);
-  if (refreshedCookies && refreshedCookies.errorResult) return refreshedCookies.errorResult;
-  if (!refreshedCookies) return first;
+  if (refreshedCookies && refreshedCookies.errorResult) {
+    gradeCheckLog("jwxt-failed", { code: refreshedCookies.errorResult.error || refreshedCookies.errorResult.cookieStatus || "JWXT_REFRESH_FAILED" });
+    return refreshedCookies.errorResult;
+  }
+  if (!refreshedCookies) {
+    gradeCheckLog("jwxt-failed", { code: first && (first.error || first.cookieStatus) || "JWXT_REFRESH_SKIPPED" });
+    return first;
+  }
 
   const retry = await executeCheck(refreshedCookies, userStorage);
   if (retry.success) {
     retry.cookieStatus = "cookie_valid";
+    retry.gradeSource = "jwxt";
+    retry.source = "jwxt";
+    gradeCheckLog("jwxt-success", { count: retry.gradesCount || 0 });
     return retry;
   }
+  const code = isCookieExpiredResult(retry) ? "cookie_expired" : (retry.error || retry.cookieStatus || "JWXT_FAILED");
+  gradeCheckLog("jwxt-failed", { code });
   if (isCookieExpiredResult(retry)) return fail("cookie_expired", retry.message || "JWXT cookie refresh retry failed");
   return retry;
+}
+
+async function runCycle() {
+  gradeCheckLog("start", { userScope: "legacy" });
+  const configuredMode = gradeChannelMode();
+  const mode = configuredMode === "xg" ? "auto" : configuredMode;
+  gradeCheckLog("channel-mode", configuredMode === "xg" ? { mode, ignored: "xg-for-legacy" } : { mode });
+
+  const first = await tryJwxtCheckForUser(null, storage);
+  if (first && first.success) return first;
+  if (mode === "jwxt") return first;
+
+  const xgReason = first && (first.error || first.cookieStatus) || "JWXT_FAILED";
+  const xgResult = await executeXgCheck(storage, null, xgReason);
+  if (xgResult && xgResult.success) return xgResult;
+
+  const result = gradeUnavailableResult(first, xgResult);
+  gradeCheckLog("failed", { code: result.error || result.cookieStatus || "GRADE_QUERY_UNAVAILABLE" });
+  return result;
+}
+
+async function runCycleForUser(userId) {
+  gradeCheckLog("start", { userScope: "user" });
+  const userStorage = createStorageForUser(userId);
+  const hasCampusAccount = Boolean(credentialStore.getJwxtCredentials(userId));
+  gradeCheckLog("campus-account", { exists: hasCampusAccount });
+  const mode = gradeChannelMode();
+  gradeCheckLog("channel-mode", { mode });
+
+  if (mode === "xg") {
+    gradeCheckLog("skip-jwxt", { reason: "forced-xg-test" });
+    return executeXgCheck(userStorage, userId, "forced-xg-test");
+  }
+
+  const jwxtResult = await tryJwxtCheckForUser(userId, userStorage);
+  if (jwxtResult && jwxtResult.success) return jwxtResult;
+  if (mode === "jwxt") return jwxtResult;
+
+  const xgReason = jwxtResult && (jwxtResult.error || jwxtResult.cookieStatus) || "JWXT_FAILED";
+  const xgResult = await executeXgCheck(userStorage, userId, xgReason);
+  if (xgResult && xgResult.success) return xgResult;
+
+  const result = gradeUnavailableResult(jwxtResult, xgResult);
+  gradeCheckLog("failed", { code: result.error || result.cookieStatus || "GRADE_QUERY_UNAVAILABLE" });
+  return result;
 }
 
 module.exports = { runCycle, runCycleForUser, loadCookies, writeCookies, deleteCookies };

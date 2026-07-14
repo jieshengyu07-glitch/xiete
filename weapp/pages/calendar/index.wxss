@@ -1,0 +1,112 @@
+.calendar-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24rpx;
+  background: #f7f9fc;
+}
+
+.term-card {
+  margin-bottom: 30rpx;
+  padding: 32rpx;
+  border-radius: 26rpx;
+  background: linear-gradient(135deg, #1677ff 0%, #3aa0ff 100%);
+  color: #ffffff;
+  box-shadow: 0 18rpx 44rpx rgba(22, 119, 255, 0.2);
+}
+
+.term-label {
+  font-size: 24rpx;
+  opacity: 0.88;
+}
+
+.term-title {
+  margin-top: 10rpx;
+  font-size: 38rpx;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.term-info {
+  display: flex;
+  gap: 18rpx;
+  margin-top: 28rpx;
+}
+
+.info-box {
+  flex: 1;
+  padding: 20rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.info-label {
+  font-size: 22rpx;
+  opacity: 0.86;
+}
+
+.info-value {
+  margin-top: 8rpx;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.section-title {
+  margin: 0 0 18rpx 4rpx;
+  color: #152338;
+  font-size: 30rpx;
+  font-weight: 750;
+}
+
+.timeline-card {
+  padding: 10rpx 28rpx;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(38, 84, 153, 0.07);
+}
+
+.timeline-item {
+  position: relative;
+  display: flex;
+  gap: 18rpx;
+  padding: 28rpx 0;
+  border-bottom: 1rpx solid #eef2f8;
+}
+
+.timeline-item:last-child {
+  border-bottom: none;
+}
+
+.timeline-dot {
+  flex-shrink: 0;
+  width: 18rpx;
+  height: 18rpx;
+  margin-top: 10rpx;
+  border-radius: 50%;
+  background: #1677ff;
+  box-shadow: 0 0 0 8rpx #eaf2ff;
+}
+
+.timeline-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-time {
+  color: #1677ff;
+  font-size: 24rpx;
+  font-weight: 750;
+}
+
+.timeline-title {
+  margin-top: 8rpx;
+  color: #22304a;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.timeline-desc {
+  margin-top: 8rpx;
+  color: #98a2b3;
+  font-size: 24rpx;
+  line-height: 1.5;
+}

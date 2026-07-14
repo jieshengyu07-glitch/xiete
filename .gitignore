@@ -1,6 +1,7 @@
 node_modules/
 data/cookies.json
 data/campus.json
+data/debug/
 data/users/
 data/*.txt
 data/*capture*

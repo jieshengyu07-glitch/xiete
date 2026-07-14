@@ -60,7 +60,7 @@ function hasNoPermission(text) {
     if (jsession) {
       console.log("JSESSIONID domain: " + jsession.domain);
       console.log("JSESSIONID path: " + (jsession.path || ""));
-      console.log("JSESSIONID value: " + String(jsession.value).substring(0, 20) + "...");
+      console.log("JSESSIONID value: present (value hidden)");
     }
 
     if (!cookieHeader) {

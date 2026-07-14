@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "科大美食",
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index"
+  }
+}

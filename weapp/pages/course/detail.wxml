@@ -1,0 +1,129 @@
+<view class="page">
+  <view class="hero-card">
+    <view>
+      <view class="course-name">{{course.name}}</view>
+      <view class="course-meta">{{course.college}} · {{course.major}}</view>
+      <view class="course-meta">{{course.reviews}} 人评价</view>
+    </view>
+    <view class="score">{{course.score}}<text>分</text></view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">评分维度</view>
+    <view class="dim-grid">
+      <view wx:for="{{course.dimensions}}" wx:key="label" class="dim-item">
+        <view class="dim-label">{{item.label}}</view>
+        <view class="dim-value">{{item.value}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">通过攻略</view>
+    <block wx:if="{{course.guide.length}}">
+      <view wx:for="{{course.guide}}" wx:key="*this" class="guide-row">{{item}}</view>
+    </block>
+    <empty-state
+      wx:else
+      title="暂无通过攻略"
+      subtitle="还没有同学留下期末生存情报。"
+      imageType="no-strategy"
+    />
+  </view>
+
+  <view class="card">
+    <view class="card-title">历年试题</view>
+    <view class="safe-tip">{{safetyTip}}</view>
+    <block wx:if="{{course.papers.length}}">
+      <view wx:for="{{course.papers}}" wx:key="title" class="paper-card">
+        <view class="paper-title">{{item.title}}</view>
+        <view class="paper-meta">{{item.year}} · {{item.term}}</view>
+        <view class="paper-tags">{{item.exam}} / {{item.type}} / {{item.book}} / 答案：{{item.answer}}</view>
+        <view class="paper-meta">{{item.views}} 浏览 · {{item.saves}} 收藏</view>
+        <view class="paper-note">{{item.note}}</view>
+      </view>
+    </block>
+    <empty-state
+      wx:else
+      title="暂无历年试题"
+      subtitle="当前可公开的情报还不够，等待第一个同学补充。"
+      buttonText="添加资料"
+      imageType="no-paper"
+    />
+  </view>
+
+  <view class="card">
+    <view class="card-title">复习资料</view>
+    <view wx:if="{{course.resources.length}}" class="resource-row">
+      <view wx:for="{{course.resources}}" wx:key="*this" class="resource-chip">{{item}}</view>
+    </view>
+    <empty-state
+      wx:else
+      title="暂无复习资料"
+      subtitle="重点整理还没出现，看来情报暂时不足。"
+      imageType="no-paper"
+    />
+  </view>
+
+  <view class="card">
+    <view class="card-title">学生评价</view>
+    <block wx:if="{{course.comments.length}}">
+      <view wx:for="{{course.comments}}" wx:key="id" class="comment">
+        <view class="comment-main">
+          <view class="comment-text">“{{item.text}}”</view>
+          <view class="tag-row" wx:if="{{item.tags.length}}">
+            <text wx:for="{{item.tags}}" wx:key="*this" class="tag">{{item}}</text>
+          </view>
+        </view>
+        <view
+          class="like-btn {{item.liked ? 'liked' : ''}}"
+          data-id="{{item.id}}"
+          bindtap="toggleReviewLike"
+        >
+          <text class="like-icon">{{item.liked ? '已赞' : '点赞'}}</text>
+          <text class="like-count">{{item.likeCount}}</text>
+        </view>
+      </view>
+    </block>
+    <empty-state
+      wx:else
+      title="暂无学生评价"
+      subtitle="还没有同学留下记录。"
+      imageType="default"
+    />
+  </view>
+
+  <view class="card">
+    <view class="card-title">发布课程评价</view>
+    <view class="review-form-grid">
+      <view class="review-field">
+        <view class="form-label">综合评分</view>
+        <input class="mini-input" type="digit" value="{{reviewForm.score}}" data-key="score" bindinput="inputReview" />
+      </view>
+      <view class="review-field">
+        <view class="form-label">课程难度</view>
+        <input class="mini-input" type="digit" value="{{reviewForm.difficulty}}" data-key="difficulty" bindinput="inputReview" />
+      </view>
+      <view class="review-field">
+        <view class="form-label">给分友好</view>
+        <input class="mini-input" type="digit" value="{{reviewForm.grading}}" data-key="grading" bindinput="inputReview" />
+      </view>
+      <view class="review-field">
+        <view class="form-label">作业量</view>
+        <input class="mini-input" type="digit" value="{{reviewForm.workload}}" data-key="workload" bindinput="inputReview" />
+      </view>
+      <view class="review-field">
+        <view class="form-label">推荐程度</view>
+        <input class="mini-input" type="digit" value="{{reviewForm.recommend}}" data-key="recommend" bindinput="inputReview" />
+      </view>
+    </view>
+    <input class="tag-input" placeholder="标签，用 / 分隔，如：考试难 / 闭卷" value="{{reviewForm.tags}}" data-key="tags" bindinput="inputReview" />
+    <textarea class="review-textarea" placeholder="写一条课程评价，给后来的同学一点参考" value="{{reviewForm.content}}" data-key="content" bindinput="inputReview" />
+    <button class="primary-btn" loading="{{submittingReview}}" bindtap="submitReview">保存评价</button>
+  </view>
+
+  <view class="easter-egg">
+    <view class="egg-title">小提示</view>
+    <view class="egg-text">情报暂时不足时，可以先收藏页面，等第一位调查员出现。</view>
+  </view>
+</view>

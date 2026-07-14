@@ -1,0 +1,72 @@
+.login-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24rpx;
+  background: #f7f9fc;
+}
+
+.login-card {
+  margin-top: 48rpx;
+  padding: 42rpx 32rpx;
+  border-radius: 28rpx;
+  background: #ffffff;
+  text-align: center;
+  box-shadow: 0 12rpx 32rpx rgba(38, 84, 153, 0.08);
+}
+
+.login-icon {
+  width: 108rpx;
+  height: 108rpx;
+  margin: 0 auto 26rpx;
+  border-radius: 30rpx;
+  background: linear-gradient(135deg, #1677ff 0%, #34c2a3 100%);
+  color: #ffffff;
+  font-size: 44rpx;
+  font-weight: 850;
+  line-height: 108rpx;
+}
+
+.login-title {
+  color: #152338;
+  font-size: 40rpx;
+  font-weight: 850;
+}
+
+.login-desc {
+  margin-top: 16rpx;
+  color: #667085;
+  font-size: 26rpx;
+  line-height: 1.6;
+}
+
+.primary-btn {
+  height: 88rpx;
+  margin-top: 36rpx;
+  border-radius: 20rpx;
+  background: #1677ff;
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 750;
+  line-height: 88rpx;
+}
+
+.error-text {
+  margin-top: 18rpx;
+  color: #d92d20;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.secondary-note {
+  margin-top: 28rpx;
+  color: #98a2b3;
+  font-size: 24rpx;
+  line-height: 1.55;
+}
+
+.settings-link {
+  margin-top: 18rpx;
+  color: #1677ff;
+  font-size: 25rpx;
+  font-weight: 750;
+}

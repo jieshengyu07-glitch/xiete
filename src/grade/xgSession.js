@@ -4,6 +4,16 @@ const credentialStore = require("../services/credentialStore");
 const { httpPortalLogin, getAndFollow, requestNoRedirect, followRedirects, PORTAL_ORIGIN, userAgent } = require("../login/httpJwxtLogin");
 const { queryXgScores } = require("./xgScoreQuery");
 
+function safeText(value) {
+  return String(value === undefined || value === null ? "" : value)
+    .replace(/\u3000/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const XG_ORIGIN = "https://xg.tyust.edu.cn";
 const PORTAL_HOST = "ronghemenhu.tyust.edu.cn";
 const SCORE_PAGE_NAME = "StuStudentScore.aspx";
@@ -2507,6 +2517,16 @@ function scorePageValidationFlags(html) {
   };
 }
 
+function gridViewHeaders(html) {
+  const $ = cheerio.load(String(html || ""));
+  const headers = [];
+  $("#GridView1 tr").first().find("th,td").each((_, cell) => {
+    const text = safeText($(cell).text());
+    if (text) headers.push(text);
+  });
+  return headers;
+}
+
 async function verifyAndQueryScoreEntry(cookieJar, applicationPage, debugState) {
   const entry = await discoverScoreEntryFromApplication(cookieJar, applicationPage);
   if (debugState) debugState.scoreEntryFound = Boolean(entry);
@@ -2535,6 +2555,7 @@ async function verifyAndQueryScoreEntry(cookieJar, applicationPage, debugState) 
     debugState.scorePageReached = true;
     debugState.scorePageValid = Boolean(valid);
     debugState.containsGridView1 = Boolean(flags.containsGridView1);
+    debugState.xgScoreHeaders = gridViewHeaders(scoreHtml);
   }
   if (!valid) return null;
 
@@ -2548,12 +2569,18 @@ async function verifyAndQueryScoreEntry(cookieJar, applicationPage, debugState) 
     courseName: "",
     courseType: ""
   });
+  console.log("[xg-session] step=score-query-complete count=" + grades.length);
   if (debugState) {
     debugState.xgGradesParsed = true;
     debugState.xgGradeCount = grades.length;
+    debugState.xgGrades = grades;
   }
-  console.log("[grade-check] step=xg-success count=" + grades.length);
+  console.log("[xg-session] step=return-xg-success count=" + grades.length);
   return { scoreUrl: verified.scoreUrl, cookies: verified.cookies, grades };
+}
+
+function isScoreQueryResult(value) {
+  return Boolean(value && value.scoreUrl && value.cookies && Array.isArray(value.grades));
 }
 
 function nextStudentJudgeHtmlHop(response, currentUrl, visited) {
@@ -2678,7 +2705,8 @@ async function collectJumpUrlsForStudentJudgeRecords(cookieJar, records, authCon
       if (debugState) debugState.applicationErrorDiagnostic = diagnostic;
     }
     if (applicationPageValid) {
-      await verifyAndQueryScoreEntry(cookieJar, page, debugState);
+      const scoreQueryResult = await verifyAndQueryScoreEntry(cookieJar, page, debugState);
+      if (isScoreQueryResult(scoreQueryResult)) return scoreQueryResult;
     }
     urls.push(page.finalUrl);
     return Array.from(new Set(urls));
@@ -2859,6 +2887,7 @@ async function discoverStudentJudgeFromXgHome(cookieJar, homePage, debugState) {
     [homeHtml].concat(jsTexts),
     debugState
   );
+  if (isScoreQueryResult(jumpUrls)) return jumpUrls;
   jumpUrls.forEach(url => launchUrls.push(url));
   const candidates = Array.from(new Set(launchUrls))
     .filter(url => hostOf(url) === "xg.tyust.edu.cn")
@@ -3845,20 +3874,8 @@ async function validateCachedSession(activeStorage) {
     " cookieLength=" + String((session && session.cookies) || "").length);
   if (!session || !session.scoreUrl || !session.cookies) return null;
 
-  try {
-    const scores = await queryXgScores({
-      scoreUrl: session.scoreUrl,
-      cookies: session.cookies
-    });
-    console.log("[xg-session] step=validate-cache ok=true host=" + sanitizeUrlForLog(session.scoreUrl) +
-      " pathname=" + safePathname(session.scoreUrl) +
-      " count=" + scores.length);
-  } catch (err) {
-    console.log("[xg-session] step=validate-cache ok=false code=" + ((err && err.code) || "XG_SESSION_INVALID") +
-      " host=" + sanitizeUrlForLog(session.scoreUrl) +
-      " pathname=" + safePathname(session.scoreUrl));
-    throw err;
-  }
+  console.log("[xg-session] step=validate-cache ok=true host=" + sanitizeUrlForLog(session.scoreUrl) +
+    " pathname=" + safePathname(session.scoreUrl));
   return {
     scoreUrl: session.scoreUrl,
     cookies: session.cookies,
@@ -4046,6 +4063,7 @@ async function inspectXgHomeForScore(cookieJar, page) {
   }
 
   const discoveredAppLinks = await discoverStudentJudgeFromXgHome(cookieJar, page);
+  if (isScoreQueryResult(discoveredAppLinks)) return discoveredAppLinks;
   for (const appUrl of discoveredAppLinks) {
     console.log("[xg-session] step=visit-studentjudge-app host=" + sanitizeUrlForLog(appUrl) + " pathname=" + safePathname(appUrl));
     const appPage = await getPage(cookieJar, appUrl, page.finalUrl).catch(err => {
@@ -4379,7 +4397,8 @@ async function debugStudentJudgeLaunch(cookieJar, homePage) {
     return finalizeStudentJudgeDebugResult(emptyStudentJudgeDebugResult("XG_SESSION_REQUIRED"));
   }
   try {
-    await discoverStudentJudgeFromXgHome(cookieJar, homePage, result);
+    const discovered = await discoverStudentJudgeFromXgHome(cookieJar, homePage, result);
+    if (isScoreQueryResult(discovered)) result.errorCode = "";
     return finalizeStudentJudgeDebugResult(result);
   } catch (err) {
     result.errorCode = err && err.code ? err.code : "STUDENT_JUDGE_LAUNCH_FAILED";
@@ -4469,10 +4488,12 @@ async function ensureXgScoreSession(userId, activeStorage) {
     throw makeError("XG_LOGIN_REQUIRED", "Unable to build xg score session");
   }
 
-  await queryXgScores({
-    scoreUrl: session.scoreUrl,
-    cookies: session.cookies
-  });
+  const grades = Array.isArray(session.grades)
+    ? session.grades
+    : await queryXgScores({
+      scoreUrl: session.scoreUrl,
+      cookies: session.cookies
+    });
 
   if (activeStorage && typeof activeStorage.saveXgSession === "function") {
     activeStorage.saveXgSession(session.scoreUrl, session.cookies);
@@ -4483,6 +4504,7 @@ async function ensureXgScoreSession(userId, activeStorage) {
   return {
     scoreUrl: session.scoreUrl,
     cookies: session.cookies,
+    grades,
     fromCache: false
   };
 }

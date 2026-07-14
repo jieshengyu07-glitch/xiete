@@ -40,7 +40,17 @@
   font-size: 24rpx;
 }
 
+.status-meta {
+  margin-top: 12rpx;
+  color: #667085;
+  font-size: 24rpx;
+}
+
 .bind-card {
+  padding-bottom: 24rpx;
+}
+
+.bound-card {
   padding-bottom: 24rpx;
 }
 
@@ -71,6 +81,21 @@
   color: #ffffff;
   font-weight: 700;
   box-shadow: 0 10rpx 24rpx rgba(22, 119, 255, 0.2);
+}
+
+.action-row {
+  margin-top: 18rpx;
+}
+
+.light-btn {
+  height: 76rpx;
+  margin: 0;
+  border-radius: 16rpx;
+  background: #eaf2ff;
+  color: #1677ff;
+  font-size: 26rpx;
+  font-weight: 700;
+  line-height: 76rpx;
 }
 
 .captcha-panel {

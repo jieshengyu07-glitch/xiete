@@ -1,0 +1,33 @@
+<view class="rank-page">
+  <view wx:for="{{boards}}" wx:key="title" class="board-card">
+    <view class="board-head">
+      <view>
+        <view class="board-title">{{item.title}}</view>
+        <view class="board-subtitle">{{item.subtitle}}</view>
+      </view>
+    </view>
+
+    <view
+      wx:for="{{item.items}}"
+      wx:for-item="rank"
+      wx:key="name"
+      class="rank-row {{rank.rank === 1 ? 'first' : ''}}"
+      data-type="{{item.type}}"
+      data-id="{{rank.id}}"
+      bindtap="openRankItem"
+    >
+      <view class="rank-index">{{rank.rank}}</view>
+      <view class="rank-main">
+        <view class="rank-top">
+          <view class="rank-name">{{rank.name}}</view>
+          <view wx:if="{{rank.canteen}}" class="rank-canteen">{{rank.canteen}}</view>
+        </view>
+        <view class="rank-meta">评分 {{rank.score}} · {{rank.reviews}} 人评价 · {{rank.likes}} 赞</view>
+        <view class="tag-row">
+          <text wx:for="{{rank.tags}}" wx:key="*this" class="tag">{{item}}</text>
+        </view>
+        <view class="rank-quote">“{{rank.quote}}”</view>
+      </view>
+    </view>
+  </view>
+</view>

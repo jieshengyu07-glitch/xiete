@@ -1,6 +1,6 @@
 const app = getApp();
 
-const LOGIN_PAGE = "/pages/settings/settings";
+const LOGIN_PAGE = "/pages/login/index";
 
 function getToken() {
   return wx.getStorageSync("token") || "";
@@ -18,7 +18,7 @@ function authError(message) {
 }
 
 function goLoginPage() {
-  wx.switchTab({
+  wx.navigateTo({
     url: LOGIN_PAGE,
     fail: () => {}
   });
@@ -100,6 +100,28 @@ function send(path, method, data, options, retried) {
   }));
 }
 
+function sendPublic(path, method, data, options) {
+  return new Promise((resolve, reject) => {
+    wx.request({
+      url: app.globalData.apiBase + path,
+      method,
+      header: Object.assign({
+        "Content-Type": "application/json"
+      }, authHeader(), options && options.header ? options.header : {}),
+      data: data || {},
+      timeout: options && options.timeout ? options.timeout : 30000,
+      success: res => {
+        if (res.statusCode >= 400) {
+          reject(normalizeError(res));
+          return;
+        }
+        resolve(res.data);
+      },
+      fail: err => reject(normalizeFailError(err))
+    });
+  });
+}
+
 function request(path, options) {
   return send(path, "GET", null, options, false);
 }
@@ -108,9 +130,15 @@ function post(path, data, options) {
   return send(path, "POST", data, options, false);
 }
 
+function publicRequest(path, options) {
+  return sendPublic(path, "GET", null, options);
+}
+
 module.exports = {
   request,
   get: request,
+  publicRequest,
+  publicGet: publicRequest,
   post,
   ensureLogin
 };

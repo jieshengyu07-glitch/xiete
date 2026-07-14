@@ -1,36 +1,36 @@
 <view class="container">
   <view class="status-card">
-    <view>
-      <view class="status-label">教务状态</view>
-      <view class="status-value status-{{jwxtStatusTone}}">{{jwxtStatusText}}</view>
-      <view class="status-desc">用于查询课表和成绩</view>
+    <view class="status-label">教务绑定</view>
+    <view class="status-value status-{{statusTone}}">{{statusTitle}}</view>
+    <view class="status-desc">{{statusDesc}}</view>
+    <view wx:if="{{lastSyncText}}" class="status-meta">最近同步时间：{{lastSyncText}}</view>
+    <view wx:if="{{syncMetaText}}" class="status-meta">{{syncMetaText}}</view>
+  </view>
+
+  <view wx:if="{{!hasBoundJwxt || status === 'SYNC_FAILED'}}" class="card bind-card">
+    <view class="card-title">{{status === 'SYNC_FAILED' ? '重新绑定教务账号' : '绑定教务账号'}}</view>
+    <view class="hint">教务账号仅用于课表、成绩和教务状态同步。绑定后系统会自动同步，无需重复登录教务系统。</view>
+    <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
+    <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
+    <button class="bind-btn" loading="{{binding}}" disabled="{{binding}}" bindtap="bindAccount">绑定教务账号</button>
+    <view wx:if="{{showRebindActions}}" class="action-row">
+      <button class="light-btn" bindtap="retryLater">稍后再试</button>
     </view>
   </view>
 
-  <view class="card bind-card">
-    <view class="card-title">绑定教务账号</view>
-    <view class="hint">教务账号仅用于查询课表和成绩。若教务系统要求验证码，请先到官网登录完成验证后再重试。</view>
-    <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
-    <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
-
-    <view wx:if="{{captchaExpanded}}" class="captcha-panel">
-      <view wx:if="{{!captchaRelayEnabled}}" class="captcha-fallback">
-        <view class="captcha-title">教务系统需要验证码验证</view>
-        <view class="captcha-desc">请先到官网登录教务系统完成验证后，再回到小程序重试绑定。</view>
-        <button class="captcha-btn" loading="{{binding}}" disabled="{{binding}}" bindtap="retryAfterOfficialCaptcha">我已完成验证，重试</button>
-      </view>
-      <block wx:else>
-        <image wx:if="{{captchaImage}}" class="captcha-image" src="{{captchaImage}}" mode="aspectFit" bindtap="getCaptcha" />
-        <input class="input captcha-input" placeholder="请输入验证码" value="{{captchaCode}}" bindinput="onCaptchaInput" />
-        <button class="captcha-btn" loading="{{captchaLoading}}" disabled="{{captchaLoading}}" bindtap="getCaptcha">{{captchaImage ? '重新获取' : '获取验证码'}}</button>
-      </block>
-    </view>
-
-    <button class="bind-btn" loading="{{binding || captchaBinding}}" disabled="{{binding || captchaBinding}}" bindtap="bindAccount">{{captchaExpanded && captchaRelayEnabled ? '验证码绑定' : '绑定教务账号'}}</button>
+  <view wx:if="{{hasBoundJwxt && status !== 'SYNC_FAILED'}}" class="card bound-card">
+    <view class="card-title">已绑定教务账号</view>
+    <view class="hint">系统会自动同步课表和成绩，无需重复登录。若更换教务密码，可先解除绑定后重新绑定。</view>
     <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
   </view>
 
-  <view class="debug-toggle" bindtap="toggleDebug">关于与调试 {{debugExpanded ? '⌃' : '⌄'}}</view>
+  <view wx:if="{{hasBoundJwxt && status === 'SYNC_FAILED'}}" class="card bound-card">
+    <view class="card-title">同步处理</view>
+    <view class="hint">如已确认密码变更或学校验证要求，请重新绑定教务账号；也可以稍后再试。</view>
+    <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
+  </view>
+
+  <view class="debug-toggle" bindtap="toggleDebug">关于与调试 {{debugExpanded ? '收起' : '展开'}}</view>
   <view wx:if="{{debugExpanded}}" class="card debug-card">
     <view class="row">
       <text class="label">apiBase</text>
@@ -41,13 +41,13 @@
       <text class="value">{{clientVersion}}</text>
     </view>
     <view class="row">
-      <text class="label">登录状态</text>
+      <text class="label">连接状态</text>
       <text class="value">{{loginStatus}}</text>
     </view>
     <view wx:if="{{connectionError}}" class="diagnostic">
       <view class="diagnostic-title">连接诊断</view>
       <view class="diagnostic-text">{{connectionError}}</view>
     </view>
-    <view class="debug-desc">后端 API 需保持在线；绑定后可查询课表和成绩。</view>
+    <view class="debug-desc">后端 API 需要保持在线；教务账号只用于课表、成绩和教务状态同步。</view>
   </view>
 </view>

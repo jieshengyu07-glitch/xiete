@@ -1,12 +1,10 @@
 ﻿const path = require('path');
 
 // ============ 用户配置 ============
-// 请将学号和密码填入下方
+// 通过环境变量提供教务账号，避免在代码中保存明文账号密码。
 const config = {
-  // 学号
-  username: '202324030212',
-  // 密码
-  password: 'Qwe4735262020.13',
+  username: process.env.JWXT_STUDENT_ID || '',
+  password: process.env.JWXT_PASSWORD || '',
 
   // ============ 系统 URL 配置（无需修改） ============
   urls: {

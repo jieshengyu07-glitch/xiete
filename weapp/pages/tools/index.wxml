@@ -1,0 +1,26 @@
+<view class="tools-page">
+  <view class="tools-header">
+    <view class="tools-title">校园工具</view>
+    <view class="tools-subtitle">原来的课表、成绩、教务状态等功能都在这里。</view>
+  </view>
+
+  <view wx:for="{{groups}}" wx:key="title" class="tool-section">
+    <view class="section-title">{{item.title}}</view>
+    <view class="tool-grid">
+      <view
+        wx:for="{{item.items}}"
+        wx:for-item="tool"
+        wx:key="title"
+        class="tool-card"
+        data-url="{{tool.url}}"
+        bindtap="openTool"
+      >
+        <view class="tool-icon">{{tool.icon}}</view>
+        <view class="tool-main">
+          <view class="tool-title">{{tool.title}}</view>
+          <view class="tool-desc">{{tool.desc}}</view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

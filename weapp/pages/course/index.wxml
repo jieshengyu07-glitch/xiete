@@ -1,0 +1,30 @@
+<view class="page">
+  <view class="search-card">
+    <input class="search-input" placeholder="搜索课程名称，如：汽车理论" value="{{keyword}}" bindinput="onKeywordInput" />
+  </view>
+
+  <view class="section-title">{{searched ? '搜索结果' : '热门课程'}}</view>
+  <view wx:if="{{results.length}}" class="course-list">
+    <view wx:for="{{results}}" wx:key="id" class="course-card" data-id="{{item.id}}" bindtap="openDetail">
+      <view class="course-head">
+        <view>
+          <view class="course-name">{{item.name}}</view>
+          <view class="course-college">{{item.college}} · {{item.reviews}} 人评价</view>
+        </view>
+        <view class="score">{{item.score}}<text>分</text></view>
+      </view>
+      <view class="tag-row">
+        <text wx:for="{{item.tags}}" wx:key="*this" class="tag">{{item}}</text>
+      </view>
+    </view>
+  </view>
+
+  <empty-state
+    wx:else
+    title="没有找到相关课程"
+    subtitle="还是做不到吗……要不添加第一份课程情报？"
+    buttonText="添加这门课程"
+    imageType="no-course"
+    bind:action="addCourse"
+  />
+</view>

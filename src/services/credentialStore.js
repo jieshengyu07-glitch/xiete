@@ -103,6 +103,10 @@ function readBoundAccountMeta(userId) {
       jwxtStatus: data.jwxtStatus || data.lastJwxtStatus || "",
       lastJwxtStatus: data.lastJwxtStatus || "",
       lastJwxtLoginAt: data.lastJwxtLoginAt || null,
+      lastSuccessfulSyncAt: data.lastSuccessfulSyncAt || null,
+      lastFailedSyncAt: data.lastFailedSyncAt || null,
+      lastJwxtError: data.lastJwxtError || null,
+      lastJwxtErrorMessage: data.lastJwxtErrorMessage || null,
       updatedAt: data.updatedAt || null,
       source: "account_file"
     };
@@ -129,6 +133,10 @@ function saveBoundAccount(studentId, password, userId) {
     jwxtStatus: existing.jwxtStatus || existing.lastJwxtStatus || "COOKIE_EXPIRED",
     lastJwxtStatus: existing.lastJwxtStatus || "COOKIE_EXPIRED",
     lastJwxtLoginAt: existing.lastJwxtLoginAt || null,
+    lastSuccessfulSyncAt: existing.lastSuccessfulSyncAt || null,
+    lastFailedSyncAt: existing.lastFailedSyncAt || null,
+    lastJwxtError: existing.lastJwxtError || null,
+    lastJwxtErrorMessage: existing.lastJwxtErrorMessage || null,
     updatedAt: new Date().toISOString()
   }, null, 2));
 }
@@ -144,6 +152,10 @@ function updateBoundAccountStatus(userId, status, extra) {
     if (extra && extra.portalAuthStatus) data.portalAuthStatus = extra.portalAuthStatus;
     if (extra && extra.lastJwxtLoginAt !== undefined) data.lastJwxtLoginAt = extra.lastJwxtLoginAt;
     if (extra && extra.clearLastJwxtLoginAt) data.lastJwxtLoginAt = null;
+    if (extra && extra.lastSuccessfulSyncAt !== undefined) data.lastSuccessfulSyncAt = extra.lastSuccessfulSyncAt;
+    if (extra && extra.lastFailedSyncAt !== undefined) data.lastFailedSyncAt = extra.lastFailedSyncAt;
+    if (extra && extra.lastJwxtError !== undefined) data.lastJwxtError = extra.lastJwxtError;
+    if (extra && extra.lastJwxtErrorMessage !== undefined) data.lastJwxtErrorMessage = extra.lastJwxtErrorMessage;
     data.updatedAt = new Date().toISOString();
     fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
     return true;

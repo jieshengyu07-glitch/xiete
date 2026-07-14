@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "课程评分",
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index"
+  }
+}

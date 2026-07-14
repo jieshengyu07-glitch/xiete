@@ -1,8 +1,8 @@
-const API_ENV = "production";
+const API_ENV = "development";
 const API_BASES = {
   production: "https://xiete.onrender.com",
   // 本地开发可切换为 development；也可改成 http://localhost:3456
-  development: "http://192.168.1.14:3456"
+  development: "http://localhost:3456"
 };
 
 function pickToken(data) {
@@ -31,9 +31,7 @@ App({
     lastLoginError: ""
   },
 
-  onLaunch() {
-    this.loginWithWechat().catch(() => {});
-  },
+  onLaunch() {},
 
   loginWithWechat(force) {
     if (!force && this.globalData.loginPromise) return this.globalData.loginPromise;

@@ -1,41 +1,64 @@
-<view class="container">
+<view class="container timetable-page">
   <view wx:if="{{loading}}" class="card">
     <view class="loading">加载中...</view>
   </view>
 
   <block wx:else>
     <view class="timetable-hero">
-      <view>
+      <view class="hero-main">
+        <view class="page-title">每日课表</view>
         <view class="date-line">{{dateText}} {{weekdayText}}</view>
         <view class="week-line">{{weekText}} · {{weekTypeText}}</view>
       </view>
       <button class="refresh-btn" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">刷新课表</button>
     </view>
 
-    <view wx:if="{{!hasTimetable}}" class="card">
-      <view class="card-title">暂无课表缓存</view>
-      <view class="tips">暂无课表，请点击刷新课表。首次使用或新学期开始后，需要先同步本学期数据。</view>
+    <view wx:if="{{notice}}" class="notice-card">{{notice}}</view>
+
+    <view wx:if="{{!hasTimetable}}" class="card empty-card">
+      <view class="card-title">暂无课表，请先刷新课表</view>
+      <view class="tips">同步成功后，这里会直接展示今天的课程安排。</view>
+      <button class="btn" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">刷新课表</button>
     </view>
 
-    <view wx:if="{{error}}" class="card error-card">
+    <view wx:elif="{{!hasTodayCourses}}" class="card empty-card">
+      <view class="empty-title">今天暂无课程</view>
+      <view class="tips">可以下拉刷新，或点击按钮重新同步课表。</view>
+      <button class="btn secondary" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">刷新课表</button>
+    </view>
+
+    <view wx:if="{{error && hasTimetable}}" class="card error-card">
       <view class="error-text">{{error}}</view>
     </view>
 
-    <view class="section-list">
+    <view wx:if="{{hasTimetable}}" class="section-list">
       <view wx:for="{{sections}}" wx:key="section" class="lesson-card">
         <view class="lesson-head">
-          <view class="lesson-title">{{item.title}}</view>
+          <view>
+            <view class="lesson-title">{{item.title}}</view>
+            <view wx:if="{{item.timeText}}" class="lesson-time">{{item.timeText}}</view>
+          </view>
         </view>
 
         <view wx:if="{{item.courses.length === 0}}" class="no-class">无课</view>
 
         <view wx:for="{{item.courses}}" wx:for-item="course" wx:key="id" class="course-block">
           <view class="course-name">{{course.courseName}}</view>
-          <view class="course-room">{{course.displayLocation || course.classroomRaw || '地点待定'}}</view>
-          <view wx:if="{{course.teacherName || course.weeksRaw}}" class="course-meta">
-            <text wx:if="{{course.teacherName}}">{{course.teacherName}}</text>
-            <text wx:if="{{course.teacherName && course.weeksRaw}}"> · </text>
-            <text wx:if="{{course.weeksRaw}}">{{course.weeksRaw}}</text>
+          <view class="course-row">
+            <text class="course-label">时间</text>
+            <text>{{item.timeText || "待定"}}</text>
+          </view>
+          <view class="course-row">
+            <text class="course-label">教室</text>
+            <text>{{course.displayLocation || course.classroomRaw || course.displayRoom || "地点待定"}}</text>
+          </view>
+          <view wx:if="{{course.teacherName}}" class="course-row">
+            <text class="course-label">老师</text>
+            <text>{{course.teacherName}}</text>
+          </view>
+          <view wx:if="{{course.weeksRaw}}" class="course-row">
+            <text class="course-label">周次</text>
+            <text>{{course.weeksRaw}}</text>
           </view>
         </view>
       </view>

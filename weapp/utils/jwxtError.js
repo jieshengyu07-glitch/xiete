@@ -7,7 +7,12 @@ const MESSAGE_BY_CODE = {
   JWXT_TIMEOUT: "教务系统响应超时，请稍后再试",
   JWXT_UNAVAILABLE: "教务系统暂时不可用，请稍后再试",
   JWXT_LOGIN_FAILED: "教务登录失败，请稍后再试",
-  LOGIN_REQUIRED: "请先绑定教务账号"
+  LOGIN_REQUIRED: "请先绑定教务账号",
+  XG_LOGIN_REQUIRED: "成绩登录已失效，请重新登录",
+  CAMPUS_LOGIN_REQUIRED: "成绩登录已失效，请重新登录",
+  XG_SESSION_MISSING: "成绩登录已失效，请重新登录",
+  XG_SCORE_PAGE_INVALID: "成绩登录已失效，请重新登录",
+  XG_SCORE_QUERY_FAILED: "暂时无法同步成绩，请稍后再试"
 };
 
 function rawText(err, fallback) {

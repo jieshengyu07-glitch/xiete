@@ -1,0 +1,12 @@
+<view class="empty-state">
+  <view class="empty-illustration empty-{{imageType}}">
+    <view class="empty-face">
+      <view class="empty-eye left"></view>
+      <view class="empty-eye right"></view>
+      <view class="empty-mouth"></view>
+    </view>
+  </view>
+  <view class="empty-title">{{title}}</view>
+  <view wx:if="{{subtitle}}" class="empty-subtitle">{{subtitle}}</view>
+  <button wx:if="{{buttonText}}" class="empty-button" bindtap="onTap">{{buttonText}}</button>
+</view>

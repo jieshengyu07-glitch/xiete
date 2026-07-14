@@ -1,0 +1,27 @@
+<view class="page">
+  <view class="search-card">
+    <input class="search-input" placeholder="搜索菜品、窗口或食堂" value="{{keyword}}" bindinput="onKeywordInput" />
+  </view>
+
+  <view class="section-title">美食热榜</view>
+  <view wx:if="{{results.length}}">
+    <view wx:for="{{results}}" wx:key="name" class="food-card" bindtap="openDetail">
+      <view class="food-head">
+        <view>
+          <view class="food-name">{{item.name}}</view>
+          <view class="food-meta">{{item.canteen}} · {{item.window}} · {{item.reviews}} 人评价</view>
+        </view>
+        <view class="score">{{item.score}}<text>分</text></view>
+      </view>
+      <view class="tag-row">
+        <text wx:for="{{item.tags}}" wx:key="*this" class="tag">{{item}}</text>
+      </view>
+    </view>
+  </view>
+  <empty-state
+    wx:else
+    title="暂无美食评价"
+    subtitle="还没有勇士留下第一口情报。"
+    imageType="food-empty"
+  />
+</view>

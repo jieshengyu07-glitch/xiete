@@ -78,7 +78,7 @@ function printState(state) {
   if (state.jSession) {
     console.log("Selected JSESSIONID domain: " + state.jSession.domain);
     console.log("Selected JSESSIONID path: " + (state.jSession.path || ""));
-    console.log("Selected JSESSIONID: " + String(state.jSession.value).substring(0, 20) + "...");
+    console.log("Selected JSESSIONID: present (value hidden)");
   }
 }
 
@@ -108,7 +108,7 @@ function validateCookieFile() {
   if (jSession) {
     console.log("Selected JSESSIONID domain: " + jSession.domain);
     console.log("Selected JSESSIONID path: " + (jSession.path || ""));
-    console.log("Selected JSESSIONID: " + String(jSession.value).substring(0, 20) + "...");
+    console.log("Selected JSESSIONID: present (value hidden)");
   }
 
   if (newjwcCookies.length === 0) {

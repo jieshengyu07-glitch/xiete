@@ -8,6 +8,12 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 (async () => {
   console.log("=== \u81ea\u52a8\u767b\u5f55\u5de5\u5177 ===");
   console.log("\u6b63\u5728\u542f\u52a8\u6d4f\u89c8\u5668...\n");
+  const studentId = process.env.JWXT_STUDENT_ID || "";
+  const password = process.env.JWXT_PASSWORD || "";
+  if (!studentId || !password) {
+    console.log("ERROR: Please set JWXT_STUDENT_ID and JWXT_PASSWORD before running this script.");
+    return;
+  }
 
   const browser = await chromium.launch({ channel: "msedge", headless: false });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -16,8 +22,8 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   console.log("1/4 CAS \u767b\u5f55...");
   await page.goto("https://sso1.tyust.edu.cn/login?service=https%3A%2F%2Fsso1.tyust.edu.cn%2Foauth2.0%2FcallbackAuthorize%3Fclient_id%3Drhmh%26redirect_uri%3Dhttps%253A%252F%252Fronghemenhu.tyust.edu.cn%252Fsso%252Flogin%26response_type%3Dcode%26client_name%3DCasOAuthClient");
   await page.waitForTimeout(2000);
-  await page.locator("input").nth(0).fill("202324030212");
-  await page.locator("input").nth(1).fill("Qwe4735262020.13");
+  await page.locator("input").nth(0).fill(studentId);
+  await page.locator("input").nth(1).fill(password);
   await page.locator("button[type=submit]").click();
   await page.waitForTimeout(8000);
   console.log("   CAS \u767b\u5f55\u5b8c\u6210");
@@ -58,7 +64,7 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   const jSession = cookies.find(c => c.name === "JSESSIONID" && c.domain.includes("newjwc"));
   if (jSession) {
     fs.writeFileSync(path.join(DATA_DIR, "cookies.json"), JSON.stringify(cookies, null, 2));
-    console.log("\n\u2705 JSESSIONID: " + jSession.value.substring(0, 20) + "...");
+    console.log("\n\\u2705 JSESSIONID: present (value hidden)");
     console.log("\u2705 Cookies \u5df2\u4fdd\u5b58\u5230 data/cookies.json");
     console.log("\n\u73b0\u5728\u53ef\u4ee5\u8fd0\u884c\u4ee5\u4e0b\u547d\u4ee4\u542f\u52a8\u670d\u52a1\u5668: npm start");
   } else {

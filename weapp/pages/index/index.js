@@ -3,10 +3,10 @@ const { formatJwxtErrorMessage, isCaptchaRequired } = require("../../utils/jwxtE
 
 function showCaptchaRequired(onRetry) {
   wx.showModal({
-    title: "需要验证码验证",
-    content: "教务系统需要验证码验证，请先到官网登录教务系统完成验证后，再回到小程序重试。",
-    confirmText: "我已完成验证，重试",
-    cancelText: "稍后再说",
+    title: "自动同步失败，需要重新验证",
+    content: "可能是学校系统验证或教务系统维护导致，请稍后再试，或到设置页重新绑定教务账号。",
+    confirmText: "稍后再试",
+    cancelText: "知道了",
     success: result => {
       if (result.confirm && typeof onRetry === "function") onRetry();
     }
@@ -35,10 +35,10 @@ Page({
     if (!t) return "";
     const d = new Date(t);
     return d.getFullYear() + "-" +
-      (d.getMonth() + 1).toString().padStart(2, "0") + "-" +
-      d.getDate().toString().padStart(2, "0") + " " +
-      d.getHours().toString().padStart(2, "0") + ":" +
-      d.getMinutes().toString().padStart(2, "0");
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0") + " " +
+      String(d.getHours()).padStart(2, "0") + ":" +
+      String(d.getMinutes()).padStart(2, "0");
   },
 
   formatChange(change) {
@@ -74,16 +74,31 @@ Page({
       text.includes("无法连接");
   },
 
-  statusMessage(cookieStatus) {
-    if (cookieStatus === "login_required" || cookieStatus === "LOGIN_REQUIRED") return "请先绑定教务账号";
-    if (cookieStatus === "cookie_expired" || cookieStatus === "COOKIE_EXPIRED") return "已绑定，登录态已过期；需要时可重新验证";
-    if (cookieStatus === "JWXT_CAPTCHA_REQUIRED" || cookieStatus === "CAPTCHA_REQUIRED") return "已绑定，教务系统需要验证码验证";
-    if (cookieStatus === "JWXT_SSO_FAILED" || cookieStatus === "SSO_FAILED") return "已绑定，教务系统登录态获取失败，稍后可重试";
-    if (cookieStatus === "JWXT_TIMEOUT" || cookieStatus === "TIMEOUT") return "已绑定，教务系统响应超时，稍后可重试";
-    if (cookieStatus === "login_failed" || cookieStatus === "LOGIN_FAILED") return "已绑定，最近登录失败，请到设置页处理";
-    if (cookieStatus === "account_saved" || cookieStatus === "pending_verify") return "账号已保存，请点击立即检查成绩";
-    if (cookieStatus === "jwxt_unavailable" || cookieStatus === "JWXT_UNAVAILABLE") return "教务系统暂时不可用，请稍后再试";
-    return "";
+  statusMessage(status) {
+    if (!status || !status.bound) return "未绑定教务账号。绑定后可自动同步课表、成绩和教务状态。";
+
+    const jwxtStatus = String(status.jwxtStatus || "").toUpperCase();
+    const cookieStatus = String(status.cookieStatus || "").toUpperCase();
+
+    if (jwxtStatus === "OK" || jwxtStatus === "SYNC_OK" || cookieStatus === "COOKIE_VALID") {
+      return "同步成功。教务数据已更新，可正常使用课表和成绩查询。";
+    }
+    if (jwxtStatus === "UNAVAILABLE" || jwxtStatus === "TIMEOUT" || cookieStatus === "JWXT_UNAVAILABLE" || cookieStatus === "JWXT_TIMEOUT") {
+      return "教务系统暂时不可用。学校教务系统可能正在维护，请稍后再试。";
+    }
+    if (
+      jwxtStatus === "LOGIN_FAILED" ||
+      jwxtStatus === "CAPTCHA_REQUIRED" ||
+      jwxtStatus === "COOKIE_EXPIRED" ||
+      jwxtStatus === "SSO_FAILED" ||
+      cookieStatus === "LOGIN_FAILED" ||
+      cookieStatus === "JWXT_CAPTCHA_REQUIRED" ||
+      cookieStatus === "COOKIE_EXPIRED" ||
+      cookieStatus === "JWXT_SSO_FAILED"
+    ) {
+      return "自动同步失败，需要重新验证。可能是密码变更、学校系统验证或教务系统维护导致。";
+    }
+    return "已绑定教务账号。系统会自动同步课表和成绩，无需重复登录。";
   },
 
   async loadStatus() {
@@ -100,7 +115,7 @@ Page({
       this.setData({
         status,
         gradeChanges: changes,
-        statusMessage: this.statusMessage(status.cookieStatus),
+        statusMessage: this.statusMessage(status),
         loading: false
       });
     } catch (e) {
@@ -136,11 +151,10 @@ Page({
           this.loadStatus();
           return;
         }
-        if (d.cookieStatus === "jwxt_unavailable" || d.error === "jwxt_unavailable") {
-          wx.showModal({
-            title: "检查失败",
-            content: formatJwxtErrorMessage(d, "教务系统暂时不可用，请稍后再试"),
-            showCancel: false
+        if (d.hasCache || d.fromCache || d.warning) {
+          wx.showToast({
+            title: d.message || "教务系统暂时不可用，当前显示上次查询成绩",
+            icon: "none"
           });
           this.loadStatus();
           return;

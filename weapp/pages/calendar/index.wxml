@@ -1,0 +1,28 @@
+<view class="calendar-page">
+  <view class="term-card">
+    <view class="term-label">当前学期</view>
+    <view class="term-title">{{term}}</view>
+    <view class="term-info">
+      <view class="info-box">
+        <view class="info-label">当前教学周</view>
+        <view class="info-value">{{week}}</view>
+      </view>
+      <view class="info-box">
+        <view class="info-label">本周安排</view>
+        <view class="info-value">{{weeklyPlan}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section-title">近期节点</view>
+  <view class="timeline-card">
+    <view wx:for="{{milestones}}" wx:key="time" class="timeline-item">
+      <view class="timeline-dot"></view>
+      <view class="timeline-main">
+        <view class="timeline-time">{{item.time}}</view>
+        <view class="timeline-title">{{item.title}}</view>
+        <view class="timeline-desc">{{item.desc}}</view>
+      </view>
+    </view>
+  </view>
+</view>

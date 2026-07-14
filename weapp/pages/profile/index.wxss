@@ -1,0 +1,153 @@
+.profile-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24rpx 24rpx calc(32rpx + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, #eef6ff 0%, #f7f9fc 320rpx, #f7f9fc 100%);
+}
+
+.profile-card,
+.status-card,
+.action-card,
+.hint-card {
+  margin-bottom: 24rpx;
+  padding: 30rpx;
+  border-radius: 26rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(38, 84, 153, 0.07);
+}
+
+.profile-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 22rpx;
+}
+
+.avatar {
+  flex-shrink: 0;
+  width: 92rpx;
+  height: 92rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #1677ff 0%, #34c2a3 100%);
+  color: #ffffff;
+  font-size: 38rpx;
+  font-weight: 850;
+  line-height: 92rpx;
+  text-align: center;
+}
+
+.profile-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-title {
+  color: #152338;
+  font-size: 34rpx;
+  font-weight: 800;
+  word-break: break-all;
+}
+
+.profile-desc {
+  margin-top: 8rpx;
+  color: #8a94a6;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.login-btn,
+.bind-btn {
+  width: 210rpx;
+  height: 68rpx;
+  margin: 20rpx 0 0;
+  border-radius: 18rpx;
+  font-size: 25rpx;
+  font-weight: 750;
+  line-height: 68rpx;
+}
+
+.login-btn {
+  background: #1677ff;
+  color: #ffffff;
+}
+
+.bind-btn {
+  background: #eaf2ff;
+  color: #1677ff;
+}
+
+.section-title {
+  margin-bottom: 18rpx;
+  color: #152338;
+  font-size: 32rpx;
+  font-weight: 800;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid #eef2f8;
+}
+
+.status-row:last-child {
+  border-bottom: none;
+}
+
+.status-label {
+  flex-shrink: 0;
+  color: #667085;
+  font-size: 25rpx;
+}
+
+.status-value {
+  min-width: 0;
+  color: #22304a;
+  font-size: 25rpx;
+  font-weight: 700;
+  text-align: right;
+  word-break: break-all;
+}
+
+.action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+}
+
+.action-btn {
+  width: 100%;
+  height: 82rpx;
+  margin: 0;
+  border-radius: 18rpx;
+  font-size: 28rpx;
+  font-weight: 750;
+  line-height: 82rpx;
+}
+
+.primary {
+  background: #1677ff;
+  color: #ffffff;
+}
+
+.secondary-action {
+  background: #eaf2ff;
+  color: #1677ff;
+}
+
+.xg-action {
+  background: #ecfdf3;
+  color: #079455;
+}
+
+.danger {
+  background: #fff1f1;
+  color: #d92d20;
+}
+
+.hint-card {
+  color: #8a94a6;
+  font-size: 25rpx;
+  line-height: 1.6;
+}

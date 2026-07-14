@@ -1,8 +1,20 @@
 {
   "pages": [
-    "pages/index/index",
     "pages/timetable/timetable",
     "pages/grades/grades",
+    "pages/rating/index",
+    "pages/profile/index",
+    "pages/xg-session/index",
+    "pages/login/index",
+    "pages/calendar/index",
+    "pages/course/index",
+    "pages/course/add",
+    "pages/course/detail",
+    "pages/food/index",
+    "pages/food/detail",
+    "pages/rank/index",
+    "pages/tools/index",
+    "pages/index/index",
     "pages/settings/settings"
   ],
   "window": {
@@ -18,10 +30,10 @@
     "backgroundColor": "#ffffff",
     "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/index/index", "text": "首页" },
       { "pagePath": "pages/timetable/timetable", "text": "课表" },
       { "pagePath": "pages/grades/grades", "text": "成绩" },
-      { "pagePath": "pages/settings/settings", "text": "设置" }
+      { "pagePath": "pages/rating/index", "text": "评分" },
+      { "pagePath": "pages/profile/index", "text": "我的" }
     ]
   },
   "networkTimeout": {
