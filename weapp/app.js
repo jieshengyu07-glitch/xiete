@@ -1,9 +1,4 @@
-const API_ENV = "development";
-const API_BASES = {
-  production: "https://xiete.onrender.com",
-  // 本地开发可切换为 development；也可改成 http://localhost:3456
-  development: "http://localhost:3456"
-};
+const { getApiBase, getApiEnv } = require("./config");
 
 function pickToken(data) {
   if (!data || typeof data !== "object") return "";
@@ -25,7 +20,8 @@ function requestErrorText(prefix, detail) {
 
 App({
   globalData: {
-    apiBase: API_BASES[API_ENV],
+    apiBase: getApiBase(),
+    apiEnv: getApiEnv(),
     clientVersion: "0.1.4-jwt",
     loginPromise: null,
     lastLoginError: ""

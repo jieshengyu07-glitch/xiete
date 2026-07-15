@@ -15,29 +15,15 @@
 
     <view wx:if="{{notice}}" class="notice-card">{{notice}}</view>
 
-    <view wx:if="{{!hasTimetable}}" class="card empty-card">
-      <view class="card-title">暂无课表，请先刷新课表</view>
-      <view class="tips">同步成功后，这里会直接展示今天的课程安排。</view>
-      <button class="btn" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">刷新课表</button>
-    </view>
-
-    <view wx:elif="{{!hasTodayCourses}}" class="card empty-card">
-      <view class="empty-title">今天暂无课程</view>
-      <view class="tips">可以下拉刷新，或点击按钮重新同步课表。</view>
-      <button class="btn secondary" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">刷新课表</button>
-    </view>
-
     <view wx:if="{{error && hasTimetable}}" class="card error-card">
       <view class="error-text">{{error}}</view>
     </view>
 
-    <view wx:if="{{hasTimetable}}" class="section-list">
+    <view class="section-list">
       <view wx:for="{{sections}}" wx:key="section" class="lesson-card">
         <view class="lesson-head">
-          <view>
-            <view class="lesson-title">{{item.title}}</view>
-            <view wx:if="{{item.timeText}}" class="lesson-time">{{item.timeText}}</view>
-          </view>
+          <view class="lesson-title">{{item.title}}</view>
+          <view wx:if="{{item.timeText}}" class="lesson-time">{{item.timeText}}</view>
         </view>
 
         <view wx:if="{{item.courses.length === 0}}" class="no-class">无课</view>

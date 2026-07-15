@@ -6,27 +6,39 @@
     </view>
     <view class="field">
       <view class="label">所属学院</view>
-      <input class="input" placeholder="必填" value="{{college}}" data-key="college" bindinput="input" />
+      <picker range="{{colleges}}" value="{{collegeIndex}}" bindchange="changeCollege">
+        <view class="picker {{college ? '' : 'placeholder'}}">
+          <text>{{college || '请选择所属学院'}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
     </view>
     <view class="field">
       <view class="label">所属专业</view>
-      <input class="input" placeholder="必填" value="{{major}}" data-key="major" bindinput="input" />
+      <picker range="{{majors}}" value="{{majorIndex}}" bindchange="changeMajor" disabled="{{!majors.length}}">
+        <view class="picker {{major ? '' : 'placeholder'}}">
+          <text>{{major || '请选择所属专业'}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
     </view>
     <view class="field">
       <view class="label">课程类型</view>
       <picker range="{{courseTypes}}" value="{{typeIndex}}" bindchange="changeType">
-        <view class="picker">{{courseTypes[typeIndex]}}</view>
+        <view class="picker">
+          <text>{{courseTypes[typeIndex]}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
       </picker>
     </view>
     <view class="field">
       <view class="label">开课学期</view>
       <picker range="{{terms}}" value="{{termIndex}}" bindchange="changeTerm">
-        <view class="picker">{{terms[termIndex]}}</view>
+        <view class="picker">
+          <text>{{terms[termIndex]}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
       </picker>
-    </view>
-    <view class="field">
-      <view class="label">备注</view>
-      <textarea class="textarea" placeholder="可选，补充课程别名、老师或上课信息" value="{{remark}}" data-key="remark" bindinput="input" />
     </view>
     <button class="primary-btn" loading="{{submitting}}" bindtap="submit">提交课程</button>
   </view>

@@ -1,4 +1,12 @@
 const api = require("../../utils/api");
+const features = require("../../config/features");
+
+function blockCourseRatingPage() {
+  if (features.enableCourseRating) return false;
+  wx.showToast({ title: "课程评分暂未开放", icon: "none" });
+  wx.switchTab({ url: "/pages/timetable/timetable" });
+  return true;
+}
 
 const fallbackCourseReviews = [
   {
@@ -62,14 +70,17 @@ Page({
   },
 
   onLoad() {
+    if (blockCourseRatingPage()) return;
     this.loadHome();
   },
 
   onShow() {
+    if (blockCourseRatingPage()) return;
     this.loadHome();
   },
 
   loadHome() {
+    if (!features.enableCourseRating) return;
     api.publicGet("/api/home").then(res => {
       const data = res && res.data ? res.data : {};
       this.setData({
@@ -83,11 +94,13 @@ Page({
   },
 
   openEntry(e) {
+    if (!features.enableCourseRating) return;
     const url = e.currentTarget.dataset.url;
     if (url) wx.navigateTo({ url });
   },
 
   openCourse(e) {
+    if (!features.enableCourseRating) return;
     const id = e.currentTarget.dataset.id;
     wx.navigateTo({ url: "/pages/course/detail" + (id ? "?id=" + encodeURIComponent(id) : "") });
   }

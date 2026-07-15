@@ -1,5 +1,18 @@
 ﻿const path = require('path');
 
+function resolveDataDir() {
+  const configured = String(process.env.DATA_DIR || '').trim();
+  if (configured) return path.resolve(configured);
+  if (process.env.NODE_ENV === 'development') {
+    return path.resolve(__dirname, '..', 'data');
+  }
+  const err = new Error('DATA_DIR is required outside NODE_ENV=development');
+  err.code = 'DATA_DIR_REQUIRED';
+  throw err;
+}
+
+let dataPathLogged = false;
+
 // ============ 用户配置 ============
 // 通过环境变量提供教务账号，避免在代码中保存明文账号密码。
 const config = {
@@ -24,7 +37,16 @@ const config = {
   pollInterval: '*/30 * * * *', // 每30分钟执行一次（cron 表达式）
 
   // ============ 数据存储路径 ============
-  dataDir: path.join(__dirname, '..', 'data'),
+  dataDir: resolveDataDir(),
 };
+
+function logDataPath() {
+  if (dataPathLogged) return;
+  dataPathLogged = true;
+  console.log('[data] storage path=' + config.dataDir);
+}
+
+config.logDataPath = logDataPath;
+config.resolveDataDir = resolveDataDir;
 
 module.exports = config;

@@ -3,7 +3,18 @@ const path = require("path");
 const CryptoJS = require("crypto-js");
 const { getUserPaths } = require("./userPaths");
 
+const MIN_SECRET_LENGTH = 32;
+const EXAMPLE_SECRETS = new Set([
+  "campus_assistant_secret",
+  "change_me_to_a_long_random_secret",
+  "change_me_to_a_long_random_credential_secret",
+  "your_credential_secret",
+  "your_credential_secret_here"
+]);
+
 let cachedEnvFile = null;
+let validatedCredentialSecret = null;
+const migrationWarnings = new Set();
 
 function readEnvFile() {
   if (cachedEnvFile) return cachedEnvFile;
@@ -35,20 +46,90 @@ function getValue(name) {
   return process.env[name] || readEnvFile()[name] || "";
 }
 
-function credentialSecret() {
-  return getValue("CREDENTIAL_SECRET") || getValue("JWT_SECRET") || "campus_assistant_secret";
+function assertCredentialConfig() {
+  if (validatedCredentialSecret) return validatedCredentialSecret;
+
+  const configuredSecret = String(getValue("CREDENTIAL_SECRET") || "");
+  const normalizedSecret = configuredSecret.trim();
+
+  if (!normalizedSecret) {
+    throw new Error("CREDENTIAL_SECRET is required");
+  }
+
+  if (normalizedSecret.length < MIN_SECRET_LENGTH) {
+    throw new Error("CREDENTIAL_SECRET must be at least " + MIN_SECRET_LENGTH + " characters long");
+  }
+
+  if (EXAMPLE_SECRETS.has(normalizedSecret.toLowerCase())) {
+    throw new Error("CREDENTIAL_SECRET must not use an example value");
+  }
+
+  const jwtSecret = String(getValue("JWT_SECRET") || "").trim();
+  if (jwtSecret && normalizedSecret === jwtSecret) {
+    throw new Error("CREDENTIAL_SECRET must be independent from JWT_SECRET");
+  }
+
+  validatedCredentialSecret = configuredSecret;
+  return validatedCredentialSecret;
 }
 
 function encryptSecret(value) {
-  return CryptoJS.AES.encrypt(String(value || ""), credentialSecret()).toString();
+  return CryptoJS.AES.encrypt(String(value || ""), assertCredentialConfig()).toString();
 }
 
-function decryptSecret(value) {
+function decryptWithSecret(value, secret) {
   try {
-    const bytes = CryptoJS.AES.decrypt(String(value || ""), credentialSecret());
+    const bytes = CryptoJS.AES.decrypt(String(value || ""), secret);
     return bytes.toString(CryptoJS.enc.Utf8);
   } catch (err) {
     return "";
+  }
+}
+
+function migrationHint(file, reason) {
+  const label = file || "encrypted account data";
+  const key = label + ":" + reason;
+  if (migrationWarnings.has(key)) return;
+  migrationWarnings.add(key);
+  console.error(
+    "[security] Credential migration required for " + label + ": " + reason +
+    ". Existing encrypted data was not overwritten. Configure LEGACY_CREDENTIAL_SECRET for read-only recovery and migrate it explicitly."
+  );
+}
+
+function decryptSecretDetails(value, file) {
+  const currentSecret = assertCredentialConfig();
+  const currentValue = decryptWithSecret(value, currentSecret);
+  if (currentValue) return { value: currentValue, usedLegacySecret: false };
+
+  const legacySecret = String(getValue("LEGACY_CREDENTIAL_SECRET") || "");
+  if (legacySecret && legacySecret !== currentSecret) {
+    const legacyValue = decryptWithSecret(value, legacySecret);
+    if (legacyValue) {
+      migrationHint(file, "data is encrypted with LEGACY_CREDENTIAL_SECRET");
+      return { value: legacyValue, usedLegacySecret: true };
+    }
+  }
+
+  migrationHint(file, "data cannot be decrypted with the configured CREDENTIAL_SECRET");
+  return { value: "", usedLegacySecret: false };
+}
+
+function ensureExistingEncryptedAccountWritable(file) {
+  if (!fs.existsSync(file)) return;
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (err) {
+    return;
+  }
+  if (!data || !data.passwordEnc) return;
+
+  const decrypted = decryptSecretDetails(data.passwordEnc, file);
+  if (!decrypted.value || decrypted.usedLegacySecret) {
+    const err = new Error("Existing credential data requires explicit migration and was not overwritten");
+    err.code = "CREDENTIAL_MIGRATION_REQUIRED";
+    throw err;
   }
 }
 
@@ -77,12 +158,16 @@ function readBoundAccount(userId) {
   try {
     const data = JSON.parse(fs.readFileSync(file, "utf8"));
     if (!data || !data.studentId) return null;
-    const password = data.passwordEnc ? decryptSecret(data.passwordEnc) : String(data.password || "");
+    const decrypted = data.passwordEnc
+      ? decryptSecretDetails(data.passwordEnc, file)
+      : { value: String(data.password || ""), usedLegacySecret: false };
+    const password = decrypted.value;
     if (!password) return null;
     return {
       studentId: String(data.studentId),
       password,
-      source: "account_file"
+      source: decrypted.usedLegacySecret ? "account_file_legacy_key" : "account_file",
+      migrationRequired: decrypted.usedLegacySecret
     };
   } catch (err) {
     return null;
@@ -120,7 +205,9 @@ function hasBoundAccount(userId) {
 }
 
 function saveBoundAccount(studentId, password, userId) {
+  assertCredentialConfig();
   const file = accountFile(userId);
+  ensureExistingEncryptedAccountWritable(file);
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   console.log("[user-scope] credentialStore.saveAccount scope=" + (userId ? "user" : "legacy"));
@@ -170,6 +257,7 @@ function deleteBoundAccount(userId) {
 }
 
 module.exports = {
+  assertCredentialConfig,
   getJwxtCredentials,
   readBoundAccount,
   readBoundAccountMeta,
@@ -178,3 +266,7 @@ module.exports = {
   updateBoundAccountStatus,
   deleteBoundAccount
 };
+
+if (process.env.NODE_ENV !== "development") {
+  assertCredentialConfig();
+}

@@ -1,6 +1,14 @@
 const api = require("../../utils/api");
+const features = require("../../config/features");
 
 const fallbackCourseId = "course_auto_theory";
+
+function blockCourseRatingPage() {
+  if (features.enableCourseRating) return false;
+  wx.showToast({ title: "课程评分暂未开放", icon: "none" });
+  wx.switchTab({ url: "/pages/timetable/timetable" });
+  return true;
+}
 
 function emptyCourse() {
   return {
@@ -88,6 +96,7 @@ Page({
   },
 
   onLoad(options) {
+    if (blockCourseRatingPage()) return;
     const courseId = options && (options.id || options.courseId) ? String(options.id || options.courseId) : "";
     if (!courseId) {
       this.setData({ courseId: "", course: emptyCourse() });
@@ -99,6 +108,7 @@ Page({
   },
 
   loadCourse() {
+    if (!features.enableCourseRating) return;
     const courseId = this.data.courseId;
     if (!courseId) {
       wx.showToast({ title: "课程信息缺失，请返回重试", icon: "none" });
@@ -117,6 +127,7 @@ Page({
   },
 
   submitReview() {
+    if (!features.enableCourseRating) return;
     const courseId = this.data.courseId || (this.data.course && this.data.course.id);
     if (!courseId) {
       wx.showToast({ title: "课程信息缺失，请返回重试", icon: "none" });
@@ -155,6 +166,7 @@ Page({
   },
 
   toggleReviewLike(e) {
+    if (!features.enableCourseRating) return;
     const id = e.currentTarget.dataset.id;
     api.post("/api/course-reviews/" + encodeURIComponent(id) + "/like").then(res => {
       const data = res && res.data ? res.data : {};

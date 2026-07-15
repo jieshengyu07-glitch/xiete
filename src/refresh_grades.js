@@ -1,8 +1,9 @@
 ﻿const { chromium } = require("playwright-core");
 const fs = require("fs");
 const path = require("path");
+const config = require("./config");
 
-const DATA_DIR = path.join(__dirname, "..", "data");
+const DATA_DIR = config.dataDir;
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 (async () => {

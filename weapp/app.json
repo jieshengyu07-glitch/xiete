@@ -32,7 +32,6 @@
     "list": [
       { "pagePath": "pages/timetable/timetable", "text": "课表" },
       { "pagePath": "pages/grades/grades", "text": "成绩" },
-      { "pagePath": "pages/rating/index", "text": "评分" },
       { "pagePath": "pages/profile/index", "text": "我的" }
     ]
   },

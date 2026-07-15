@@ -1,0 +1,429 @@
+warning: in the working copy of 'src/login/httpJwxtLogin.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/server.js', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/src/login/httpJwxtLogin.js b/src/login/httpJwxtLogin.js[m
+[1mindex 1c3620a..b2cebdb 100644[m
+[1m--- a/src/login/httpJwxtLogin.js[m
+[1m+++ b/src/login/httpJwxtLogin.js[m
+[36m@@ -1,6 +1,5 @@[m
+ const axios = require("axios");[m
+ const CryptoJS = require("crypto-js");[m
+[31m-const { normalizeJwxtLoginError } = require("../services/jwxtLoginError");[m
+ [m
+ const CAS_ORIGIN = "https://sso1.tyust.edu.cn";[m
+ const PORTAL_ORIGIN = "https://ronghemenhu.tyust.edu.cn";[m
+[36m@@ -49,12 +48,83 @@[m [mfunction isInvalidCredentialPage(html) {[m
+     text.toLowerCase().includes("invalid credentials");[m
+ }[m
+ [m
+[31m-function throwJwxtError(code, message) {[m
+[32m+[m[32mfunction throwJwxtError(code, message, meta) {[m
+   const err = new Error(message || code);[m
+   err.code = code;[m
+[32m+[m[32m  if (meta && typeof meta === "object") Object.assign(err, meta);[m
+   throw err;[m
+ }[m
+ [m
+[32m+[m[32mfunction safeUrlParts(url) {[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const parsed = new URL(String(url || ""));[m
+[32m+[m[32m    return {[m
+[32m+[m[32m      host: parsed.hostname,[m
+[32m+[m[32m      pathname: parsed.pathname || "/"[m
+[32m+[m[32m    };[m
+[32m+[m[32m  } catch (err) {[m
+[32m+[m[32m    return {[m
+[32m+[m[32m      host: "",[m
+[32m+[m[32m      pathname: ""[m
+[32m+[m[32m    };[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction includesAnyText(text, patterns) {[m
+[32m+[m[32m  return patterns.some(pattern => text.includes(pattern));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction portalDiagnostics(response, finalUrl) {[m
+[32m+[m[32m  const html = String(response && response.data ? response.data : "");[m
+[32m+[m[32m  const lower = html.toLowerCase();[m
+[32m+[m[32m  const url = String(finalUrl || (response && response.config && response.config.url) || "");[m
+[32m+[m[32m  const parts = safeUrlParts(url);[m
+[32m+[m[32m  const contentType = String(response && response.headers && response.headers["content-type"] || "").split(";")[0];[m
+[32m+[m[32m  const containsLoginForm = lower.includes("<form") && ([m
+[32m+[m[32m    lower.includes("password") ||[m
+[32m+[m[32m    lower.includes("login-page-flowkey") ||[m
+[32m+[m[32m    lower.includes("login-croypto") ||[m
+[32m+[m[32m    lower.includes("_eventid")[m
+[32m+[m[32m  );[m
+[32m+[m[32m  const containsCaptcha = includesAnyText(lower, [[m
+[32m+[m[32m    "captcha",[m
+[32m+[m[32m    "validatecode",[m
+[32m+[m[32m    "verifycode"[m
+[32m+[m[32m  ]) || includesAnyText(html, [[m
+[32m+[m[32m    "验证码",[m
+[32m+[m[32m    "楠岃瘉鐮"[m
+[32m+[m[32m  ]);[m
+[32m+[m[32m  const containsMaintenance = includesAnyText(lower, [[m
+[32m+[m[32m    "maintenance",[m
+[32m+[m[32m    "service unavailable",[m
+[32m+[m[32m    "temporarily unavailable"[m
+[32m+[m[32m  ]) || includesAnyText(html, [[m
+[32m+[m[32m    "维护",[m
+[32m+[m[32m    "升级",[m
+[32m+[m[32m    "暂停服务",[m
+[32m+[m[32m    "系统繁忙",[m
+[32m+[m[32m    "鏆傚仠",[m
+[32m+[m[32m    "绯荤粺绻佸繖"[m
+[32m+[m[32m  ]);[m
+[32m+[m[32m  return {[m
+[32m+[m[32m    status: response && response.status ? response.status : 0,[m
+[32m+[m[32m    finalHost: parts.host,[m
+[32m+[m[32m    pathname: parts.pathname,[m
+[32m+[m[32m    contentType,[m
+[32m+[m[32m    containsPortalHome: parts.host === "ronghemenhu.tyust.edu.cn" && parts.pathname !== "/sso/login",[m
+[32m+[m[32m    containsLoginForm,[m
+[32m+[m[32m    containsInvalidCredential: isInvalidCredentialPage(html),[m
+[32m+[m[32m    containsCaptcha,[m
+[32m+[m[32m    containsMaintenance[m
+[32m+[m[32m  };[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction attachPortalStage(err, response, finalUrl) {[m
+[32m+[m[32m  err.portalStage = true;[m
+[32m+[m[32m  err.portalResult = portalDiagnostics(response, finalUrl);[m
+[32m+[m[32m  return err;[m
+[32m+[m[32m}[m
+[32m+[m
+ function userAgent() {[m
+   return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +[m
+     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";[m
+[36m@@ -330,7 +400,10 @@[m [masync function loginCasToPortal(cookieJar, studentId, password) {[m
+   });[m
+ [m
+   if (loginPage.status >= 500) {[m
+[31m-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");[m
+[32m+[m[32m    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {[m
+[32m+[m[32m      portalStage: true,[m
+[32m+[m[32m      portalResult: portalDiagnostics(loginPage, LOGIN_URL)[m
+[32m+[m[32m    });[m
+   }[m
+ [m
+   const html = String(loginPage.data || "");[m
+[36m@@ -338,9 +411,18 @@[m [masync function loginCasToPortal(cookieJar, studentId, password) {[m
+   const loginCroypto = parseHiddenValue(html, "login-croypto");[m
+   const needsCaptcha = await checkCaptcha(cookieJar, studentId).catch(() => false);[m
+ [m
+[31m-  if (needsCaptcha) throwJwxtError("JWXT_CAPTCHA_REQUIRED", "教务系统需要验证码，请输入验证码完成验证");[m
+[31m-  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统");[m
+[31m-  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统");[m
+[32m+[m[32m  if (needsCaptcha) throwJwxtError("JWXT_CAPTCHA_REQUIRED", "教务系统需要验证码，请输入验证码完成验证", {[m
+[32m+[m[32m    portalStage: true,[m
+[32m+[m[32m    portalResult: portalDiagnostics(loginPage, LOGIN_URL)[m
+[32m+[m[32m  });[m
+[32m+[m[32m  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统", {[m
+[32m+[m[32m    portalStage: true,[m
+[32m+[m[32m    portalResult: portalDiagnostics(loginPage, LOGIN_URL)[m
+[32m+[m[32m  });[m
+[32m+[m[32m  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统", {[m
+[32m+[m[32m    portalStage: true,[m
+[32m+[m[32m    portalResult: portalDiagnostics(loginPage, LOGIN_URL)[m
+[32m+[m[32m  });[m
+ [m
+   const encryptedPassword = encryptPassword(loginCroypto, password);[m
+   if (!encryptedPassword) throw new Error("DES password encryption failed.");[m
+[36m@@ -368,27 +450,41 @@[m [masync function loginCasToPortal(cookieJar, studentId, password) {[m
+   });[m
+ [m
+   if (loginResponse.status >= 500) {[m
+[31m-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");[m
+[32m+[m[32m    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {[m
+[32m+[m[32m      portalStage: true,[m
+[32m+[m[32m      portalResult: portalDiagnostics(loginResponse, LOGIN_POST_URL)[m
+[32m+[m[32m    });[m
+   }[m
+ [m
+   const followed = await followRedirects(cookieJar, loginResponse, LOGIN_POST_URL);[m
+   if (followed.response && followed.response.status >= 500) {[m
+[31m-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");[m
+[32m+[m[32m    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {[m
+[32m+[m[32m      portalStage: true,[m
+[32m+[m[32m      portalResult: portalDiagnostics(followed.response, followed.finalUrl)[m
+[32m+[m[32m    });[m
+   }[m
+ [m
+   if (followed.finalUrl.includes(PORTAL_ORIGIN + "/sso/login?code=")) {[m
+     return getAndFollow(cookieJar, followed.finalUrl, LOGIN_POST_URL);[m
+   }[m
+   if (isInvalidCredentialPage(followed.response && followed.response.data)) {[m
+[31m-    throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或教务密码错误，请检查后重试");[m
+[32m+[m[32m    throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或教务密码错误，请检查后重试", {[m
+[32m+[m[32m      portalStage: true,[m
+[32m+[m[32m      portalResult: portalDiagnostics(followed.response, followed.finalUrl)[m
+[32m+[m[32m    });[m
+[32m+[m[32m  }[m
+[32m+[m[32m  const followedPortalResult = portalDiagnostics(followed.response, followed.finalUrl);[m
+[32m+[m[32m  if (followedPortalResult.containsLoginForm) {[m
+[32m+[m[32m    throwJwxtError("JWXT_LOGIN_FAILED", "Portal login was not confirmed.", {[m
+[32m+[m[32m      portalStage: true,[m
+[32m+[m[32m      portalResult: followedPortalResult[m
+[32m+[m[32m    });[m
+   }[m
+   if (!String(followed.finalUrl || "").includes(PORTAL_ORIGIN)) {[m
+[31m-    const classified = normalizeJwxtLoginError(followed.response && followed.response.data, {[m
+[31m-      portalLoginPageReturned: true,[m
+[31m-      finalUrl: followed.finalUrl,[m
+[31m-      status: followed.response && followed.response.status[m
+[32m+[m[32m    throwJwxtError("JWXT_LOGIN_FAILED", "Portal login was not confirmed.", {[m
+[32m+[m[32m      portalStage: true,[m
+[32m+[m[32m      portalResult: portalDiagnostics(followed.response, followed.finalUrl)[m
+     });[m
+[31m-    throwJwxtError(classified.error, classified.message);[m
+   }[m
+   return followed;[m
+ }[m
+[36m@@ -406,12 +502,21 @@[m [masync function httpPortalLogin(studentId, password) {[m
+   if (!password) throw new Error("password is required.");[m
+ [m
+   const cookieJar = createCookieJar();[m
+[31m-  const portal = await loginCasToPortal(cookieJar, studentId, password);[m
+[32m+[m[32m  let portal;[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    portal = await loginCasToPortal(cookieJar, studentId, password);[m
+[32m+[m[32m  } catch (err) {[m
+[32m+[m[32m    if (err && !err.portalResult) {[m
+[32m+[m[32m      attachPortalStage(err, err.response, err.config && err.config.url ? err.config.url : LOGIN_URL);[m
+[32m+[m[32m    }[m
+[32m+[m[32m    throw err;[m
+[32m+[m[32m  }[m
+   return {[m
+     success: true,[m
+     cookieJar,[m
+     cookies: cookieJar.slice(),[m
+[31m-    finalUrl: portal.finalUrl[m
+[32m+[m[32m    finalUrl: portal.finalUrl,[m
+[32m+[m[32m    portalResult: portalDiagnostics(portal.response, portal.finalUrl)[m
+   };[m
+ }[m
+ [m
+[1mdiff --git a/src/server.js b/src/server.js[m
+[1mindex 6a24e43..f36e837 100644[m
+[1m--- a/src/server.js[m
+[1m+++ b/src/server.js[m
+[36m@@ -103,9 +103,116 @@[m [mfunction bindWarningResponse(jwxtStatus) {[m
+     code: 0,[m
+     bound: true,[m
+     verified: false,[m
+[32m+[m[32m    syncReady: false,[m
+     portalAuthStatus: "OK",[m
+     jwxtStatus,[m
+[31m-    message: "教务账号已验证并保存，但教务系统暂时不可用，课表和成绩稍后可重试刷新。"[m
+[32m+[m[32m    message: "账号已绑定，成绩系统暂时不可用，可稍后刷新。"[m
+[32m+[m[32m  };[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction safePortalResult(result) {[m
+[32m+[m[32m  const value = result && typeof result === "object" ? result : {};[m
+[32m+[m[32m  return {[m
+[32m+[m[32m    status: Number(value.status || 0),[m
+[32m+[m[32m    finalHost: String(value.finalHost || ""),[m
+[32m+[m[32m    pathname: String(value.pathname || ""),[m
+[32m+[m[32m    contentType: String(value.contentType || ""),[m
+[32m+[m[32m    containsPortalHome: Boolean(value.containsPortalHome),[m
+[32m+[m[32m    containsLoginForm: Boolean(value.containsLoginForm),[m
+[32m+[m[32m    containsInvalidCredential: Boolean(value.containsInvalidCredential),[m
+[32m+[m[32m    containsCaptcha: Boolean(value.containsCaptcha),[m
+[32m+[m[32m    containsMaintenance: Boolean(value.containsMaintenance)[m
+[32m+[m[32m  };[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction portalResultFromError(err) {[m
+[32m+[m[32m  if (err && err.portalResult) return safePortalResult(err.portalResult);[m
+[32m+[m[32m  const response = err && err.response;[m
+[32m+[m[32m  let finalHost = "";[m
+[32m+[m[32m  let pathname = "";[m
+[32m+[m[32m  const rawUrl = String((err && err.config && err.config.url) || (response && response.config && response.config.url) || "");[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const parsed = rawUrl ? new URL(rawUrl) : null;[m
+[32m+[m[32m    finalHost = parsed ? parsed.hostname : "";[m
+[32m+[m[32m    pathname = parsed ? parsed.pathname || "/" : "";[m
+[32m+[m[32m  } catch (parseErr) {[m
+[32m+[m[32m    finalHost = "";[m
+[32m+[m[32m    pathname = "";[m
+[32m+[m[32m  }[m
+[32m+[m[32m  return safePortalResult({[m
+[32m+[m[32m    status: response && response.status,[m
+[32m+[m[32m    finalHost,[m
+[32m+[m[32m    pathname,[m
+[32m+[m[32m    contentType: response && response.headers && response.headers["content-type"][m
+[32m+[m[32m  });[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction logPortalResult(result) {[m
+[32m+[m[32m  const safe = safePortalResult(result);[m
+[32m+[m[32m  console.log("[bind] portal-result" +[m
+[32m+[m[32m    " status=" + safe.status +[m
+[32m+[m[32m    " finalHost=" + (safe.finalHost || "unknown") +[m
+[32m+[m[32m    " pathname=" + (safe.pathname || "unknown") +[m
+[32m+[m[32m    " contentType=" + (safe.contentType || "unknown") +[m
+[32m+[m[32m    " containsPortalHome=" + safe.containsPortalHome +[m
+[32m+[m[32m    " containsLoginForm=" + safe.containsLoginForm +[m
+[32m+[m[32m    " containsInvalidCredential=" + safe.containsInvalidCredential +[m
+[32m+[m[32m    " containsCaptcha=" + safe.containsCaptcha +[m
+[32m+[m[32m    " containsMaintenance=" + safe.containsMaintenance);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction classifyPortalCredentialError(err) {[m
+[32m+[m[32m  const result = portalResultFromError(err);[m
+[32m+[m[32m  const jwxt = classifyJwxtLoginError(err);[m
+[32m+[m[32m  const rawCode = String(err && (err.code || err.error || err.reason) || "");[m
+[32m+[m[32m  const networkCodes = ["ECONNABORTED", "ETIMEDOUT", "ENOTFOUND", "ECONNRESET", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "ERR_BAD_RESPONSE"];[m
+[32m+[m
+[32m+[m[32m  if (result.containsInvalidCredential || jwxt.error === "JWXT_INVALID_CREDENTIALS") {[m
+[32m+[m[32m    return {[m
+[32m+[m[32m      code: "INVALID_CREDENTIALS",[m
+[32m+[m[32m      portalAuthStatus: "INVALID_CREDENTIALS",[m
+[32m+[m[32m      jwxtStatus: "LOGIN_FAILED",[m
+[32m+[m[32m      status: 400,[m
+[32m+[m[32m      message: "账号或密码错误，请检查后重试。",[m
+[32m+[m[32m      result[m
+[32m+[m[32m    };[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  if (result.containsCaptcha || jwxt.error === "JWXT_CAPTCHA_REQUIRED" || jwxt.error === "JWXT_CAPTCHA_INVALID" || jwxt.error === "JWXT_CAPTCHA_SESSION_EXPIRED") {[m
+[32m+[m[32m    return {[m
+[32m+[m[32m      code: "PORTAL_VERIFICATION_REQUIRED",[m
+[32m+[m[32m      portalAuthStatus: "VERIFICATION_REQUIRED",[m
+[32m+[m[32m      jwxtStatus: "CAPTCHA_REQUIRED",[m
+[32m+[m[32m      status: 400,[m
+[32m+[m[32m      message: "门户需要验证码或人机验证，请稍后重试或使用验证码登录。",[m
+[32m+[m[32m      result[m
+[32m+[m[32m    };[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  if ([m
+[32m+[m[32m    result.status >= 500 ||[m
+[32m+[m[32m    result.containsMaintenance ||[m
+[32m+[m[32m    networkCodes.includes(rawCode) ||[m
+[32m+[m[32m    jwxt.error === "JWXT_UNAVAILABLE" ||[m
+[32m+[m[32m    jwxt.error === "JWXT_TIMEOUT"[m
+[32m+[m[32m  ) {[m
+[32m+[m[32m    return {[m
+[32m+[m[32m      code: "PORTAL_UNAVAILABLE",[m
+[32m+[m[32m      portalAuthStatus: "UNAVAILABLE",[m
+[32m+[m[32m      jwxtStatus: "LOGIN_FAILED",[m
+[32m+[m[32m      status: 503,[m
+[32m+[m[32m      message: "门户暂时不可用，请稍后再试。",[m
+[32m+[m[32m      result[m
+[32m+[m[32m    };[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  return {[m
+[32m+[m[32m    code: "PORTAL_LOGIN_UNCONFIRMED",[m
+[32m+[m[32m    portalAuthStatus: "LOGIN_UNCONFIRMED",[m
+[32m+[m[32m    jwxtStatus: "LOGIN_FAILED",[m
+[32m+[m[32m    status: 400,[m
+[32m+[m[32m    message: "门户返回登录页，但未明确提示账号或密码错误，请稍后重试。",[m
+[32m+[m[32m    result[m
+   };[m
+ }[m
+ [m
+[36m@@ -699,6 +806,8 @@[m [mapp.post("/check", auth, async (req, res) => {[m
+ function apiErrorStatus(code) {[m
+   if (String(code || "").startsWith("XG_")) return 400;[m
+   if (code === "LOGIN_REQUIRED" || code === "INVALID_CAPTCHA_LOGIN_INPUT") return 400;[m
+[32m+[m[32m  if (code === "INVALID_CREDENTIALS" || code === "PORTAL_LOGIN_UNCONFIRMED" || code === "PORTAL_VERIFICATION_REQUIRED") return 400;[m
+[32m+[m[32m  if (code === "PORTAL_UNAVAILABLE") return 503;[m
+   if (code === "JWXT_CAPTCHA_REQUIRED" || code === "JWXT_CAPTCHA_INVALID") return 400;[m
+   if (code === "JWXT_INVALID_CREDENTIALS" || code === "INVALID_CREDENTIALS" || code === "CAPTCHA_LOGIN_FAILED" || code === "CAPTCHA_SESSION_EXPIRED" || code === "JWXT_CAPTCHA_SESSION_EXPIRED") return 400;[m
+   if (code === "JWXT_SSO_FAILED") return 502;[m
+[36m@@ -1023,57 +1132,65 @@[m [mapp.post("/bind-account", auth, async (req, res) => {[m
+     console.log("[bind] verifying portal credentials");[m
+     portal = await httpPortalLogin(studentId, password);[m
+   } catch (err) {[m
+[31m-    const classified = classifyJwxtLoginError(err);[m
+[31m-    console.log("[bind] portal classified error=" + classified.error);[m
+[32m+[m[32m    const classified = classifyPortalCredentialError(err);[m
+[32m+[m[32m    logPortalResult(classified.result);[m
+[32m+[m[32m    console.log("[bind] portal-classified code=" + classified.code);[m
+ [m
+[31m-    if (classified.error === "JWXT_INVALID_CREDENTIALS") {[m
+[32m+[m[32m    if (classified.code === "INVALID_CREDENTIALS") {[m
+       credentialStore.updateBoundAccountStatus(req.userId, "LOGIN_FAILED", {[m
+[31m-        portalAuthStatus: "INVALID_CREDENTIALS",[m
+[32m+[m[32m        portalAuthStatus: classified.portalAuthStatus,[m
+         clearLastJwxtLoginAt: true[m
+       });[m
+       return res.status(400).json({[m
+         success: false,[m
+         bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),[m
+[31m-        portalAuthStatus: "INVALID_CREDENTIALS",[m
+[31m-        jwxtStatus: "LOGIN_FAILED",[m
+[31m-        error: "JWXT_INVALID_CREDENTIALS",[m
+[32m+[m[32m        portalAuthStatus: classified.portalAuthStatus,[m
+[32m+[m[32m        jwxtStatus: classified.jwxtStatus,[m
+[32m+[m[32m        error: classified.code,[m
+         message: classified.message[m
+       });[m
+     }[m
+ [m
+[31m-    if (classified.error === "JWXT_CAPTCHA_REQUIRED") {[m
+[32m+[m[32m    if (classified.code === "PORTAL_VERIFICATION_REQUIRED") {[m
+       credentialStore.updateBoundAccountStatus(req.userId, "CAPTCHA_REQUIRED", {[m
+[31m-        portalAuthStatus: "CAPTCHA_REQUIRED",[m
+[32m+[m[32m        portalAuthStatus: classified.portalAuthStatus,[m
+         clearLastJwxtLoginAt: true[m
+       });[m
+       return res.status(400).json({[m
+         success: false,[m
+         bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),[m
+[31m-        portalAuthStatus: "CAPTCHA_REQUIRED",[m
+[31m-        jwxtStatus: "CAPTCHA_REQUIRED",[m
+[31m-        error: "JWXT_CAPTCHA_REQUIRED",[m
+[32m+[m[32m        portalAuthStatus: classified.portalAuthStatus,[m
+[32m+[m[32m        jwxtStatus: classified.jwxtStatus,[m
+[32m+[m[32m        error: classified.code,[m
+         message: classified.message[m
+       });[m
+     }[m
+ [m
+[31m-    return res.status(apiErrorStatus(classified.error)).json({[m
+[32m+[m[32m    credentialStore.updateBoundAccountStatus(req.userId, classified.jwxtStatus, {[m
+[32m+[m[32m      portalAuthStatus: classified.portalAuthStatus,[m
+[32m+[m[32m      clearLastJwxtLoginAt: true[m
+[32m+[m[32m    });[m
+[32m+[m[32m    return res.status(classified.status).json({[m
+       success: false,[m
+       bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),[m
+[31m-      portalAuthStatus: "FAILED",[m
+[31m-      jwxtStatus: "LOGIN_FAILED",[m
+[31m-      error: classified.error,[m
+[32m+[m[32m      portalAuthStatus: classified.portalAuthStatus,[m
+[32m+[m[32m      jwxtStatus: classified.jwxtStatus,[m
+[32m+[m[32m      error: classified.code,[m
+       message: classified.message[m
+     });[m
+   }[m
+ [m
+[32m+[m[32m  logPortalResult(portal && portal.portalResult);[m
+[32m+[m[32m  console.log("[bind] portal-verified ok=true");[m
+   credentialStore.saveBoundAccount(studentId, password, req.userId);[m
+[32m+[m[32m  console.log("[bind] account-saved");[m
+   credentialStore.updateBoundAccountStatus(req.userId, "COOKIE_EXPIRED", {[m
+     portalAuthStatus: "OK",[m
+     clearLastJwxtLoginAt: true[m
+   });[m
+ [m
+   try {[m
+[31m-    console.log("[bind] portal ok; trying jwxt sso");[m
+[32m+[m[32m    console.log("[bind] trying jwxt sso");[m
+     const jwxt = await continueJwxtSso(portal.cookieJar);[m
+     const jwxtCookies = selectJwxtGradeCookies(jwxt.cookies);[m
+     const hasRoute = jwxtCookies.some(c => c.name === "route");[m
+[36m@@ -1115,7 +1232,7 @@[m [mapp.post("/bind-account", auth, async (req, res) => {[m
+   } catch (err) {[m
+     const classified = classifyJwxtLoginError(err);[m
+     const publicStatus = jwxtPublicStatusFromError(classified.error);[m
+[31m-    console.log("[bind] portal ok; jwxt classified error=" + classified.error);[m
+[32m+[m[32m    console.log("[bind] jwxt-refresh-failed code=" + classified.error);[m
+     credentialStore.updateBoundAccountStatus(req.userId, publicStatus, {[m
+       portalAuthStatus: "OK",[m
+       clearLastJwxtLoginAt: true[m

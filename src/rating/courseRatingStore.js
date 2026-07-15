@@ -1,8 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const config = require("../config");
 
-const DATA_DIR = path.join(__dirname, "..", "..", "data", "rating");
+const DATA_DIR = path.join(config.dataDir, "rating");
 const COURSE_FILE = path.join(DATA_DIR, "courses.json");
 const REVIEW_FILE = path.join(DATA_DIR, "course_reviews.json");
 const LIKE_FILE = path.join(DATA_DIR, "course_review_likes.json");
@@ -59,8 +60,97 @@ function normalizeName(value) {
     .toLowerCase();
 }
 
+function toHalfWidth(value) {
+  return String(value || "").replace(/[\uFF01-\uFF5E]/g, char =>
+    String.fromCharCode(char.charCodeAt(0) - 0xFEE0)
+  ).replace(/\u3000/g, " ");
+}
+
+function normalizeCourseName(value) {
+  let text = toHalfWidth(value)
+    .replace(/[（【［｛]/g, "(")
+    .replace(/[）】］｝]/g, ")")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  text = text
+    .replace(/高数/g, "高等数学")
+    .replace(/大英/g, "大学英语")
+    .replace(/思修/g, "思想道德与法治")
+    .replace(/\((上|下|一|二|1|2|i|ii|Ⅰ|Ⅱ)\)/g, "")
+    .replace(/[·•・,，.。:：;；'"‘’“”!?！？\-_／/\\()[\]{}<>《》\s]/g, "");
+  return text;
+}
+
 function cleanText(value, maxLength) {
   return String(value || "").trim().slice(0, maxLength);
+}
+
+function scopedPart(idValue, nameValue, prefix) {
+  const idText = cleanText(idValue, 80);
+  if (idText) return "id:" + idText;
+  return prefix + ":" + normalizeName(nameValue);
+}
+
+function courseIdentityKey(input) {
+  const courseName = input && (input.courseName || input.name);
+  return [
+    scopedPart(input && input.collegeId, input && input.college, "college"),
+    scopedPart(input && input.majorId, input && input.major, "major"),
+    normalizeCourseName(courseName)
+  ].join("|");
+}
+
+function normalizeCourseRecord(course) {
+  if (!course || typeof course !== "object") return course;
+  const courseId = cleanText(course.courseId || course.id, 80) || id("course");
+  const courseName = cleanText(course.courseName || course.name, 60);
+  course.id = cleanText(course.id || courseId, 80);
+  course.courseId = courseId;
+  course.name = cleanText(course.name || courseName, 60);
+  course.courseName = courseName || course.name;
+  course.collegeId = cleanText(course.collegeId, 80);
+  course.majorId = cleanText(course.majorId, 80);
+  course.normalizedCourseName = normalizeCourseName(course.courseName || course.name);
+  course.normalizedName = course.normalizedCourseName;
+  course.courseKey = courseIdentityKey(course);
+  return course;
+}
+
+function courseMatchesInput(course, input) {
+  if (!course || course.status === "deleted") return false;
+  const normalized = normalizeCourseRecord(course);
+  const courseName = input && (input.courseName || input.name);
+  if (!normalizeCourseName(courseName)) return false;
+  if (normalized.courseKey === courseIdentityKey(input || {})) return true;
+
+  const sameName = normalized.normalizedCourseName === normalizeCourseName(courseName);
+  const sameCollege = normalized.collegeId && input && input.collegeId
+    ? normalized.collegeId === cleanText(input.collegeId, 80)
+    : normalizeName(normalized.college) === normalizeName(input && input.college);
+  const sameMajor = normalized.majorId && input && input.majorId
+    ? normalized.majorId === cleanText(input.majorId, 80)
+    : normalizeName(normalized.major) === normalizeName(input && input.major);
+  return sameName && sameCollege && sameMajor;
+}
+
+function findDuplicateCourse(courses, input) {
+  return (Array.isArray(courses) ? courses : []).find(course => courseMatchesInput(course, input));
+}
+
+function findCourseById(courses, courseId) {
+  const idText = cleanText(courseId, 80);
+  return (Array.isArray(courses) ? courses : []).find(item =>
+    item &&
+    item.status !== "deleted" &&
+    (item.id === idText || item.courseId === idText)
+  );
+}
+
+function canonicalCourseId(course) {
+  if (!course) return "";
+  normalizeCourseRecord(course);
+  return course.courseId || course.id;
 }
 
 function cleanTags(tags) {
@@ -208,15 +298,69 @@ function seedData() {
   return { courses, reviews, likes: [] };
 }
 
+function migrateLegacyData(data) {
+  let changed = false;
+  data.courses = (Array.isArray(data.courses) ? data.courses : []).map(course => {
+    const before = JSON.stringify({
+      id: course && course.id,
+      courseId: course && course.courseId,
+      courseName: course && course.courseName,
+      collegeId: course && course.collegeId,
+      majorId: course && course.majorId,
+      normalizedCourseName: course && course.normalizedCourseName,
+      courseKey: course && course.courseKey
+    });
+    const normalized = normalizeCourseRecord(course);
+    const after = JSON.stringify({
+      id: normalized && normalized.id,
+      courseId: normalized && normalized.courseId,
+      courseName: normalized && normalized.courseName,
+      collegeId: normalized && normalized.collegeId,
+      majorId: normalized && normalized.majorId,
+      normalizedCourseName: normalized && normalized.normalizedCourseName,
+      courseKey: normalized && normalized.courseKey
+    });
+    if (before !== after) changed = true;
+    return normalized;
+  }).filter(Boolean);
+
+  data.reviews = (Array.isArray(data.reviews) ? data.reviews : []).map(review => {
+    if (!review || typeof review !== "object") return review;
+    if (review.courseId) return review;
+    const legacyCourseName = cleanText(review.courseName || review.course || review.name, 60);
+    if (!legacyCourseName) return review;
+    const match = findDuplicateCourse(data.courses, {
+      name: legacyCourseName,
+      courseName: legacyCourseName,
+      collegeId: review.collegeId,
+      college: review.college,
+      majorId: review.majorId,
+      major: review.major
+    });
+    if (!match) return review;
+    review.courseId = match.courseId || match.id;
+    review.legacyCourseName = legacyCourseName;
+    changed = true;
+    return review;
+  }).filter(Boolean);
+
+  if (changed) {
+    data.courses.forEach(course => recalcCourse(data, course.id));
+  }
+  return changed;
+}
+
 function loadAll() {
   const seed = seedData();
   const courses = readJson(COURSE_FILE, seed.courses);
   const reviews = readJson(REVIEW_FILE, seed.reviews);
   const likes = readJson(LIKE_FILE, seed.likes);
-  if (!fs.existsSync(COURSE_FILE)) writeJson(COURSE_FILE, courses);
-  if (!fs.existsSync(REVIEW_FILE)) writeJson(REVIEW_FILE, reviews);
-  if (!fs.existsSync(LIKE_FILE)) writeJson(LIKE_FILE, likes);
-  return { courses, reviews, likes };
+  const data = { courses, reviews, likes };
+  const migrated = migrateLegacyData(data);
+  if (!fs.existsSync(COURSE_FILE) || migrated) writeJson(COURSE_FILE, data.courses);
+  if (!fs.existsSync(REVIEW_FILE) || migrated) writeJson(REVIEW_FILE, data.reviews);
+  if (!fs.existsSync(LIKE_FILE)) writeJson(LIKE_FILE, data.likes);
+  return data;
 }
 
 function saveAll(data) {
@@ -230,9 +374,10 @@ function approvedReviews(data, courseId) {
 }
 
 function recalcCourse(data, courseId) {
-  const course = data.courses.find(item => item.id === courseId);
+  const course = data.courses.find(item => item.id === courseId || item.courseId === courseId);
   if (!course) return;
-  const reviews = approvedReviews(data, courseId);
+  normalizeCourseRecord(course);
+  const reviews = approvedReviews(data, course.courseId || course.id);
   course.reviewCount = reviews.length;
   course.likeCount = reviews.reduce((sum, item) => sum + Math.max(0, Number(item.likeCount) || 0), 0);
   if (reviews.length) {
@@ -267,9 +412,11 @@ function isLiked(data, reviewId, userId) {
 }
 
 function reviewDto(data, review, userId) {
+  const course = data.courses.find(item => item.id === review.courseId || item.courseId === review.courseId);
   return {
     id: review.id,
     courseId: review.courseId,
+    courseName: course ? (course.courseName || course.name) : (review.courseName || review.course || ""),
     score: round(review.score),
     difficulty: round(review.difficulty),
     grading: round(review.grading),
@@ -285,11 +432,17 @@ function reviewDto(data, review, userId) {
 }
 
 function courseDto(data, course) {
-  const hot = hotReviewForCourse(data, course.id);
+  normalizeCourseRecord(course);
+  const courseId = course.courseId || course.id;
+  const hot = hotReviewForCourse(data, courseId);
   return {
-    id: course.id,
+    id: courseId,
+    courseId,
     name: course.name,
+    courseName: course.courseName || course.name,
+    collegeId: course.collegeId || "",
     college: course.college,
+    majorId: course.majorId || "",
     major: course.major,
     type: course.type,
     term: course.term,
@@ -302,7 +455,7 @@ function courseDto(data, course) {
     recommendAvg: round(course.recommendAvg),
     reviewCount: Number(course.reviewCount) || 0,
     likeCount: Number(course.likeCount) || 0,
-    tags: tagsForCourse(data, course.id),
+    tags: tagsForCourse(data, courseId),
     hotReview: hot ? hot.content : "",
     createdAt: course.createdAt,
     updatedAt: course.updatedAt
@@ -321,34 +474,48 @@ function rankCourses(limit) {
 
 function hotCourseReviews(limit) {
   const data = loadAll();
-  return data.reviews
+  return data.courses
     .filter(item => item.status !== "deleted")
-    .map(review => {
-      const course = data.courses.find(item => item.id === review.courseId);
-      if (!course || course.status === "deleted") return null;
+    .map(course => {
+      normalizeCourseRecord(course);
+      const courseId = course.courseId || course.id;
+      const hot = hotReviewForCourse(data, courseId);
       return {
-        id: review.id,
-        courseId: course.id,
-        name: course.name,
+        id: hot ? hot.id : courseId,
+        courseId,
+        name: course.courseName || course.name,
+        courseName: course.courseName || course.name,
+        college: course.college,
+        major: course.major,
         score: round(course.ratingAvg),
         reviewCount: Number(course.reviewCount) || 0,
-        likeCount: Number(review.likeCount) || 0,
-        tags: review.tags || [],
-        quote: review.content
+        likeCount: Number(course.likeCount) || 0,
+        difficultyAvg: round(course.difficultyAvg),
+        gradingAvg: round(course.gradingAvg),
+        workloadAvg: round(course.workloadAvg),
+        recommendAvg: round(course.recommendAvg),
+        tags: tagsForCourse(data, courseId),
+        quote: hot ? hot.content : ""
       };
     })
-    .filter(Boolean)
-    .sort((a, b) => b.likeCount - a.likeCount)
+    .sort((a, b) => b.likeCount - a.likeCount || b.reviewCount - a.reviewCount || b.score - a.score)
     .slice(0, Number(limit) || 10)
     .map((item, index) => Object.assign({ rank: index + 1, rankText: "TOP " + (index + 1) }, item));
 }
 
 function searchCourses(keyword, limit) {
   const data = loadAll();
-  const key = normalizeName(keyword);
+  const courseKey = normalizeCourseName(keyword);
+  const textKey = normalizeName(keyword);
   return data.courses
     .filter(item => item.status !== "deleted")
-    .filter(item => !key || item.normalizedName.includes(key) || normalizeName(item.college).includes(key) || normalizeName(item.major).includes(key))
+    .filter(item => {
+      normalizeCourseRecord(item);
+      return !courseKey ||
+        item.normalizedCourseName.includes(courseKey) ||
+        normalizeName(item.college).includes(textKey) ||
+        normalizeName(item.major).includes(textKey);
+    })
     .map(course => courseDto(data, course))
     .sort((a, b) => b.likeCount - a.likeCount || b.reviewCount - a.reviewCount)
     .slice(0, Number(limit) || 20);
@@ -356,9 +523,10 @@ function searchCourses(keyword, limit) {
 
 function getCourse(courseId, userId) {
   const data = loadAll();
-  const course = data.courses.find(item => item.id === courseId && item.status !== "deleted");
+  const course = findCourseById(data.courses, courseId);
   if (!course) return null;
-  const reviews = listReviews(courseId, "hot", userId);
+  normalizeCourseRecord(course);
+  const reviews = listReviews(canonicalCourseId(course), "hot", userId);
   return {
     course: courseDto(data, course),
     dimensions: [
@@ -376,7 +544,9 @@ function getCourse(courseId, userId) {
 
 function listReviews(courseId, sort, userId) {
   const data = loadAll();
-  return approvedReviews(data, courseId)
+  const course = findCourseById(data.courses, courseId);
+  const reviewCourseId = course ? canonicalCourseId(course) : cleanText(courseId, 80);
+  return approvedReviews(data, reviewCourseId)
     .sort((a, b) => {
       if (sort === "latest") return String(b.updatedAt).localeCompare(String(a.updatedAt));
       return Number(b.likeCount || 0) - Number(a.likeCount || 0) || String(b.updatedAt).localeCompare(String(a.updatedAt));
@@ -386,7 +556,7 @@ function listReviews(courseId, sort, userId) {
 
 function addCourse(input, userId) {
   const data = loadAll();
-  const name = cleanText(input.name, 60);
+  const name = cleanText(input.courseName || input.name, 60);
   const college = cleanText(input.college, 60);
   const major = cleanText(input.major, 60);
   if (!name || !college || !major) {
@@ -394,18 +564,29 @@ function addCourse(input, userId) {
     err.code = "INVALID_COURSE_INPUT";
     throw err;
   }
-  const normalizedName = normalizeName(name);
-  const exists = data.courses.find(item => item.normalizedName === normalizedName && item.status !== "deleted");
+  const candidate = {
+    name,
+    courseName: name,
+    collegeId: cleanText(input.collegeId, 80),
+    college,
+    majorId: cleanText(input.majorId, 80),
+    major
+  };
+  const exists = findDuplicateCourse(data.courses, candidate);
   if (exists) return { course: courseDto(data, exists), duplicated: true };
   const at = nowIso();
+  const courseId = id("course");
   const course = {
-    id: id("course"),
+    id: courseId,
+    courseId,
     name,
-    normalizedName,
+    courseName: name,
+    collegeId: candidate.collegeId,
     college,
+    majorId: candidate.majorId,
     major,
-    type: cleanText(input.type, 20) || "不确定",
-    term: cleanText(input.term, 20) || "不确定",
+    type: cleanText(input.courseType || input.type, 20) || "不确定",
+    term: cleanText(input.semester || input.term, 20) || "不确定",
     description: cleanText(input.description || input.remark, 200),
     createdByUserId: userId,
     status: "approved",
@@ -419,6 +600,7 @@ function addCourse(input, userId) {
     createdAt: at,
     updatedAt: at
   };
+  normalizeCourseRecord(course);
   data.courses.push(course);
   saveAll(data);
   return { course: courseDto(data, course), duplicated: false };
@@ -426,12 +608,13 @@ function addCourse(input, userId) {
 
 function upsertReview(courseId, userId, input) {
   const data = loadAll();
-  const course = data.courses.find(item => item.id === courseId && item.status !== "deleted");
+  const course = findCourseById(data.courses, courseId);
   if (!course) {
     const err = new Error("课程不存在");
     err.code = "COURSE_NOT_FOUND";
     throw err;
   }
+  const reviewCourseId = canonicalCourseId(course);
   const content = cleanText(input.content, 300);
   if (!content) {
     const err = new Error("评价内容不能为空");
@@ -440,11 +623,11 @@ function upsertReview(courseId, userId, input) {
   }
   assertSafeReviewContent(content);
   const at = nowIso();
-  let review = data.reviews.find(item => item.courseId === courseId && item.userId === userId && item.status !== "deleted");
+  let review = data.reviews.find(item => item.courseId === reviewCourseId && item.userId === userId && item.status !== "deleted");
   if (!review) {
     review = {
       id: id("review"),
-      courseId,
+      courseId: reviewCourseId,
       userId,
       likeCount: 0,
       status: "approved",
@@ -460,7 +643,7 @@ function upsertReview(courseId, userId, input) {
   review.content = content;
   review.tags = cleanTags(input.tags);
   review.updatedAt = at;
-  recalcCourse(data, courseId);
+  recalcCourse(data, reviewCourseId);
   saveAll(data);
   return { review: reviewDto(data, review, userId), course: courseDto(data, course) };
 }

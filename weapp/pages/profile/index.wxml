@@ -1,55 +1,28 @@
 <view class="profile-page">
-  <view wx:if="{{!isWxLoggedIn}}" class="profile-card login-card">
-    <view class="avatar">科</view>
+  <view class="profile-card">
+    <image wx:if="{{avatarUrl}}" class="avatar-img" src="{{avatarUrl}}" mode="aspectFill" />
+    <view wx:else class="avatar">{{avatarLetter}}</view>
     <view class="profile-main">
-      <view class="profile-title">未登录</view>
-      <view class="profile-desc">请先登录后使用课表和成绩查询功能。</view>
-      <button class="login-btn" bindtap="relogin">重新登录</button>
-    </view>
-  </view>
-
-  <view wx:else class="profile-card">
-    <view class="avatar">科</view>
-    <view class="profile-main">
-      <view class="profile-title">{{userInfo.nickName || userInfo.studentId || '科大同学'}}</view>
-      <view class="profile-desc">已登录校园助手</view>
-      <button class="bind-btn" bindtap="manageJwxt">校园账号登录</button>
+      <view class="profile-title">{{displayName}}</view>
+      <view class="profile-desc">{{profileDesc}}</view>
+      <view class="bind-pill {{bindStatusClass}}">{{bindStatusText}}</view>
     </view>
   </view>
 
   <view class="status-card">
-    <view class="section-title">账号与同步状态</view>
+    <view class="section-title">成绩状态</view>
     <view class="status-row">
-      <text class="status-label">当前登录状态</text>
-      <text class="status-value">{{isWxLoggedIn ? '已登录' : '未登录'}}</text>
-    </view>
-    <view class="status-row">
-      <text class="status-label">成绩同步状态</text>
-      <text class="status-value">{{gradeQueryStatusText}}</text>
-    </view>
-    <view class="status-row">
-      <text class="status-label">当前成绩来源</text>
-      <text class="status-value">{{gradeSourceText}}</text>
+      <text class="status-label">成绩同步</text>
+      <text class="status-value {{gradeStatusClass}}">{{gradeQueryStatusText}}</text>
     </view>
     <view class="status-row">
       <text class="status-label">最近同步</text>
-      <text class="status-value">{{lastCheckAtText}}</text>
-    </view>
-    <view class="status-row">
-      <text class="status-label">课表同步</text>
-      <text class="status-value">{{hasTimetableText}}</text>
-    </view>
-    <view class="status-row">
-      <text class="status-label">当前版本</text>
-      <text class="status-value">{{version || '未知'}}</text>
+      <text class="status-time">{{lastCheckAtText}}</text>
     </view>
   </view>
 
   <view class="action-card">
     <button class="action-btn primary" loading="{{loadingStatus}}" disabled="{{loadingStatus}}" bindtap="refreshStatus">刷新状态</button>
-    <button class="action-btn secondary-action" bindtap="relogin">重新登录</button>
-    <button class="action-btn danger" bindtap="confirmClearCache">清除本地缓存</button>
+    <button class="action-btn secondary-action" bindtap="manageJwxt">{{bindButtonText}}</button>
   </view>
-
-  <view wx:if="{{!isWxLoggedIn}}" class="hint-card">请先登录后使用课表和成绩查询功能。</view>
 </view>

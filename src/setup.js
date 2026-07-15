@@ -4,8 +4,9 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 const readline = require("readline");
+const config = require("./config");
 
-const DATA_DIR = path.join(__dirname, "..", "data");
+const DATA_DIR = config.dataDir;
 const COOKIE_FILE = path.join(DATA_DIR, "cookies.json");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 

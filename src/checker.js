@@ -9,8 +9,10 @@ const { getUserPaths } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 const { queryXgScores } = require("./grade/xgScoreQuery");
 const { ensureXgScoreSession } = require("./grade/xgSession");
+const config = require("./config");
+const { recoverCampusSession } = require("./sync/campusSessionRecovery");
 
-const COOKIE_FILE = path.join(__dirname, "..", "data", "cookies.json");
+const COOKIE_FILE = path.join(config.dataDir, "cookies.json");
 
 // Ensure data dir exists
 const DATA_DIR = path.dirname(COOKIE_FILE);
@@ -267,14 +269,28 @@ function shouldAttemptCookieRefresh(result, userId) {
   return isLoginRequiredResult(result) && Boolean(credentialStore.getJwxtCredentials(userId));
 }
 
+function recoveryNeedsAccountRelogin(code) {
+  const transientCodes = [
+    "JWXT_UNAVAILABLE",
+    "JWXT_TIMEOUT",
+    "XG_SCORE_QUERY_FAILED",
+    "ECONNABORTED",
+    "ETIMEDOUT",
+    "ENOTFOUND",
+    "ECONNRESET",
+    "EAI_AGAIN"
+  ];
+  return !transientCodes.includes(String(code || ""));
+}
+
 async function refreshCookiesFromEnv(userId) {
   const credentials = credentialStore.getJwxtCredentials(userId);
   if (!credentials) {
     console.log("[checker] Cookie 失效，但未配置 JWXT_STUDENT_ID/JWXT_PASSWORD，保持原返回");
     if (userId && credentialStore.hasBoundAccount(userId)) {
       return {
-        errorResult: fail("JWXT_LOGIN_FAILED", "教务账号已绑定，但登录凭据不可用，请重新绑定教务账号", {
-          error: "JWXT_LOGIN_FAILED"
+        errorResult: fail("ACCOUNT_RELOGIN_REQUIRED", "校园账号登录已过期，请重新绑定", {
+          error: "ACCOUNT_RELOGIN_REQUIRED"
         })
       };
     }
@@ -282,8 +298,15 @@ async function refreshCookiesFromEnv(userId) {
   }
 
   console.log("[checker] 检测到 Cookie 失效，尝试自动刷新");
-  try {
-    const login = await httpJwxtLogin(credentials.studentId, credentials.password);
+  const recovery = await recoverCampusSession(userId, "jwxt", async () => {
+    let login;
+    try {
+      login = await httpJwxtLogin(credentials.studentId, credentials.password);
+    } catch (err) {
+      const classified = classifyJwxtLoginError(err);
+      err.code = classified.error;
+      throw err;
+    }
     const selected = selectJwxtGradeCookies(login.cookies);
     const hasRoute = selected.some(function(c) { return c.name === "route"; });
     const hasJSession = selected.some(function(c) { return c.name === "JSESSIONID"; });
@@ -291,26 +314,36 @@ async function refreshCookiesFromEnv(userId) {
     if (!hasRoute || !hasJSession || !hasRememberMe) {
       console.log("[checker] 自动刷新失败：未获取完整 route/JSESSIONID/rememberMe Cookie");
       credentialStore.updateBoundAccountStatus(userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
-      return {
-        errorResult: fail("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统", {
-          error: "JWXT_SSO_FAILED"
-        })
-      };
+      const err = new Error("Incomplete JWXT session cookies");
+      err.code = "JWXT_SSO_FAILED";
+      throw err;
     }
     writeCookies(selected, userId);
     credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
     console.log("[checker] 自动刷新成功，已更新 cookies.json（未打印 Cookie 值）");
     return selected;
-  } catch (err) {
-    const classified = classifyJwxtLoginError(err);
-    console.log("[checker] 自动刷新失败：" + classified.error);
-    credentialStore.updateBoundAccountStatus(userId, classified.error, { clearLastJwxtLoginAt: true });
+  });
+
+  if (!recovery.success) {
+    console.log("[checker] 自动刷新失败：" + recovery.causeCode);
+    credentialStore.updateBoundAccountStatus(userId, recovery.causeCode, { clearLastJwxtLoginAt: true });
+    if (!recoveryNeedsAccountRelogin(recovery.causeCode)) {
+      return {
+        errorResult: fail(recovery.causeCode, "校园账号自动登录暂时失败，请稍后重试", {
+          error: recovery.causeCode,
+          retryAfterSeconds: recovery.retryAfterSeconds
+        })
+      };
+    }
     return {
-      errorResult: fail(classified.reason || classified.error, classified.message, {
-        error: classified.error
+      errorResult: fail("ACCOUNT_RELOGIN_REQUIRED", recovery.message, {
+        error: "ACCOUNT_RELOGIN_REQUIRED",
+        causeCode: recovery.causeCode,
+        retryAfterSeconds: recovery.retryAfterSeconds
       })
     };
   }
+  return recovery.value;
 }
 
 async function executeCheck(cookies, activeStorage) {
@@ -372,19 +405,24 @@ async function executeCheck(cookies, activeStorage) {
 
 function xgErrorResult(err) {
   const code = err && err.code ? err.code : "XG_SCORE_QUERY_FAILED";
-  const message = code === "CAMPUS_LOGIN_REQUIRED" || code === "XG_LOGIN_REQUIRED"
-    ? "成绩登录已失效，请重新登录"
+  const message = code === "ACCOUNT_RELOGIN_REQUIRED" || code === "CAMPUS_LOGIN_REQUIRED" || code === "XG_LOGIN_REQUIRED"
+    ? "校园账号登录已过期，请重新绑定"
     : "暂时无法同步成绩，请稍后再试";
-  return fail(code, message, { error: code, source: "xg" });
+  return fail(code, message, {
+    error: code,
+    source: "xg",
+    causeCode: err && err.causeCode ? err.causeCode : null,
+    retryAfterSeconds: err && err.retryAfterSeconds ? err.retryAfterSeconds : null
+  });
 }
 
 function gradeUnavailableResult(jwxtResult, xgResult) {
   const jwxtCode = String((jwxtResult && (jwxtResult.error || jwxtResult.cookieStatus)) || "");
   const xgCode = String((xgResult && (xgResult.error || xgResult.cookieStatus)) || "");
-  const loginCodes = ["CAMPUS_LOGIN_REQUIRED", "XG_LOGIN_REQUIRED", "LOGIN_REQUIRED", "login_required", "COOKIE_EXPIRED", "cookie_expired"];
-  if (loginCodes.includes(xgCode) && (loginCodes.includes(jwxtCode) || !jwxtCode)) {
-    return fail("CAMPUS_LOGIN_REQUIRED", "成绩登录已失效，请重新登录", {
-      error: "CAMPUS_LOGIN_REQUIRED",
+  const loginCodes = ["ACCOUNT_RELOGIN_REQUIRED", "CAMPUS_LOGIN_REQUIRED", "XG_LOGIN_REQUIRED", "LOGIN_REQUIRED", "login_required", "COOKIE_EXPIRED", "cookie_expired"];
+  if (jwxtCode === "ACCOUNT_RELOGIN_REQUIRED" || xgCode === "ACCOUNT_RELOGIN_REQUIRED" || (loginCodes.includes(xgCode) && (loginCodes.includes(jwxtCode) || !jwxtCode))) {
+    return fail("ACCOUNT_RELOGIN_REQUIRED", "校园账号登录已过期，请重新绑定", {
+      error: "ACCOUNT_RELOGIN_REQUIRED",
       jwxtError: jwxtCode || null,
       xgError: xgCode || null
     });
@@ -451,7 +489,15 @@ async function executeXgCheck(activeStorage, userId, reason) {
 
   try {
     gradeCheckLog("try-xg", { userScope: userId ? "user" : "legacy", reason: reason || "JWXT_FAILED" });
-    const session = await ensureXgScoreSession(userId, activeStorage);
+    const recovery = await recoverCampusSession(userId, "xg", () => ensureXgScoreSession(userId, activeStorage));
+    if (!recovery.success) {
+      const err = new Error(recovery.message);
+      err.code = recoveryNeedsAccountRelogin(recovery.causeCode) ? recovery.error : recovery.causeCode;
+      err.causeCode = recovery.causeCode;
+      err.retryAfterSeconds = recovery.retryAfterSeconds;
+      throw err;
+    }
+    const session = recovery.value;
     gradeCheckLog("xg-session-ready", { fromCache: Boolean(session.fromCache), cookieLength: String(session.cookies || "").length });
     let scores;
     if (Array.isArray(session.grades)) {
@@ -489,7 +535,7 @@ async function executeXgCheck(activeStorage, userId, reason) {
     };
   } catch (err) {
     const code = (err && err.code) || "XG_SCORE_QUERY_FAILED";
-    const message = code === "CAMPUS_LOGIN_REQUIRED" || code === "XG_LOGIN_REQUIRED" ? "login_required" : "sync_unavailable";
+    const message = code === "ACCOUNT_RELOGIN_REQUIRED" || code === "CAMPUS_LOGIN_REQUIRED" || code === "XG_LOGIN_REQUIRED" ? "login_required" : "sync_unavailable";
     gradeCheckLog("xg-failed", { code, message });
     return xgErrorResult(err);
   }
@@ -499,6 +545,7 @@ function shouldPreferXgError(xgResult, jwxtResult) {
   if (!xgResult || xgResult.success) return false;
   const xgCode = String(xgResult.error || xgResult.cookieStatus || "");
   const jwxtCode = String(jwxtResult && (jwxtResult.error || jwxtResult.cookieStatus) || "");
+  if (xgCode === "ACCOUNT_RELOGIN_REQUIRED") return true;
   if (xgCode === "XG_LOGIN_REQUIRED") return jwxtCode === "login_required" || jwxtCode === "LOGIN_REQUIRED" || jwxtCode === "cookie_expired";
   return jwxtCode === "login_required" || jwxtCode === "LOGIN_REQUIRED";
 }
@@ -577,6 +624,7 @@ async function runCycleForUser(userId) {
 
   const jwxtResult = await tryJwxtCheckForUser(userId, userStorage);
   if (jwxtResult && jwxtResult.success) return jwxtResult;
+  if (jwxtResult && (jwxtResult.error === "ACCOUNT_RELOGIN_REQUIRED" || jwxtResult.cookieStatus === "ACCOUNT_RELOGIN_REQUIRED")) return jwxtResult;
   if (mode === "jwxt") return jwxtResult;
 
   const xgReason = jwxtResult && (jwxtResult.error || jwxtResult.cookieStatus) || "JWXT_FAILED";

@@ -2,7 +2,7 @@
   <view class="login-card">
     <view class="login-icon">科</view>
     <view class="login-title">登录科大助手</view>
-    <view class="login-desc">使用微信登录后，可发布课程评价、美食评价、点赞、收藏和上传资料。</view>
+    <view class="login-desc">使用微信登录后，可保存校园数据、使用个性化功能并保持登录状态。</view>
 
     <button class="primary-btn" loading="{{loggingIn}}" disabled="{{loggingIn}}" bindtap="login">微信一键登录</button>
 

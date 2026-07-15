@@ -1,0 +1,246 @@
+const fs = require("fs");
+const path = require("path");
+const { getUserPaths, safeUserId } = require("./userPaths");
+const credentialStore = require("./credentialStore");
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function readJson(file, fallback) {
+  try {
+    if (!fs.existsSync(file)) return fallback;
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (err) {
+    return fallback;
+  }
+}
+
+function writeJson(file, data) {
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+}
+
+function readCookiesFile(paths) {
+  const cookies = readJson(paths.cookiesPath, []);
+  return Array.isArray(cookies) ? cookies : [];
+}
+
+function compactCookieMeta(cookies) {
+  return (Array.isArray(cookies) ? cookies : []).map(cookie => ({
+    name: String(cookie && cookie.name || ""),
+    domain: String(cookie && cookie.domain || ""),
+    path: String(cookie && cookie.path || "")
+  })).filter(cookie => cookie.name);
+}
+
+function defaultProfile(userId) {
+  return {
+    openid: safeUserId(userId),
+    studentId: "",
+    bindTime: "",
+    lastLoginTime: ""
+  };
+}
+
+function defaultCampusState(userId) {
+  return {
+    openid: safeUserId(userId),
+    studentId: "",
+    jwxtCookies: [],
+    xgCookies: [],
+    xgScoreUrl: "",
+    updatedAt: ""
+  };
+}
+
+function defaultGradesCache() {
+  return {
+    updatedAt: "",
+    grades: []
+  };
+}
+
+function defaultTimetableCache() {
+  return {
+    updatedAt: "",
+    timetable: []
+  };
+}
+
+function defaultSyncState() {
+  return {
+    lastGradeSync: "",
+    lastTimetableSync: "",
+    status: "",
+    lastError: ""
+  };
+}
+
+function initUserData(userId) {
+  const paths = getUserPaths(userId);
+  ensureDir(paths.userDir);
+  if (!fs.existsSync(paths.profilePath)) writeJson(paths.profilePath, defaultProfile(userId));
+  if (!fs.existsSync(paths.gradesPath)) writeJson(paths.gradesPath, defaultGradesCache());
+  if (!fs.existsSync(paths.timetablePath)) writeJson(paths.timetablePath, defaultTimetableCache());
+  if (!fs.existsSync(paths.syncPath)) writeJson(paths.syncPath, defaultSyncState());
+  return paths;
+}
+
+function readProfile(userId) {
+  const paths = initUserData(userId);
+  return Object.assign(defaultProfile(userId), readJson(paths.profilePath, {}));
+}
+
+function updateProfile(userId, patch) {
+  const paths = initUserData(userId);
+  const current = readProfile(userId);
+  const next = Object.assign({}, current, patch || {}, { openid: safeUserId(userId) });
+  writeJson(paths.profilePath, next);
+  return next;
+}
+
+function touchLogin(userId) {
+  return updateProfile(userId, { lastLoginTime: nowIso() });
+}
+
+function saveBoundProfile(userId, studentId) {
+  const current = readProfile(userId);
+  return updateProfile(userId, {
+    studentId: String(studentId || current.studentId || ""),
+    bindTime: current.bindTime || nowIso(),
+    lastLoginTime: current.lastLoginTime || nowIso()
+  });
+}
+
+function readGradesCache(userId) {
+  const paths = initUserData(userId);
+  const data = Object.assign(defaultGradesCache(), readJson(paths.gradesPath, {}));
+  data.grades = Array.isArray(data.grades) ? data.grades : [];
+  return data;
+}
+
+function saveGradesCache(userId, grades, updatedAt) {
+  const paths = initUserData(userId);
+  const data = {
+    updatedAt: updatedAt || nowIso(),
+    grades: Array.isArray(grades) ? grades : []
+  };
+  writeJson(paths.gradesPath, data);
+  return data;
+}
+
+function readTimetableCache(userId) {
+  const paths = initUserData(userId);
+  const data = Object.assign(defaultTimetableCache(), readJson(paths.timetablePath, {}));
+  data.timetable = Array.isArray(data.timetable) ? data.timetable : [];
+  return data;
+}
+
+function saveTimetableCache(userId, timetable, updatedAt) {
+  const paths = initUserData(userId);
+  const data = {
+    updatedAt: updatedAt || nowIso(),
+    timetable: Array.isArray(timetable) ? timetable : []
+  };
+  writeJson(paths.timetablePath, data);
+  return data;
+}
+
+function readSyncState(userId) {
+  const paths = initUserData(userId);
+  return Object.assign(defaultSyncState(), readJson(paths.syncPath, {}));
+}
+
+function updateSyncState(userId, patch) {
+  const paths = initUserData(userId);
+  const current = readSyncState(userId);
+  const next = Object.assign({}, current, patch || {});
+  writeJson(paths.syncPath, next);
+  return next;
+}
+
+function campusStateFromStorage(userId, activeStorage) {
+  const paths = initUserData(userId);
+  const meta = credentialStore.readBoundAccountMeta(userId) || {};
+  const session = activeStorage && typeof activeStorage.getXgSession === "function"
+    ? activeStorage.getXgSession()
+    : {};
+  const cookies = readCookiesFile(paths);
+  return Object.assign(defaultCampusState(userId), {
+    studentId: meta.studentId || "",
+    jwxtCookies: compactCookieMeta(cookies),
+    xgCookies: session && session.cookies ? [{ name: "Cookie", domain: "xg.tyust.edu.cn", path: "/" }] : [],
+    xgScoreUrl: session && session.scoreUrl ? String(session.scoreUrl) : "",
+    updatedAt: nowIso()
+  });
+}
+
+function saveCampusState(userId, activeStorage) {
+  const paths = initUserData(userId);
+  const state = campusStateFromStorage(userId, activeStorage);
+  const campus = readJson(paths.campusPath, {});
+  const next = Object.assign({}, campus && typeof campus === "object" ? campus : {}, state);
+  writeJson(paths.campusPath, next);
+  return state;
+}
+
+function mirrorFromStorage(userId, activeStorage, options) {
+  initUserData(userId);
+  const now = nowIso();
+  let grades = [];
+  let timetable = [];
+
+  if (activeStorage && typeof activeStorage.getGrades === "function") {
+    grades = activeStorage.getGrades();
+    saveGradesCache(userId, grades, now);
+  }
+
+  if (activeStorage && activeStorage.data && Array.isArray(activeStorage.data.timetable)) {
+    timetable = activeStorage.data.timetable;
+    saveTimetableCache(userId, timetable, activeStorage.data.timetableLastSyncAt || now);
+  }
+
+  saveCampusState(userId, activeStorage);
+
+  const patch = {
+    status: options && options.status ? options.status : "ok",
+    lastError: options && options.lastError ? options.lastError : ""
+  };
+  if (!options || options.kind === "grades" || !options.kind) patch.lastGradeSync = now;
+  if (options && options.kind === "timetable") patch.lastTimetableSync = now;
+  updateSyncState(userId, patch);
+
+  return { grades, timetable };
+}
+
+function ensureGradesCacheFromStorage(userId, activeStorage) {
+  const cache = readGradesCache(userId);
+  if (cache.grades.length) return cache;
+  if (activeStorage && typeof activeStorage.getGrades === "function") {
+    const grades = activeStorage.getGrades();
+    if (grades.length) return saveGradesCache(userId, grades, activeStorage.data && activeStorage.data.lastRunAt || nowIso());
+  }
+  return cache;
+}
+
+module.exports = {
+  initUserData,
+  readProfile,
+  updateProfile,
+  touchLogin,
+  saveBoundProfile,
+  readGradesCache,
+  saveGradesCache,
+  readTimetableCache,
+  saveTimetableCache,
+  readSyncState,
+  updateSyncState,
+  saveCampusState,
+  mirrorFromStorage,
+  ensureGradesCacheFromStorage
+};

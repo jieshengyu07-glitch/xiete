@@ -347,7 +347,7 @@ function conflictDiagnostics(comparison) {
 }
 
 function writeConflictDebugFile(records) {
-  const dir = path.join(__dirname, "..", "data", "debug");
+  const dir = path.join(config.dataDir, "debug");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, "grade-score-conflicts.json"),

@@ -1,4 +1,12 @@
 const api = require("../../utils/api");
+const features = require("../../config/features");
+
+function blockCourseRatingPage() {
+  if (features.enableCourseRating) return false;
+  wx.showToast({ title: "课程评分暂未开放", icon: "none" });
+  wx.switchTab({ url: "/pages/timetable/timetable" });
+  return true;
+}
 
 const fallbackCourses = [
   { id: "course_auto_theory", name: "汽车理论", college: "车辆与交通工程学院", score: "7.4", reviews: 86, tags: ["考试难", "计算多", "闭卷"] },
@@ -26,6 +34,7 @@ Page({
   },
 
   onLoad() {
+    if (blockCourseRatingPage()) return;
     this.searchCourses("");
   },
 
@@ -36,6 +45,7 @@ Page({
   },
 
   searchCourses(keyword) {
+    if (!features.enableCourseRating) return;
     api.publicGet("/api/courses/search?keyword=" + encodeURIComponent(keyword || "")).then(res => {
       const courses = ((res && res.data && res.data.courses) || []).map(mapCourse);
       this.setData({
@@ -51,11 +61,13 @@ Page({
   },
 
   openDetail(e) {
+    if (!features.enableCourseRating) return;
     const id = e.currentTarget.dataset.id;
     wx.navigateTo({ url: "/pages/course/detail" + (id ? "?id=" + encodeURIComponent(id) : "") });
   },
 
   addCourse() {
+    if (!features.enableCourseRating) return;
     wx.navigateTo({ url: "/pages/course/add?name=" + encodeURIComponent(this.data.keyword) });
   }
 });

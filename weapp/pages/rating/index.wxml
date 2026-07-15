@@ -1,39 +1,46 @@
 <view class="rating-page">
+  <view class="page-head">
+    <view class="page-title">课程评分</view>
+    <view class="page-subtitle">看看同学们怎么评价课程</view>
+  </view>
+
   <view class="search-box">
     <text class="search-icon">⌕</text>
     <input class="search-input" placeholder="搜索课程评分" disabled />
   </view>
 
-  <view class="section">
-    <view class="section-title">课程评分</view>
-    <view class="category-grid">
-      <view wx:for="{{entries}}" wx:key="title" class="category-card" data-url="{{item.url}}" bindtap="openEntry">
-        <view class="category-icon">{{item.icon}}</view>
-        <view class="category-main">
-          <view class="category-title">{{item.title}}</view>
-          <view class="category-desc">{{item.desc}}</view>
-        </view>
+  <view class="entry-grid">
+    <view wx:for="{{entries}}" wx:key="title" class="entry-card" data-url="{{item.url}}" bindtap="openEntry">
+      <view class="entry-icon">{{item.icon}}</view>
+      <view class="entry-main">
+        <view class="entry-title">{{item.title}}</view>
+        <view class="entry-desc">{{item.desc}}</view>
       </view>
     </view>
   </view>
 
-  <view class="section scroll-section">
-    <view class="section-title">热门课程评价</view>
-    <scroll-view scroll-x class="review-scroll" show-scrollbar="{{false}}">
-      <view class="review-scroll-inner">
-        <view wx:for="{{hotCourseReviews}}" wx:key="rank" class="review-card" data-id="{{item.courseId}}" bindtap="openCourse">
+  <view class="section hot-section">
+    <view class="section-head">
+      <view class="section-title">热门课程评价</view>
+      <view class="section-subtitle">近期同学关注较多</view>
+    </view>
+
+    <view class="review-list">
+      <view wx:for="{{hotCourseReviews}}" wx:key="rank" class="review-card" data-id="{{item.courseId}}" bindtap="openCourse">
+        <view class="review-top">
           <view class="review-rank">{{item.rank}}</view>
-          <view class="review-head">
-            <view class="review-name">{{item.name}}</view>
-            <view class="review-score">{{item.score}}<text>分</text></view>
-          </view>
-          <view class="review-meta">{{item.meta}}</view>
-          <view class="tag-row">
-            <text wx:for="{{item.tags}}" wx:key="*this" class="tag">{{item}}</text>
-          </view>
-          <view class="quote">“{{item.quote}}”</view>
+          <view class="review-score">{{item.score}}<text>分</text></view>
         </view>
+
+        <view class="review-name">{{item.name}}</view>
+        <view class="review-meta">{{item.meta}}</view>
+
+        <view class="tag-row">
+          <text wx:for="{{item.tags}}" wx:key="*this" class="tag">{{item}}</text>
+        </view>
+
+        <view wx:if="{{item.quote}}" class="quote">“{{item.quote}}”</view>
       </view>
-    </scroll-view>
+    </view>
   </view>
 </view>

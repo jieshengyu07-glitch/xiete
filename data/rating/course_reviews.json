@@ -1,0 +1,62 @@
+[
+  {
+    "id": "review_auto_theory_hot",
+    "courseId": "course_auto_theory",
+    "userId": "system_seed",
+    "score": 7.4,
+    "difficulty": 8.2,
+    "grading": 6.9,
+    "workload": 7.6,
+    "recommend": 7.8,
+    "content": "计算题一定要提前练，动力性和制动性很重要。",
+    "tags": [
+      "考试难",
+      "计算多",
+      "闭卷"
+    ],
+    "likeCount": 128,
+    "status": "approved",
+    "createdAt": "2026-07-15T05:36:46.718Z",
+    "updatedAt": "2026-07-15T05:36:46.718Z"
+  },
+  {
+    "id": "review_new_energy_hot",
+    "courseId": "course_new_energy_intro",
+    "userId": "system_seed",
+    "score": 8.6,
+    "difficulty": 5.8,
+    "grading": 8.7,
+    "workload": 4.6,
+    "recommend": 8.9,
+    "content": "老师画的星号内容比较重要，开卷也不能完全裸考。",
+    "tags": [
+      "重点明确",
+      "好过",
+      "开卷"
+    ],
+    "likeCount": 96,
+    "status": "approved",
+    "createdAt": "2026-07-15T05:36:46.718Z",
+    "updatedAt": "2026-07-15T05:36:46.718Z"
+  },
+  {
+    "id": "review_advanced_math_hot",
+    "courseId": "course_advanced_math_a",
+    "userId": "system_seed",
+    "score": 6.8,
+    "difficulty": 8.8,
+    "grading": 6.1,
+    "workload": 8,
+    "recommend": 6.4,
+    "content": "别等期末才开始，高数真不能纯靠突击。",
+    "tags": [
+      "难度高",
+      "需要刷题",
+      "闭卷"
+    ],
+    "likeCount": 88,
+    "status": "approved",
+    "createdAt": "2026-07-15T05:36:46.718Z",
+    "updatedAt": "2026-07-15T05:36:46.718Z"
+  }
+]

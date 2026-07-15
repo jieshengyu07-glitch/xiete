@@ -1,4 +1,5 @@
 const api = require("../../utils/api");
+const features = require("../../config/features");
 
 const foodItems = [
   {
@@ -101,8 +102,10 @@ function mapCourse(item) {
 
 Page({
   data: {
-    boards: [
+    boards: features.enableCourseRating ? [
       courseBoard(fallbackCourseItems),
+      foodBoard()
+    ] : [
       foodBoard()
     ]
   },
@@ -116,6 +119,10 @@ Page({
   },
 
   loadCourseRank() {
+    if (!features.enableCourseRating) {
+      this.setData({ boards: [foodBoard()] });
+      return;
+    }
     api.publicGet("/api/rank/courses?limit=5").then(res => {
       const courses = ((res && res.data && res.data.courses) || []).map(mapCourse);
       this.setData({
@@ -138,6 +145,7 @@ Page({
     const type = e.currentTarget.dataset.type;
     const id = e.currentTarget.dataset.id;
     if (type === "course") {
+      if (!features.enableCourseRating) return;
       wx.navigateTo({ url: "/pages/course/detail" + (id ? "?id=" + encodeURIComponent(id) : "") });
       return;
     }

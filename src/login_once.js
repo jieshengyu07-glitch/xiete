@@ -2,8 +2,9 @@ const { chromium } = require("playwright-core");
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const config = require("./config");
 
-const dataDir = path.join(__dirname, "..", "data");
+const dataDir = config.dataDir;
 const cookieFile = path.join(dataDir, "cookies.json");
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 

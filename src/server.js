@@ -1,22 +1,31 @@
 ﻿const express = require("express");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const { runCycle, runCycleForUser, loadCookies, writeCookies, deleteCookies } = require("./checker");
-const axios = require("axios");
 const storage = require("./db/storage");
 const Scheduler = require("./scheduler/cron");
 const { httpJwxtLogin, httpPortalLogin, continueJwxtSso } = require("./login/httpJwxtLogin");
 const credentialStore = require("./services/credentialStore");
 const auth = require("./middleware/auth");
-const { signToken, verifyToken } = require("./utils/jwt");
+const { assertJwtConfig, signToken, verifyToken } = require("./utils/jwt");
 const courseRatingStore = require("./rating/courseRatingStore");
-const { safeUserId } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
+const { assertWechatConfig, resolveWechatOpenid } = require("./services/wechatAuth");
+const config = require("./config");
+const userPersistence = require("./services/userPersistence");
+const { scheduleUserGradeSync } = require("./sync/gradeSync");
 const { currentTermInfo, loadConfiguredTerm } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
 const { createCaptchaSession, loginWithCaptcha, clearCaptchaSessionsForUser } = require("./login/captchaSession");
 
+assertJwtConfig();
+assertWechatConfig();
+config.logDataPath();
+
 const app = express();
 const PORT = process.env.PORT || 3456;
+const SCHOOL_DATA_PATH = path.join(config.dataDir, "school.json");
 
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -222,6 +231,7 @@ function nowIso() {
 
 function normalizeJwxtApiCode(value) {
   const code = String(value || "");
+  if (code === "ACCOUNT_RELOGIN_REQUIRED") return code;
   if (code.startsWith("XG_")) return code;
   if (code.startsWith("CAMPUS_")) return code;
   if (code === "GRADE_QUERY_UNAVAILABLE") return "GRADE_QUERY_UNAVAILABLE";
@@ -235,6 +245,7 @@ function normalizeJwxtApiCode(value) {
 }
 
 function statusFromApiCode(code) {
+  if (code === "ACCOUNT_RELOGIN_REQUIRED") return "LOGIN_FAILED";
   if (String(code || "").startsWith("XG_")) return "LOGIN_FAILED";
   if (String(code || "").startsWith("CAMPUS_")) return "LOGIN_REQUIRED";
   if (code === "GRADE_QUERY_UNAVAILABLE") return "UNAVAILABLE";
@@ -304,6 +315,9 @@ function cacheWarningMessage(kind, hasCache, code) {
   if (kind === "timetable") {
     return hasCache ? "教务系统暂时不可用，当前显示上次同步课表" : "暂无课表缓存，请稍后重试或在教务系统恢复后刷新。";
   }
+  if (code === "ACCOUNT_RELOGIN_REQUIRED") {
+    return hasCache ? "校园账号登录已过期，当前显示上次查询成绩，请重新绑定" : "校园账号登录已过期，请重新绑定";
+  }
   if (code === "XG_LOGIN_REQUIRED") {
     return hasCache ? "成绩登录已失效，当前显示上次查询成绩" : "成绩登录已失效，请重新登录";
   }
@@ -314,6 +328,37 @@ function cacheWarningMessage(kind, hasCache, code) {
     return hasCache ? "成绩系统暂时不可用，当前显示上次查询成绩" : "成绩系统暂时不可用，请稍后再试";
   }
   return hasCache ? "教务系统暂时不可用，当前显示上次查询成绩" : "暂无成绩缓存，教务系统恢复后可重新检查。";
+}
+
+const AUTO_GRADE_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+
+function timeValue(value) {
+  const ms = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function shouldScheduleGradeSync(userId, activeStorage, gradesCache) {
+  if (!userId) return false;
+  if (!credentialStore.getJwxtCredentials(userId)) return false;
+  const accountMeta = credentialStore.readBoundAccountMeta(userId);
+  const cooldown = isRetryCooledDown(accountMeta);
+  if (cooldown.cooledDown) return false;
+  const syncState = userPersistence.readSyncState(userId);
+  const cachedGrades = gradesCache && Array.isArray(gradesCache.grades) ? gradesCache.grades : [];
+  const lastSync = Math.max(
+    timeValue(syncState.lastGradeSync),
+    timeValue(activeStorage && activeStorage.data && activeStorage.data.lastRunAt),
+    timeValue(gradesCache && gradesCache.updatedAt)
+  );
+  if (!cachedGrades.length) return true;
+  return Date.now() - lastSync > AUTO_GRADE_SYNC_INTERVAL_MS;
+}
+
+function maybeScheduleGradeSync(userId, activeStorage, gradesCache, reason) {
+  if (!shouldScheduleGradeSync(userId, activeStorage, gradesCache)) return false;
+  console.log("[user-sync] schedule-grade-sync reason=" + (reason || "auto"));
+  scheduleUserGradeSync(userId, reason || "auto");
+  return true;
 }
 
 function safeUrlHostPath(value) {
@@ -363,36 +408,6 @@ function selectJwxtGradeCookies(cookies) {
   return [route, jsession, rememberMe].filter(Boolean);
 }
 
-async function resolveWechatOpenid(code) {
-  const appid = process.env.WECHAT_APPID;
-  const secret = process.env.WECHAT_SECRET;
-
-  if (!appid || !secret) {
-    const safeCode = safeUserId(code) || "openid";
-    return "dev_" + safeCode;
-  }
-
-  if (!code) {
-    throw new Error("Missing wx.login code");
-  }
-
-  const resp = await axios.get("https://api.weixin.qq.com/sns/jscode2session", {
-    params: {
-      appid,
-      secret,
-      js_code: code,
-      grant_type: "authorization_code"
-    },
-    timeout: 10000
-  });
-
-  const data = resp.data || {};
-  if (!data.openid) {
-    throw new Error(data.errmsg || "Failed to resolve openid");
-  }
-  return data.openid;
-}
-
 // POST /auth/wechat-login
 app.post("/auth/wechat-login", async (req, res) => {
   try {
@@ -409,6 +424,12 @@ app.post("/auth/wechat-login", async (req, res) => {
       }
     });
   } catch (err) {
+    if (err && err.code === "WECHAT_CONFIG_MISSING") {
+      return res.status(500).json({
+        success: false,
+        error: "WECHAT_CONFIG_MISSING"
+      });
+    }
     res.status(400).json({
       success: false,
       error: "WECHAT_LOGIN_FAILED",
@@ -462,6 +483,28 @@ function sendRatingStoreError(res, err) {
   const code = err && err.code ? err.code : "RATING_API_FAILED";
   ratingApiError(res, ratingErrorStatus(code), code, err && err.message ? err.message : "课程评分服务暂时不可用");
 }
+
+function loadSchoolData() {
+  const data = JSON.parse(fs.readFileSync(SCHOOL_DATA_PATH, "utf8"));
+  const colleges = Array.isArray(data && data.colleges) ? data.colleges : [];
+  return Object.assign({}, data, {
+    colleges: colleges.map(item => {
+      const majors = Array.isArray(item && item.majors) ? item.majors : [];
+      return {
+        name: String((item && item.name) || "").trim(),
+        majors: majors.map(major => String(major || "").trim()).filter(Boolean)
+      };
+    }).filter(item => item.name && item.majors.length)
+  });
+}
+
+app.get("/api/school", (req, res) => {
+  try {
+    ratingApiOk(res, loadSchoolData());
+  } catch (err) {
+    ratingApiError(res, 500, "SCHOOL_DATA_UNAVAILABLE", "学院专业数据暂时不可用");
+  }
+});
 
 app.get("/api/courses/search", (req, res) => {
   try {
@@ -607,6 +650,10 @@ app.get("/status", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /status");
   const activeStorage = requestStorage(req);
+  if (req.userId) {
+    userPersistence.initUserData(req.userId);
+    userPersistence.touchLogin(req.userId);
+  }
   const cookies = loadCookies(req.userId);
   const valid = hasJwxtSessionCookie(cookies);
   const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
@@ -623,6 +670,7 @@ app.get("/status", auth, (req, res) => {
     const info = currentTermInfo();
     hasTimetable = activeStorage.getTimetable(info.termYear, info.termSemester).length > 0;
   } catch (err) {}
+  const gradesCache = req.userId ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage) : null;
   res.json({
     status: "running",
     bound,
@@ -635,7 +683,7 @@ app.get("/status", auth, (req, res) => {
     xgScoreConfigured: hasXg,
     xgCookieValid: null,
     gradeSource,
-    totalGrades: activeStorage.getGrades().length,
+    totalGrades: gradesCache ? gradesCache.grades.length : activeStorage.getGrades().length,
     hasTimetable,
     unevaluatedCount: unevaluatedCourses.length,
     unevaluatedCourses,
@@ -720,17 +768,22 @@ app.get("/grades", auth, (req, res) => {
   const activeStorage = requestStorage(req);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
   const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
-  const grades = activeStorage.getGrades().map(compactGrade);
+  const gradesCache = req.userId
+    ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage)
+    : { grades: activeStorage.getGrades(), updatedAt: activeStorage.data?.lastRunAt || null };
+  const syncScheduled = req.userId ? maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades") : false;
+  const grades = gradesCache.grades.map(compactGrade);
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
   const warning = grades.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode);
   res.json({
     success: true,
     fromCache: true,
+    syncScheduled,
     warning,
     warningCode: warning ? warningCode : null,
     message: warning ? cacheWarningMessage("grades", true, warningCode) : (grades.length ? "" : "暂无成绩缓存，教务系统恢复后可重新检查。"),
     hasGrades: grades.length > 0,
-    lastSuccessfulSyncAt: meta.lastSuccessfulSyncAt || activeStorage.data?.lastRunAt || null,
+    lastSuccessfulSyncAt: gradesCache.updatedAt || meta.lastSuccessfulSyncAt || activeStorage.data?.lastRunAt || null,
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
     count: grades.length,
     grades,
@@ -778,6 +831,12 @@ app.post("/check", auth, async (req, res) => {
   const r = req.userId ? await runCycleForUser(req.userId) : await runCycle();
   if (r.success) {
     recordJwxtSuccess(req.userId, activeStorage, "grades");
+    if (req.userId) {
+      userPersistence.mirrorFromStorage(req.userId, activeStorage, {
+        kind: "grades",
+        status: "ok"
+      });
+    }
     res.json({ success: true, checked: true, fromCache: false, warning: false, hasCache: true, gradesCount: r.gradesCount, added: r.added, changed: r.changed, changeCount: r.changeCount || 0, error: null, cookieStatus: r.cookieStatus || "cookie_valid", gradeSource: r.gradeSource || r.source || "jwxt" });
   }
   else {
@@ -785,6 +844,13 @@ app.post("/check", auth, async (req, res) => {
     const code = normalizeJwxtApiCode(r.error || r.cookieStatus || classified.error);
     const message = r.message || classified.message;
     recordJwxtFailure(req.userId, activeStorage, "grades", code, message);
+    if (req.userId) {
+      userPersistence.updateSyncState(req.userId, {
+        status: "failed",
+        lastError: code
+      });
+      userPersistence.saveCampusState(req.userId, activeStorage);
+    }
     res.json({
       success: false,
       checked: false,
@@ -1091,6 +1157,12 @@ app.post("/timetable/sync", auth, async (req, res) => {
     }
     console.log("[timetable] sync success syncedCount=" + result.syncedCount);
     recordJwxtSuccess(req.userId, activeStorage, "timetable");
+    if (req.userId) {
+      userPersistence.mirrorFromStorage(req.userId, activeStorage, {
+        kind: "timetable",
+        status: "ok"
+      });
+    }
     res.json(Object.assign({ warning: false, fromCache: false, hasCache: true }, result));
   } catch (err) {
     const classified = classifyJwxtLoginError(err);
@@ -1099,6 +1171,13 @@ app.post("/timetable/sync", auth, async (req, res) => {
     console.log("[timetable] sync failed code=" + code);
     if (sendTermConfigError(res, err)) return;
     recordJwxtFailure(req.userId, activeStorage, "timetable", code, message);
+    if (req.userId) {
+      userPersistence.updateSyncState(req.userId, {
+        status: "failed",
+        lastError: code
+      });
+      userPersistence.saveCampusState(req.userId, activeStorage);
+    }
     res.json({
       success: false,
       error: code,
@@ -1183,6 +1262,7 @@ app.post("/bind-account", auth, async (req, res) => {
   logPortalResult(portal && portal.portalResult);
   console.log("[bind] portal-verified ok=true");
   credentialStore.saveBoundAccount(studentId, password, req.userId);
+  userPersistence.saveBoundProfile(req.userId, studentId);
   console.log("[bind] account-saved");
   credentialStore.updateBoundAccountStatus(req.userId, "COOKIE_EXPIRED", {
     portalAuthStatus: "OK",
@@ -1209,6 +1289,8 @@ app.post("/bind-account", auth, async (req, res) => {
         clearLastJwxtLoginAt: true
       });
       deleteCookies(req.userId);
+      userPersistence.saveCampusState(req.userId, requestStorage(req));
+      scheduleUserGradeSync(req.userId, "bind-account-sso-warning");
       return res.json(bindWarningResponse("SSO_FAILED"));
     }
 
@@ -1217,6 +1299,8 @@ app.post("/bind-account", auth, async (req, res) => {
       lastJwxtLoginAt: new Date().toISOString()
     });
     writeCookies(jwxtCookies, req.userId);
+    userPersistence.saveCampusState(req.userId, requestStorage(req));
+    scheduleUserGradeSync(req.userId, "bind-account");
     console.log("[api] portal verified and JWXT cookies refreshed");
     res.json({
       success: true,
@@ -1238,6 +1322,8 @@ app.post("/bind-account", auth, async (req, res) => {
       clearLastJwxtLoginAt: true
     });
     deleteCookies(req.userId);
+    userPersistence.saveCampusState(req.userId, requestStorage(req));
+    scheduleUserGradeSync(req.userId, "bind-account-jwxt-warning");
     return res.json(bindWarningResponse(publicStatus));
   }
 });
