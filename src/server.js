@@ -1,5 +1,4 @@
 ﻿const express = require("express");
-const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { runCycle, runCycleForUser, loadCookies, writeCookies, deleteCookies } = require("./checker");
@@ -24,6 +23,7 @@ const {
   diagnoseDataDirectory,
   isDiagnosticAdminAuthorized
 } = require("./services/dataDirectoryDiagnostic");
+const { userIdHash } = require("./utils/userIdHash");
 
 assertJwtConfig();
 assertWechatConfig();
@@ -76,12 +76,15 @@ function ensureValidScope(req, res) {
 }
 
 function logUserScope(req, label) {
-  console.log("[user-scope] " + label + " scope=" + (req.userId ? "user" : "legacy"));
+  console.log(
+    "[user-scope] userIdHash=" + userIdHash(req.userId) +
+    " operation=" + label +
+    " scope=" + (req.userId ? "user" : "legacy")
+  );
 }
 
 function safeUserHash(userId) {
-  if (!userId) return "legacy";
-  return crypto.createHash("sha256").update(String(userId)).digest("hex").slice(0, 10);
+  return userIdHash(userId);
 }
 
 function hasJwxtSessionCookie(cookies) {
@@ -1287,7 +1290,7 @@ app.post("/bind-account", auth, async (req, res) => {
   console.log("[bind] portal-verified ok=true");
   credentialStore.saveBoundAccount(studentId, password, req.userId);
   userPersistence.saveBoundProfile(req.userId, studentId);
-  console.log("[bind] account-saved");
+  console.log("[bind] account-saved userIdHash=" + userIdHash(req.userId));
   credentialStore.updateBoundAccountStatus(req.userId, "COOKIE_EXPIRED", {
     portalAuthStatus: "OK",
     clearLastJwxtLoginAt: true

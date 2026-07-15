@@ -22,6 +22,9 @@ try {
   assert.strictEqual(result.usersCount, 2);
   assert.strictEqual(result.users.some(user => Object.prototype.hasOwnProperty.call(user, "openid")), false);
   assert.strictEqual(result.users.some(user => Object.prototype.hasOwnProperty.call(user, "userId")), false);
+  assert.strictEqual(result.users.every(user => /^[a-f0-9]{10}$/.test(user.userIdHash)), true);
+  assert.strictEqual(JSON.stringify(result).includes("hidden-user-a"), false);
+  assert.strictEqual(JSON.stringify(result).includes("hidden-user-b"), false);
   assert.deepStrictEqual(result.rootFiles, { campus: true, cookies: false, grades: false });
   assert(result.users.some(user => user.hasAccount && user.hasGrades));
   assert(result.users.some(user => user.hasTimetable));

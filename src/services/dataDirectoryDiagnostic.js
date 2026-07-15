@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { userIdHash } = require("../utils/userIdHash");
 
 const ADMIN_HEADER = "x-admin-diagnostic-key";
 const MIN_ADMIN_SECRET_LENGTH = 32;
@@ -35,7 +36,10 @@ function diagnoseDataDirectory(dataDir) {
   if (fileExists(usersDir)) {
     users = fs.readdirSync(usersDir, { withFileTypes: true })
       .filter(entry => entry.isDirectory())
-      .map(entry => inspectUserDirectory(path.join(usersDir, entry.name)));
+      .map(entry => Object.assign(
+        { userIdHash: userIdHash(entry.name) },
+        inspectUserDirectory(path.join(usersDir, entry.name))
+      ));
   }
 
   return {
