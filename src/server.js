@@ -17,6 +17,7 @@ const courseRatingStore = require("./rating/courseRatingStore");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 const { assertWechatConfig, resolveWechatOpenid } = require("./services/wechatAuth");
 const userPersistence = require("./services/userPersistence");
+const { markCampusLoginValid } = require("./services/campusLoginState");
 const { scheduleUserGradeSync, isUserGradeSyncRunning } = require("./sync/gradeSync");
 const { scheduleUserTimetableSync, isUserTimetableSyncRunning } = require("./sync/timetableSync");
 const { scheduleCampusSessionBootstrap, isCampusSessionBootstrapRunning } = require("./sync/campusSessionBootstrap");
@@ -113,9 +114,9 @@ function hasJwxtSessionCookie(cookies) {
 
 function publicJwxtStatus(bound, cookieValid, accountMeta, credentials) {
   if (!bound) return "LOGIN_REQUIRED";
-  if (cookieValid) return "OK";
   if (!credentials) return "LOGIN_FAILED";
   const last = String((accountMeta && (accountMeta.jwxtStatus || accountMeta.lastJwxtStatus)) || "");
+  if (cookieValid && (!last || last === "OK" || last === "COOKIE_VALID")) return "OK";
   if (last === "OK" || last === "COOKIE_VALID") return "COOKIE_EXPIRED";
   if (last === "JWXT_CAPTCHA_REQUIRED" || last === "CAPTCHA_REQUIRED") return "CAPTCHA_REQUIRED";
   if (last === "JWXT_SSO_FAILED" || last === "SSO_FAILED") return "SSO_FAILED";
@@ -460,6 +461,17 @@ function isBindCompletionRunning(userId) {
   return Boolean(userId && bindCompletionTasks.has(userId));
 }
 
+function waitForBindCompletion(task, timeoutMs) {
+  if (!task) return Promise.resolve({ completed: false, result: null });
+  let timer;
+  return Promise.race([
+    task.then(result => ({ completed: true, result })),
+    new Promise(resolve => {
+      timer = setTimeout(() => resolve({ completed: false, result: null }), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
 function scheduleBindCompletion(userId, portal) {
   if (!userId) return null;
   if (bindCompletionTasks.has(userId)) return bindCompletionTasks.get(userId);
@@ -483,18 +495,34 @@ function scheduleBindCompletion(userId, portal) {
         lastJwxtLoginAt: new Date().toISOString()
       });
       writeCookies(jwxtCookies, userId);
+      markCampusLoginValid(userId, "jwxt");
       userPersistence.saveCampusState(userId, storage.createStorageForUser(userId));
       console.log("[bind] background jwxt-sso success userIdHash=" + userIdHash(userId));
+      return { success: true, campusLoginStatus: "valid" };
     } catch (err) {
       const classified = classifyJwxtLoginError(err);
       const publicStatus = jwxtPublicStatusFromError(classified.error);
+      const failedAt = new Date().toISOString();
       console.log("[bind] background jwxt-sso failed code=" + classified.error);
       credentialStore.updateBoundAccountStatus(userId, publicStatus, {
         portalAuthStatus: "OK",
-        clearLastJwxtLoginAt: true
+        clearLastJwxtLoginAt: true,
+        lastFailedSyncAt: failedAt,
+        lastJwxtError: classified.error,
+        lastJwxtErrorMessage: classified.message || ""
       });
       deleteCookies(userId);
+      userPersistence.updateSyncState(userId, {
+        status: "recovering",
+        finishedAt: failedAt,
+        lastAttemptAt: failedAt,
+        nextRetryAt: new Date(Date.now() + 60 * 1000).toISOString(),
+        errorCode: classified.error,
+        lastError: classified.error,
+        source: "bind-account"
+      }, "campus");
       userPersistence.saveCampusState(userId, storage.createStorageForUser(userId));
+      return { success: false, recovering: true, error: classified.error };
     } finally {
       scheduleUserGradeSync(userId, "bind-account");
     }
@@ -729,25 +757,77 @@ function detectGradeSource(activeStorage, hasXg, hasJwxt) {
   return "none";
 }
 
-function publicCampusLoginStatus(bound, jwxtStatus) {
-  if (!bound) return "missing";
-  const status = String(jwxtStatus || "").toUpperCase();
-  if (status === "OK") return "valid";
-  if (status === "UNAVAILABLE" || status === "TIMEOUT") return "valid";
-  if (status === "LOGIN_REQUIRED" || status === "LOGIN_FAILED" || status === "COOKIE_EXPIRED" || status === "CAPTCHA_REQUIRED" || status === "SSO_FAILED") return "expired";
-  return "valid";
+function campusSuccessTime(accountMeta, campusSync, gradeSync, timetableSync) {
+  return Math.max(
+    timeValue(accountMeta && accountMeta.lastSuccessfulSyncAt),
+    timeValue(accountMeta && accountMeta.lastJwxtLoginAt),
+    timeValue(accountMeta && accountMeta.lastXgSuccessfulAt),
+    campusSync && campusSync.status === "ready" ? timeValue(campusSync.lastSuccessfulAt || campusSync.finishedAt) : 0,
+    gradeSync && gradeSync.status === "success" ? timeValue(gradeSync.finishedAt || gradeSync.lastGradeSync) : 0,
+    timetableSync && timetableSync.status === "success" ? timeValue(timetableSync.finishedAt || timetableSync.lastTimetableSync) : 0
+  );
 }
 
-function publicGradeQueryStatus(activeStorage, campusLoginStatus) {
+function jwxtSuccessTime(accountMeta, campusSync, timetableSync) {
+  const campusChannel = String(campusSync && (campusSync.channel || campusSync.source) || "").toLowerCase();
+  return Math.max(
+    timeValue(accountMeta && accountMeta.lastJwxtLoginAt),
+    campusSync && campusSync.status === "ready" && campusChannel.includes("jwxt")
+      ? timeValue(campusSync.lastSuccessfulAt || campusSync.finishedAt)
+      : 0,
+    timetableSync && timetableSync.status === "success"
+      ? timeValue(timetableSync.finishedAt || timetableSync.lastTimetableSync)
+      : 0
+  );
+}
+
+function campusReloginFailure(accountMeta, campusSync) {
+  const accountError = normalizeJwxtApiCode(accountMeta && accountMeta.lastJwxtError);
+  const campusError = normalizeJwxtApiCode(campusSync && (campusSync.errorCode || campusSync.lastError));
+  const required = accountError === "ACCOUNT_RELOGIN_REQUIRED" || campusError === "ACCOUNT_RELOGIN_REQUIRED";
+  return {
+    required,
+    at: required ? Math.max(
+      timeValue(accountMeta && accountMeta.lastFailedSyncAt),
+      campusSync && campusSync.status === "failed" ? timeValue(campusSync.finishedAt) : 0
+    ) : 0
+  };
+}
+
+function publicCampusLoginStatus(options) {
+  if (!options.bound) return "not_bound";
+  if (options.recoveryRunning) return "recovering";
+  if (options.successAt && options.successAt >= options.failureAt) return "valid";
+  if (options.reloginRequired) return "relogin_required";
+  return "recovering";
+}
+
+function publicGradeQueryStatus(activeStorage, campusLoginStatus, gradeSync) {
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
   const code = normalizeJwxtApiCode(meta && meta.lastError);
-  if (campusLoginStatus === "missing") return "not_bound";
+  if (campusLoginStatus === "not_bound") return "not_bound";
   if (campusLoginStatus === "recovering") return "recovering";
-  if (campusLoginStatus === "expired" || code === "XG_LOGIN_REQUIRED" || code === "CAMPUS_LOGIN_REQUIRED") {
+  if (campusLoginStatus === "relogin_required") {
     return "login_required";
   }
+  if (gradeSync && gradeSync.status === "success") return "ready";
   if (code === "JWXT_UNAVAILABLE" || code === "JWXT_TIMEOUT" || code === "XG_SCORE_QUERY_FAILED") return "unavailable";
   return "ready";
+}
+
+function publicTimetableSyncStatus(hasTimetable, timetableSync, running) {
+  if (running || (timetableSync && ["running", "recovering"].includes(timetableSync.status))) return "running";
+  if (timetableSync && timetableSync.status === "failed") return "failed";
+  if (timetableSync && ["success", "ok"].includes(timetableSync.status)) return "success";
+  return hasTimetable ? "success" : "idle";
+}
+
+function publicXgSessionStatus(accountMeta, hasXg) {
+  const status = String(accountMeta && accountMeta.xgStatus || "").toUpperCase();
+  if (status === "OK" && accountMeta.lastXgSuccessfulAt) return "valid";
+  if (status === "LOGIN_REQUIRED") return "relogin_required";
+  if (status === "UNAVAILABLE") return "unavailable";
+  return hasXg ? "unknown" : "missing";
 }
 
 app.get("/status", auth, (req, res) => {
@@ -760,39 +840,74 @@ app.get("/status", auth, (req, res) => {
   }
   const cookies = loadCookies(req.userId);
   const valid = hasJwxtSessionCookie(cookies);
-  const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
+  let accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
   const credentials = req.userId ? credentialStore.getJwxtCredentials(req.userId) : credentialStore.getJwxtCredentials();
   const bound = req.userId ? Boolean(accountMeta) : Boolean(credentials);
-  const jwxtStatus = publicJwxtStatus(bound, valid, accountMeta, credentials);
+  let jwxtStatus = publicJwxtStatus(bound, valid, accountMeta, credentials);
   const unevaluatedCourses = buildUnevaluatedCourses(activeStorage);
   const hasXg = xgScoreConfigured(activeStorage);
   const gradeSource = detectGradeSource(activeStorage, hasXg, bound || valid);
-  const lastAccountError = normalizeJwxtApiCode(accountMeta && accountMeta.lastJwxtError);
-  const recoveryBlocked = ["ACCOUNT_RELOGIN_REQUIRED", "INVALID_CREDENTIALS", "LOGIN_FAILED", "JWXT_INVALID_CREDENTIALS", "JWXT_LOGIN_FAILED"].includes(lastAccountError);
+  const campusSync = req.userId ? userPersistence.readSyncState(req.userId, "campus") : {};
+  const gradeSync = req.userId ? userPersistence.readSyncState(req.userId, "grades") : {};
+  const timetableSync = req.userId ? userPersistence.readSyncState(req.userId, "timetable") : {};
+  const successAt = campusSuccessTime(accountMeta, campusSync, gradeSync, timetableSync);
+  const lastJwxtSuccessAt = jwxtSuccessTime(accountMeta, campusSync, timetableSync);
+  const reloginFailure = campusReloginFailure(accountMeta, campusSync);
+  const recoveryBlocked = reloginFailure.required && (!successAt || reloginFailure.at >= successAt);
   const bindCompletionPending = isBindCompletionRunning(req.userId);
-  if (req.userId && bound && !bindCompletionPending) scheduleCampusSessionBootstrap(req.userId);
-  const sessionRecoveryPending = Boolean(req.userId && bound && !valid && !recoveryBlocked &&
-    (bindCompletionPending || isCampusSessionBootstrapRunning(req.userId) || publicCampusLoginStatus(bound, jwxtStatus) !== "expired"));
-  const campusLoginStatus = sessionRecoveryPending ? "recovering" : publicCampusLoginStatus(bound, jwxtStatus);
-  const gradeQueryStatus = publicGradeQueryStatus(activeStorage, campusLoginStatus);
+  const successIsFresh = successAt && Date.now() - successAt < AUTO_GRADE_SYNC_INTERVAL_MS;
+  const recoveryCoolingDown = campusSync.status === "recovering" &&
+    timeValue(campusSync.nextRetryAt) > Date.now();
+  if (req.userId && bound && !bindCompletionPending && !recoveryBlocked && !successIsFresh && !recoveryCoolingDown) {
+    scheduleCampusSessionBootstrap(req.userId);
+  }
+  const sessionFlowRunning = Boolean(bindCompletionPending || isCampusSessionBootstrapRunning(req.userId));
+  const firstDataSyncRunning = !successAt && Boolean(
+    isUserGradeSyncRunning(req.userId) || isUserTimetableSyncRunning(req.userId)
+  );
+  const recoveryRunning = sessionFlowRunning || firstDataSyncRunning;
+  const campusLoginStatus = publicCampusLoginStatus({
+    bound,
+    recoveryRunning,
+    successAt,
+    failureAt: reloginFailure.at,
+    reloginRequired: recoveryBlocked
+  });
+  const staleErrorRecovered = campusLoginStatus === "valid" &&
+    Boolean(accountMeta && accountMeta.lastJwxtError) && lastJwxtSuccessAt > reloginFailure.at;
+  if (staleErrorRecovered && req.userId) {
+    markCampusLoginValid(req.userId, "jwxt");
+    accountMeta = credentialStore.readBoundAccountMeta(req.userId);
+    jwxtStatus = publicJwxtStatus(bound, valid, accountMeta, credentials);
+  }
+  const sessionRecoveryPending = campusLoginStatus === "recovering";
+  const effectiveJwxtStatus = jwxtStatus;
+  const gradeQueryStatus = publicGradeQueryStatus(activeStorage, campusLoginStatus, gradeSync);
   let hasTimetable = false;
   try {
     const info = currentTermInfo();
     hasTimetable = activeStorage.getTimetable(info.termYear, info.termSemester).length > 0;
   } catch (err) {}
+  const timetableSyncStatus = publicTimetableSyncStatus(
+    hasTimetable,
+    timetableSync,
+    isUserTimetableSyncRunning(req.userId)
+  );
   const gradesCache = req.userId ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage) : null;
   res.json({
     status: "running",
     bound,
     campusLoginStatus,
     gradeQueryStatus,
+    timetableSyncStatus,
     sessionRecoveryPending,
     portalAuthStatus: bound ? ((accountMeta && accountMeta.portalAuthStatus) || (credentials ? "OK" : "FAILED")) : "FAILED",
-    jwxtStatus,
+    jwxtStatus: effectiveJwxtStatus,
     cookieValid: valid,
-    cookieStatus: legacyCookieStatus(jwxtStatus),
+    cookieStatus: legacyCookieStatus(effectiveJwxtStatus),
     xgScoreConfigured: hasXg,
-    xgCookieValid: null,
+    xgSessionStatus: publicXgSessionStatus(accountMeta, hasXg),
+    xgCookieValid: accountMeta && accountMeta.xgStatus === "OK" ? true : null,
     gradeSource,
     totalGrades: gradesCache ? gradesCache.grades.length : activeStorage.getGrades().length,
     hasTimetable,
@@ -1452,7 +1567,22 @@ app.post("/bind-account", auth, async (req, res) => {
     clearLastJwxtLoginAt: true
   });
 
-  scheduleBindCompletion(req.userId, portal);
+  const completion = scheduleBindCompletion(req.userId, portal);
+  const quickCompletion = await waitForBindCompletion(completion, 350);
+  if (quickCompletion.completed && quickCompletion.result && quickCompletion.result.success) {
+    return res.json({
+      success: true,
+      warning: false,
+      code: 0,
+      bound: true,
+      verified: true,
+      syncing: false,
+      campusLoginStatus: "valid",
+      portalAuthStatus: "OK",
+      jwxtStatus: "OK",
+      message: "账号绑定成功"
+    });
+  }
   return res.json({
     success: true,
     warning: false,
@@ -1460,9 +1590,10 @@ app.post("/bind-account", auth, async (req, res) => {
     bound: true,
     verified: false,
     syncing: true,
+    campusLoginStatus: "recovering",
     portalAuthStatus: "OK",
     jwxtStatus: "SYNCING",
-    message: "账号验证成功，正在后台初始化成绩和课表"
+    message: "账号已绑定，正在后台初始化教务系统；暂时不可用时将自动恢复"
   });
 });
 

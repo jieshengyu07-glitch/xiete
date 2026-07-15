@@ -4,7 +4,8 @@
     "pages/grades/grades",
     "pages/profile/index",
     "pages/login/index",
-    "pages/settings/settings"
+    "pages/settings/settings",
+    "pages/index/index"
   ],
   "window": {
     "navigationBarTitleText": "校园助手",

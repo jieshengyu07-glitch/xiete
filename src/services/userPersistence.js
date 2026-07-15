@@ -212,15 +212,47 @@ function readSyncState(userId, type) {
   return Object.assign({}, state, task, { type, tasks: state.tasks });
 }
 
+function summarizeTaskStates(tasks) {
+  const entries = Object.keys(tasks || {})
+    .map(type => ({ type, task: tasks[type] || {} }))
+    .filter(entry => String(entry.task.status || ""));
+  if (!entries.length) return defaultTaskState("");
+  if (entries.length === 1) {
+    const only = entries[0];
+    return Object.assign({}, defaultTaskState(only.type), only.task, { type: only.type });
+  }
+
+  const running = entries.some(entry => ["running", "recovering"].includes(String(entry.task.status)));
+  const failed = entries.filter(entry => String(entry.task.status) === "failed");
+  const allSuccessful = entries.every(entry => ["success", "ready", "ok"].includes(String(entry.task.status)));
+  const latestFailure = failed.slice().sort((a, b) =>
+    String(b.task.finishedAt || b.task.startedAt || "").localeCompare(String(a.task.finishedAt || a.task.startedAt || ""))
+  )[0];
+  return {
+    status: running ? "running" : (failed.length ? "failed" : (allSuccessful ? "success" : "mixed")),
+    type: "aggregate",
+    lastError: latestFailure ? String(latestFailure.task.lastError || latestFailure.task.errorCode || "") : "",
+    errorCode: latestFailure ? String(latestFailure.task.errorCode || latestFailure.task.lastError || "") : "",
+    startedAt: entries.map(entry => String(entry.task.startedAt || "")).sort().pop() || "",
+    finishedAt: entries.map(entry => String(entry.task.finishedAt || "")).sort().pop() || ""
+  };
+}
+
 function updateSyncState(userId, patch, type) {
   const paths = initUserData(userId);
   const current = readSyncState(userId);
   const change = patch || {};
   const taskType = type || change.type || "";
-  const next = Object.assign({}, current, change);
+  const next = Object.assign({}, current);
   next.tasks = Object.assign({}, current.tasks);
   if (taskType && next.tasks[taskType]) {
     next.tasks[taskType] = Object.assign({}, next.tasks[taskType], change, { type: taskType });
+    next.lastTask = Object.assign({}, next.tasks[taskType]);
+    Object.assign(next, summarizeTaskStates(next.tasks));
+    if (change.lastGradeSync !== undefined) next.lastGradeSync = change.lastGradeSync;
+    if (change.lastTimetableSync !== undefined) next.lastTimetableSync = change.lastTimetableSync;
+  } else {
+    Object.assign(next, change);
   }
   writeJson(paths.syncPath, next);
   return taskType ? readSyncState(userId, taskType) : next;

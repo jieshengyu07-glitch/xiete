@@ -1,4 +1,5 @@
 const assert = require("assert");
+process.env.CREDENTIAL_SECRET = process.env.CREDENTIAL_SECRET || "recovery-test-credential-secret-0123456789-abcdef";
 const {
   MAX_FAILED_ATTEMPTS,
   recoverCampusSession,
@@ -63,6 +64,29 @@ async function main() {
   assert.strictEqual(limited.causeCode, "ACCOUNT_RECOVERY_RATE_LIMITED");
   assert(limited.retryAfterSeconds > 0);
   console.log("recoveryRateLimitTest=passed");
+
+  resetRecoveryStateForTests();
+  const modulePath = require.resolve("../src/sync/campusSessionRecovery");
+  const restartUser = "restart-limited-user";
+  await recoverCampusSession(restartUser, "jwxt", async () => {
+    throw Object.assign(new Error("failed-before-restart"), { code: "JWXT_LOGIN_FAILED" });
+  });
+  delete require.cache[modulePath];
+  const afterRestart = require(modulePath);
+  let restartAttempts = 0;
+  await afterRestart.recoverCampusSession(restartUser, "jwxt", async () => {
+    restartAttempts += 1;
+    throw Object.assign(new Error("failed-after-restart"), { code: "JWXT_LOGIN_FAILED" });
+  });
+  delete require.cache[modulePath];
+  const afterSecondRestart = require(modulePath);
+  const persistedLimit = await afterSecondRestart.recoverCampusSession(restartUser, "jwxt", async () => {
+    restartAttempts += 1;
+  });
+  assert.strictEqual(restartAttempts, 1);
+  assert.strictEqual(persistedLimit.causeCode, "ACCOUNT_RECOVERY_RATE_LIMITED");
+  afterSecondRestart.resetRecoveryStateForTests();
+  console.log("recoveryRateLimitSurvivesRestartTest=passed");
 }
 
 main().catch(err => {

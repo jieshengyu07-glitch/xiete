@@ -205,6 +205,8 @@ function readBoundAccountMeta(userId) {
       lastFailedSyncAt: data.lastFailedSyncAt || null,
       lastJwxtError: data.lastJwxtError || null,
       lastJwxtErrorMessage: data.lastJwxtErrorMessage || null,
+      xgStatus: data.xgStatus || "",
+      lastXgSuccessfulAt: data.lastXgSuccessfulAt || null,
       updatedAt: data.updatedAt || null,
       source: "account_file"
     };
@@ -237,6 +239,8 @@ function saveBoundAccount(studentId, password, userId) {
     lastFailedSyncAt: existing.lastFailedSyncAt || null,
     lastJwxtError: existing.lastJwxtError || null,
     lastJwxtErrorMessage: existing.lastJwxtErrorMessage || null,
+    xgStatus: existing.xgStatus || "",
+    lastXgSuccessfulAt: existing.lastXgSuccessfulAt || null,
     updatedAt: new Date().toISOString()
   });
 }
@@ -256,6 +260,8 @@ function updateBoundAccountStatus(userId, status, extra) {
     if (extra && extra.lastFailedSyncAt !== undefined) data.lastFailedSyncAt = extra.lastFailedSyncAt;
     if (extra && extra.lastJwxtError !== undefined) data.lastJwxtError = extra.lastJwxtError;
     if (extra && extra.lastJwxtErrorMessage !== undefined) data.lastJwxtErrorMessage = extra.lastJwxtErrorMessage;
+    if (extra && extra.xgStatus !== undefined) data.xgStatus = extra.xgStatus;
+    if (extra && extra.lastXgSuccessfulAt !== undefined) data.lastXgSuccessfulAt = extra.lastXgSuccessfulAt;
     data.updatedAt = new Date().toISOString();
     writeJsonAtomic(file, data);
     return true;

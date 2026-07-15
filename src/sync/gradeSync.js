@@ -2,6 +2,7 @@ const { runCycleForUser } = require("../checker");
 const { createStorageForUser } = require("../db/storage");
 const credentialStore = require("../services/credentialStore");
 const userPersistence = require("../services/userPersistence");
+const { markCampusLoginValid } = require("../services/campusLoginState");
 const { ensureUserSession } = require("./userSession");
 
 const running = new Map();
@@ -45,6 +46,7 @@ async function syncUserGrades(userId, options) {
   try {
     const result = await runCycleForUser(userId);
     if (result && result.success) {
+      markCampusLoginValid(userId, result.gradeSource || result.source || "grades");
       userPersistence.mirrorFromStorage(userId, storage, {
         kind: "grades",
         status: "success"

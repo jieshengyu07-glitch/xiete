@@ -1,6 +1,7 @@
 const { createStorageForUser } = require("../db/storage");
 const credentialStore = require("../services/credentialStore");
 const userPersistence = require("../services/userPersistence");
+const { markCampusLoginValid } = require("../services/campusLoginState");
 const { loadConfiguredTerm } = require("../timetable/calendar");
 const { syncTimetableForUser } = require("../timetable/sync");
 
@@ -16,6 +17,7 @@ async function syncUserTimetable(userId) {
   try {
     const result = await syncTimetableForUser(userId, storage, { term: loadConfiguredTerm() });
     if (result && result.success) {
+      markCampusLoginValid(userId, "timetable");
       userPersistence.mirrorFromStorage(userId, storage, { kind: "timetable", status: "success" });
       userPersistence.updateSyncState(userId, {
         status: "success", type: "timetable", finishedAt: new Date().toISOString(), errorCode: "", lastError: ""

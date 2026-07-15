@@ -27,6 +27,9 @@ try {
   assert.strictEqual(grades.startedAt, "2026-07-15T00:00:00.000Z");
   assert.strictEqual(timetable.status, "success");
   assert.strictEqual(timetable.finishedAt, "2026-07-15T00:01:00.000Z");
+  const aggregate = persistence.readSyncState(userId);
+  assert.strictEqual(aggregate.type, "aggregate");
+  assert.strictEqual(aggregate.status, "running");
   console.log("gradeTimetableSyncStateIsolationTest=passed");
 } finally {
   fs.rmSync(dataDir, { recursive: true, force: true });

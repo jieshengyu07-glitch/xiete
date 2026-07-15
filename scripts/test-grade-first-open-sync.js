@@ -44,6 +44,7 @@ async function testSyncRunningState() {
   const credentialPath = require.resolve("../src/services/credentialStore");
   const persistencePath = require.resolve("../src/services/userPersistence");
   const sessionPath = require.resolve("../src/sync/userSession");
+  const campusStatePath = require.resolve("../src/services/campusLoginState");
   const gradeSyncPath = require.resolve("../src/sync/gradeSync");
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -51,7 +52,10 @@ async function testSyncRunningState() {
 
   require.cache[checkerPath] = { exports: { runCycleForUser: async () => { await gate; return { success: true }; } } };
   require.cache[storagePath] = { exports: { createStorageForUser: () => ({}) } };
-  require.cache[credentialPath] = { exports: { getJwxtCredentials: () => ({ present: true }) } };
+  require.cache[credentialPath] = { exports: {
+    getJwxtCredentials: () => ({ present: true }),
+    updateBoundAccountStatus: () => true
+  } };
   require.cache[persistencePath] = {
     exports: {
       initUserData: () => {},
@@ -61,6 +65,7 @@ async function testSyncRunningState() {
     }
   };
   require.cache[sessionPath] = { exports: { ensureUserSession: () => ({}) } };
+  delete require.cache[campusStatePath];
   delete require.cache[gradeSyncPath];
 
   const gradeSync = require(gradeSyncPath);
@@ -83,12 +88,16 @@ async function testSyncFailedState() {
   const credentialPath = require.resolve("../src/services/credentialStore");
   const persistencePath = require.resolve("../src/services/userPersistence");
   const sessionPath = require.resolve("../src/sync/userSession");
+  const campusStatePath = require.resolve("../src/services/campusLoginState");
   const gradeSyncPath = require.resolve("../src/sync/gradeSync");
   const statePatches = [];
 
   require.cache[checkerPath] = { exports: { runCycleForUser: async () => ({ success: false, error: "JWXT_UNAVAILABLE" }) } };
   require.cache[storagePath] = { exports: { createStorageForUser: () => ({}) } };
-  require.cache[credentialPath] = { exports: { getJwxtCredentials: () => ({ present: true }) } };
+  require.cache[credentialPath] = { exports: {
+    getJwxtCredentials: () => ({ present: true }),
+    updateBoundAccountStatus: () => true
+  } };
   require.cache[persistencePath] = {
     exports: {
       initUserData: () => {},
@@ -98,6 +107,7 @@ async function testSyncFailedState() {
     }
   };
   require.cache[sessionPath] = { exports: { ensureUserSession: () => ({}) } };
+  delete require.cache[campusStatePath];
   delete require.cache[gradeSyncPath];
 
   const gradeSync = require(gradeSyncPath);

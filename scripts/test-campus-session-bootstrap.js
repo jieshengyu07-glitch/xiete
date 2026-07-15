@@ -76,9 +76,26 @@ async function main() {
   const loginElapsed = Date.now() - loginStartedAt;
   assert(loginElapsed < 50);
   const failedResult = await backgroundTask;
-  assert.strictEqual(failedResult.error, "ACCOUNT_RELOGIN_REQUIRED");
-  assert(failed.state.statusUpdates.includes("failed"));
+  assert.strictEqual(failedResult.recovering, true);
+  assert.strictEqual(failedResult.error, "XG_LOGIN_REQUIRED");
+  assert(failed.state.statusUpdates.includes("recovering"));
   console.log("recoveryFailureDoesNotBlockWechatLoginTest=passed");
+
+  const invalid = dependencies({
+    jwxtState: { valid: false, shouldRecover: true, error: "cookie_expired" },
+    jwxtRecovery: {
+      errorResult: {
+        error: "ACCOUNT_RELOGIN_REQUIRED",
+        causeCode: "JWXT_INVALID_CREDENTIALS"
+      }
+    },
+    xgError: Object.assign(new Error("expired"), { code: "XG_LOGIN_REQUIRED" })
+  });
+  const invalidResult = await bootstrapCampusSession("invalid-user", invalid.deps);
+  assert.strictEqual(invalidResult.error, "ACCOUNT_RELOGIN_REQUIRED");
+  assert.strictEqual(invalidResult.causeCode, "JWXT_INVALID_CREDENTIALS");
+  assert(invalid.state.statusUpdates.includes("failed"));
+  console.log("explicitCredentialFailureRequiresReloginTest=passed");
 }
 
 main().catch(err => {
