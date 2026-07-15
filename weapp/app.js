@@ -27,7 +27,17 @@ App({
     lastLoginError: ""
   },
 
-  onLaunch() {},
+  onLaunch() {
+    // Start the TLS connection and wake the API while the first page renders.
+    // This request is best-effort and never blocks normal mini-program startup.
+    wx.request({
+      url: this.globalData.apiBase + "/health",
+      method: "GET",
+      timeout: 8000,
+      success: () => {},
+      fail: () => {}
+    });
+  },
 
   loginWithWechat(force) {
     if (!force && this.globalData.loginPromise) return this.globalData.loginPromise;

@@ -454,6 +454,56 @@ function selectJwxtGradeCookies(cookies) {
   return [route, jsession, rememberMe].filter(Boolean);
 }
 
+const bindCompletionTasks = new Map();
+
+function isBindCompletionRunning(userId) {
+  return Boolean(userId && bindCompletionTasks.has(userId));
+}
+
+function scheduleBindCompletion(userId, portal) {
+  if (!userId) return null;
+  if (bindCompletionTasks.has(userId)) return bindCompletionTasks.get(userId);
+
+  const task = Promise.resolve().then(async () => {
+    try {
+      console.log("[bind] background jwxt-sso start userIdHash=" + userIdHash(userId));
+      const jwxt = await continueJwxtSso(portal.cookieJar);
+      const jwxtCookies = selectJwxtGradeCookies(jwxt.cookies);
+      const hasRoute = jwxtCookies.some(c => c.name === "route");
+      const hasJSession = jwxtCookies.some(c => c.name === "JSESSIONID");
+      const hasRememberMe = jwxtCookies.some(c => c.name === "rememberMe");
+      if (!hasRoute || !hasJSession || !hasRememberMe) {
+        const err = new Error("Missing required JWXT cookie names");
+        err.code = "JWXT_SSO_FAILED";
+        throw err;
+      }
+
+      credentialStore.updateBoundAccountStatus(userId, "OK", {
+        portalAuthStatus: "OK",
+        lastJwxtLoginAt: new Date().toISOString()
+      });
+      writeCookies(jwxtCookies, userId);
+      userPersistence.saveCampusState(userId, storage.createStorageForUser(userId));
+      console.log("[bind] background jwxt-sso success userIdHash=" + userIdHash(userId));
+    } catch (err) {
+      const classified = classifyJwxtLoginError(err);
+      const publicStatus = jwxtPublicStatusFromError(classified.error);
+      console.log("[bind] background jwxt-sso failed code=" + classified.error);
+      credentialStore.updateBoundAccountStatus(userId, publicStatus, {
+        portalAuthStatus: "OK",
+        clearLastJwxtLoginAt: true
+      });
+      deleteCookies(userId);
+      userPersistence.saveCampusState(userId, storage.createStorageForUser(userId));
+    } finally {
+      scheduleUserGradeSync(userId, "bind-account");
+    }
+  }).finally(() => bindCompletionTasks.delete(userId));
+
+  bindCompletionTasks.set(userId, task);
+  return task;
+}
+
 // POST /auth/wechat-login
 app.post("/auth/wechat-login", async (req, res) => {
   try {
@@ -719,9 +769,10 @@ app.get("/status", auth, (req, res) => {
   const gradeSource = detectGradeSource(activeStorage, hasXg, bound || valid);
   const lastAccountError = normalizeJwxtApiCode(accountMeta && accountMeta.lastJwxtError);
   const recoveryBlocked = ["ACCOUNT_RELOGIN_REQUIRED", "INVALID_CREDENTIALS", "LOGIN_FAILED", "JWXT_INVALID_CREDENTIALS", "JWXT_LOGIN_FAILED"].includes(lastAccountError);
-  if (req.userId && bound) scheduleCampusSessionBootstrap(req.userId);
+  const bindCompletionPending = isBindCompletionRunning(req.userId);
+  if (req.userId && bound && !bindCompletionPending) scheduleCampusSessionBootstrap(req.userId);
   const sessionRecoveryPending = Boolean(req.userId && bound && !valid && !recoveryBlocked &&
-    (isCampusSessionBootstrapRunning(req.userId) || publicCampusLoginStatus(bound, jwxtStatus) !== "expired"));
+    (bindCompletionPending || isCampusSessionBootstrapRunning(req.userId) || publicCampusLoginStatus(bound, jwxtStatus) !== "expired"));
   const campusLoginStatus = sessionRecoveryPending ? "recovering" : publicCampusLoginStatus(bound, jwxtStatus);
   const gradeQueryStatus = publicGradeQueryStatus(activeStorage, campusLoginStatus);
   let hasTimetable = false;
@@ -899,6 +950,25 @@ app.post("/check", auth, async (req, res) => {
       changed: [],
       changeCount: 0,
       cookieStatus: cooldown.error
+    });
+  }
+  if (req.userId) {
+    const alreadyRunning = isUserGradeSyncRunning(req.userId);
+    scheduleUserGradeSync(req.userId, "manual-refresh");
+    console.log("[grade-check] step=accepted background=true alreadyRunning=" + alreadyRunning);
+    return res.json({
+      success: true,
+      accepted: true,
+      checked: false,
+      syncing: true,
+      syncStatus: "running",
+      fromCache: hasCache,
+      hasCache,
+      gradesCount: cachedGrades.length,
+      added: [],
+      changed: [],
+      changeCount: 0,
+      message: hasCache ? "正在后台刷新成绩，当前显示上次结果" : "正在同步成绩..."
     });
   }
   const r = req.userId ? await runCycleForUser(req.userId) : await runCycle();
@@ -1240,6 +1310,22 @@ app.post("/timetable/sync", auth, async (req, res) => {
     });
   }
 
+  if (req.userId) {
+    const alreadyRunning = isUserTimetableSyncRunning(req.userId);
+    scheduleUserTimetableSync(req.userId);
+    console.log("[timetable] sync accepted background=true alreadyRunning=" + alreadyRunning);
+    return res.json({
+      success: true,
+      accepted: true,
+      syncing: true,
+      syncStatus: "running",
+      fromCache: hasCache,
+      hasCache,
+      count: cachedRows.length,
+      message: hasCache ? "正在后台刷新课表，当前显示上次结果" : "正在同步课表..."
+    });
+  }
+
   try {
     console.log("[timetable] sync start userHash=" + safeUserHash(req.userId));
     const result = await syncTimetableForUser(req.userId, activeStorage, {
@@ -1366,63 +1452,18 @@ app.post("/bind-account", auth, async (req, res) => {
     clearLastJwxtLoginAt: true
   });
 
-  try {
-    console.log("[bind] trying jwxt sso");
-    const jwxt = await continueJwxtSso(portal.cookieJar);
-    const jwxtCookies = selectJwxtGradeCookies(jwxt.cookies);
-    const hasRoute = jwxtCookies.some(c => c.name === "route");
-    const hasJSession = jwxtCookies.some(c => c.name === "JSESSIONID");
-    const hasRememberMe = jwxtCookies.some(c => c.name === "rememberMe");
-
-    if (!hasRoute || !hasJSession || !hasRememberMe) {
-      logBindVerifyFailed(null, {
-        errorType: "missing_required_cookies",
-        step: "selectJwxtGradeCookies",
-        finalUrl: jwxt.finalUrl,
-        message: "Missing required JWXT cookie names"
-      });
-      credentialStore.updateBoundAccountStatus(req.userId, "SSO_FAILED", {
-        portalAuthStatus: "OK",
-        clearLastJwxtLoginAt: true
-      });
-      deleteCookies(req.userId);
-      userPersistence.saveCampusState(req.userId, requestStorage(req));
-      scheduleUserGradeSync(req.userId, "bind-account-sso-warning");
-      return res.json(bindWarningResponse("SSO_FAILED"));
-    }
-
-    credentialStore.updateBoundAccountStatus(req.userId, "OK", {
-      portalAuthStatus: "OK",
-      lastJwxtLoginAt: new Date().toISOString()
-    });
-    writeCookies(jwxtCookies, req.userId);
-    userPersistence.saveCampusState(req.userId, requestStorage(req));
-    scheduleUserGradeSync(req.userId, "bind-account");
-    console.log("[api] portal verified and JWXT cookies refreshed");
-    res.json({
-      success: true,
-      warning: false,
-      code: 0,
-      bound: true,
-      verified: true,
-      portalAuthStatus: "OK",
-      jwxtStatus: "OK",
-      finalUrl: jwxt.finalUrl,
-      hasJSession: Boolean(jwxt.jwxtJSessionId)
-    });
-  } catch (err) {
-    const classified = classifyJwxtLoginError(err);
-    const publicStatus = jwxtPublicStatusFromError(classified.error);
-    console.log("[bind] jwxt-refresh-failed code=" + classified.error);
-    credentialStore.updateBoundAccountStatus(req.userId, publicStatus, {
-      portalAuthStatus: "OK",
-      clearLastJwxtLoginAt: true
-    });
-    deleteCookies(req.userId);
-    userPersistence.saveCampusState(req.userId, requestStorage(req));
-    scheduleUserGradeSync(req.userId, "bind-account-jwxt-warning");
-    return res.json(bindWarningResponse(publicStatus));
-  }
+  scheduleBindCompletion(req.userId, portal);
+  return res.json({
+    success: true,
+    warning: false,
+    code: 0,
+    bound: true,
+    verified: false,
+    syncing: true,
+    portalAuthStatus: "OK",
+    jwxtStatus: "SYNCING",
+    message: "账号验证成功，正在后台初始化成绩和课表"
+  });
 });
 
 // POST /unbind-account

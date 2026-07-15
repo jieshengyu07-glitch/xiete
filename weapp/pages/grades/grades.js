@@ -111,10 +111,11 @@ Page({
       });
       return;
     }
+    const delay = this._syncPollAttempts <= 5 ? 1200 : 2500;
     this._syncPollTimer = setTimeout(() => {
       this._syncPollTimer = null;
       if (this._gradesPageActive) this.loadGrades({ polling: true });
-    }, 3000);
+    }, delay);
   },
 
   loadGrades(options) {
@@ -158,11 +159,20 @@ Page({
     this.stopSyncPolling();
     this._syncPollAttempts = 0;
     this.setData({ refreshing: true, notice: "", error: null });
-    wx.showLoading({ title: "刷新成绩..." });
     try {
       const result = await api.post("/check", {}, { timeout: 120000 });
-      wx.hideLoading();
       this.setData({ refreshing: false });
+
+      if (result && result.syncing) {
+        this.setData({
+          syncing: true,
+          notice: result.message || "正在后台刷新成绩，完成后会自动更新",
+          error: null
+        });
+        wx.showToast({ title: "已开始后台刷新", icon: "none" });
+        this.scheduleSyncPolling();
+        return;
+      }
 
       if (result && result.checked === false) {
         if (isCaptchaRequired(result)) {
@@ -182,7 +192,6 @@ Page({
 
       await this.loadGrades();
     } catch (err) {
-      wx.hideLoading();
       this.setData({
         refreshing: false,
         error: this.data.grades.length ? null : "暂时无法同步成绩，请稍后再试"

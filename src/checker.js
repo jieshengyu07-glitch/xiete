@@ -122,6 +122,25 @@ const ALL_TERMS = [
   {xnm:"2025",xqm:"3"},{xnm:"2025",xqm:"12"},
 ];
 
+function gradeQueryConcurrency() {
+  const configured = Number(process.env.GRADE_QUERY_CONCURRENCY || 3);
+  if (!Number.isFinite(configured)) return 3;
+  return Math.max(1, Math.min(6, Math.floor(configured)));
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async function() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function fail(cookieStatus, message, extra) {
   var result = Object.assign({
     success: false,
@@ -376,8 +395,7 @@ async function executeCheck(cookies, activeStorage) {
     var initClass = initResp._error ? { status: "jwxt_unavailable", message: initResp._error } : classifyResponse(initResp);
     if (initClass) return fail(initClass.status, initClass.message, { httpStatus: initResp.status });
     var allGrades=[];
-    for(var i=0;i<ALL_TERMS.length;i++){
-      var t=ALL_TERMS[i];
+    var termResults = await mapWithConcurrency(ALL_TERMS, gradeQueryConcurrency(), async function(t) {
       console.log("[checker] querying grades xnm=" + t.xnm + " xqm=" + t.xqm);
       try{
         var resp=await axios.post(
@@ -386,19 +404,23 @@ async function executeCheck(cookies, activeStorage) {
           {headers:{"Content-Type":"application/x-www-form-urlencoded","Cookie":cs,"Referer":"https://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default"},maxRedirects:0,validateStatus:function(s){return true;},timeout:30000}
         );
         var respClass = classifyResponse(resp);
-        if(respClass) return fail(respClass.status, respClass.message, { httpStatus: resp.status, term: t });
+        if(respClass) return { errorResult: fail(respClass.status, respClass.message, { httpStatus: resp.status, term: t }) };
         var data=resp.data;
         var grades=[];
         if(Array.isArray(data))grades=data;
         else if(data.items)grades=data.items;
         else if(data.rows)grades=data.rows;
-        else return fail("query_error", "Unexpected grade response format", { term: t });
+        else return { errorResult: fail("query_error", "Unexpected grade response format", { term: t }) };
         console.log("[checker] term " + t.xnm + "-" + t.xqm + " count=" + grades.length);
-        for(var g=0;g<grades.length;g++)allGrades.push(attachTermToGrade(grades[g], t));
+        return { grades: grades.map(function(grade) { return attachTermToGrade(grade, t); }) };
       }catch(e){
-        if (isJwxtUnavailableError(e)) return fail("jwxt_unavailable", e.message, { term: t });
-        return fail("query_error", e.message, { term: t });
+        if (isJwxtUnavailableError(e)) return { errorResult: fail("jwxt_unavailable", e.message, { term: t }) };
+        return { errorResult: fail("query_error", e.message, { term: t }) };
       }
+    });
+    for(var i=0;i<termResults.length;i++){
+      if (termResults[i].errorResult) return termResults[i].errorResult;
+      allGrades = allGrades.concat(termResults[i].grades || []);
     }
     if(!allGrades.length)return{success:true,cookieStatus:"cookie_valid",gradesCount:0,added:[],changed:[],changeCount:0,grades:[]};
     var diff=activeStorage.diffGrades(allGrades);
@@ -695,5 +717,9 @@ module.exports = {
   writeCookies,
   deleteCookies,
   refreshCookiesFromEnv,
-  validateJwxtSessionForUser
+  validateJwxtSessionForUser,
+  _performance: {
+    mapWithConcurrency,
+    gradeQueryConcurrency
+  }
 };

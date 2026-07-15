@@ -171,10 +171,11 @@ Page({
       this.setData({ syncing: false, notice: "课表同步时间较长，请稍后下拉刷新" });
       return;
     }
+    const delay = this._syncPollAttempts <= 5 ? 1200 : 2500;
     this._syncPollTimer = setTimeout(() => {
       this._syncPollTimer = null;
       if (this._timetablePageActive) this.loadCurrent({ polling: true });
-    }, 3000);
+    }, delay);
   },
 
   async loadToday(options) {
@@ -223,10 +224,18 @@ Page({
 
   async syncTimetable() {
     this.setData({ syncing: true, error: "", notice: "" });
-    wx.showLoading({ title: "刷新课表..." });
     try {
       const result = await api.post("/timetable/sync", {}, { timeout: 120000 });
-      wx.hideLoading();
+      if (result && result.syncing) {
+        this.setData({
+          syncing: true,
+          notice: result.message || "正在后台刷新课表，完成后会自动更新",
+          error: ""
+        });
+        wx.showToast({ title: "已开始后台刷新", icon: "none" });
+        this.scheduleSyncPolling();
+        return;
+      }
       this.setData({ syncing: false });
 
       if (result && result.success === false) {
@@ -259,7 +268,6 @@ Page({
         });
       }
     } catch (err) {
-      wx.hideLoading();
       const message = formatJwxtErrorMessage(err, "课表刷新失败");
       this.setData({
         syncing: false,

@@ -180,11 +180,8 @@ Page({
       desc: "正在连接教务系统，请稍候。",
       bound: true
     });
-    wx.showLoading({ title: "绑定中..." });
-
     try {
       const data = await api.post("/bind-account", { studentId, password }, { timeout: 120000 });
-      wx.hideLoading();
       this.setData({ binding: false, password: "" });
 
       if (data && data.success === true && data.bound === true) {
@@ -202,7 +199,6 @@ Page({
 
       this.handleBindFailure(data);
     } catch (err) {
-      wx.hideLoading();
       this.setData({ binding: false });
       this.handleBindFailure(err);
     }
