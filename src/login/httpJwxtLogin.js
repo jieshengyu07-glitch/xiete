@@ -1,6 +1,5 @@
 const axios = require("axios");
 const CryptoJS = require("crypto-js");
-const { normalizeJwxtLoginError } = require("../services/jwxtLoginError");
 
 const CAS_ORIGIN = "https://sso1.tyust.edu.cn";
 const PORTAL_ORIGIN = "https://ronghemenhu.tyust.edu.cn";
@@ -49,10 +48,81 @@ function isInvalidCredentialPage(html) {
     text.toLowerCase().includes("invalid credentials");
 }
 
-function throwJwxtError(code, message) {
+function throwJwxtError(code, message, meta) {
   const err = new Error(message || code);
   err.code = code;
+  if (meta && typeof meta === "object") Object.assign(err, meta);
   throw err;
+}
+
+function safeUrlParts(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    return {
+      host: parsed.hostname,
+      pathname: parsed.pathname || "/"
+    };
+  } catch (err) {
+    return {
+      host: "",
+      pathname: ""
+    };
+  }
+}
+
+function includesAnyText(text, patterns) {
+  return patterns.some(pattern => text.includes(pattern));
+}
+
+function portalDiagnostics(response, finalUrl) {
+  const html = String(response && response.data ? response.data : "");
+  const lower = html.toLowerCase();
+  const url = String(finalUrl || (response && response.config && response.config.url) || "");
+  const parts = safeUrlParts(url);
+  const contentType = String(response && response.headers && response.headers["content-type"] || "").split(";")[0];
+  const containsLoginForm = lower.includes("<form") && (
+    lower.includes("password") ||
+    lower.includes("login-page-flowkey") ||
+    lower.includes("login-croypto") ||
+    lower.includes("_eventid")
+  );
+  const containsCaptcha = includesAnyText(lower, [
+    "captcha",
+    "validatecode",
+    "verifycode"
+  ]) || includesAnyText(html, [
+    "验证码",
+    "楠岃瘉鐮"
+  ]);
+  const containsMaintenance = includesAnyText(lower, [
+    "maintenance",
+    "service unavailable",
+    "temporarily unavailable"
+  ]) || includesAnyText(html, [
+    "维护",
+    "升级",
+    "暂停服务",
+    "系统繁忙",
+    "鏆傚仠",
+    "绯荤粺绻佸繖"
+  ]);
+  return {
+    status: response && response.status ? response.status : 0,
+    finalHost: parts.host,
+    pathname: parts.pathname,
+    contentType,
+    containsPortalHome: parts.host === "ronghemenhu.tyust.edu.cn" && parts.pathname !== "/sso/login",
+    containsLoginForm,
+    containsInvalidCredential: isInvalidCredentialPage(html),
+    containsCaptcha,
+    containsMaintenance
+  };
+}
+
+function attachPortalStage(err, response, finalUrl) {
+  err.portalStage = true;
+  err.portalResult = portalDiagnostics(response, finalUrl);
+  return err;
 }
 
 function userAgent() {
@@ -330,7 +400,10 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   });
 
   if (loginPage.status >= 500) {
-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");
+    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {
+      portalStage: true,
+      portalResult: portalDiagnostics(loginPage, LOGIN_URL)
+    });
   }
 
   const html = String(loginPage.data || "");
@@ -338,9 +411,18 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   const loginCroypto = parseHiddenValue(html, "login-croypto");
   const needsCaptcha = await checkCaptcha(cookieJar, studentId).catch(() => false);
 
-  if (needsCaptcha) throwJwxtError("JWXT_CAPTCHA_REQUIRED", "教务系统需要验证码，请输入验证码完成验证");
-  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统");
-  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统");
+  if (needsCaptcha) throwJwxtError("JWXT_CAPTCHA_REQUIRED", "教务系统需要验证码，请输入验证码完成验证", {
+    portalStage: true,
+    portalResult: portalDiagnostics(loginPage, LOGIN_URL)
+  });
+  if (!execution) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统", {
+    portalStage: true,
+    portalResult: portalDiagnostics(loginPage, LOGIN_URL)
+  });
+  if (!loginCroypto) throwJwxtError("JWXT_SSO_FAILED", "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统", {
+    portalStage: true,
+    portalResult: portalDiagnostics(loginPage, LOGIN_URL)
+  });
 
   const encryptedPassword = encryptPassword(loginCroypto, password);
   if (!encryptedPassword) throw new Error("DES password encryption failed.");
@@ -368,27 +450,41 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   });
 
   if (loginResponse.status >= 500) {
-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");
+    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {
+      portalStage: true,
+      portalResult: portalDiagnostics(loginResponse, LOGIN_POST_URL)
+    });
   }
 
   const followed = await followRedirects(cookieJar, loginResponse, LOGIN_POST_URL);
   if (followed.response && followed.response.status >= 500) {
-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试");
+    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {
+      portalStage: true,
+      portalResult: portalDiagnostics(followed.response, followed.finalUrl)
+    });
   }
 
   if (followed.finalUrl.includes(PORTAL_ORIGIN + "/sso/login?code=")) {
     return getAndFollow(cookieJar, followed.finalUrl, LOGIN_POST_URL);
   }
   if (isInvalidCredentialPage(followed.response && followed.response.data)) {
-    throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或教务密码错误，请检查后重试");
+    throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或教务密码错误，请检查后重试", {
+      portalStage: true,
+      portalResult: portalDiagnostics(followed.response, followed.finalUrl)
+    });
+  }
+  const followedPortalResult = portalDiagnostics(followed.response, followed.finalUrl);
+  if (followedPortalResult.containsLoginForm) {
+    throwJwxtError("JWXT_LOGIN_FAILED", "Portal login was not confirmed.", {
+      portalStage: true,
+      portalResult: followedPortalResult
+    });
   }
   if (!String(followed.finalUrl || "").includes(PORTAL_ORIGIN)) {
-    const classified = normalizeJwxtLoginError(followed.response && followed.response.data, {
-      portalLoginPageReturned: true,
-      finalUrl: followed.finalUrl,
-      status: followed.response && followed.response.status
+    throwJwxtError("JWXT_LOGIN_FAILED", "Portal login was not confirmed.", {
+      portalStage: true,
+      portalResult: portalDiagnostics(followed.response, followed.finalUrl)
     });
-    throwJwxtError(classified.error, classified.message);
   }
   return followed;
 }
@@ -406,12 +502,21 @@ async function httpPortalLogin(studentId, password) {
   if (!password) throw new Error("password is required.");
 
   const cookieJar = createCookieJar();
-  const portal = await loginCasToPortal(cookieJar, studentId, password);
+  let portal;
+  try {
+    portal = await loginCasToPortal(cookieJar, studentId, password);
+  } catch (err) {
+    if (err && !err.portalResult) {
+      attachPortalStage(err, err.response, err.config && err.config.url ? err.config.url : LOGIN_URL);
+    }
+    throw err;
+  }
   return {
     success: true,
     cookieJar,
     cookies: cookieJar.slice(),
-    finalUrl: portal.finalUrl
+    finalUrl: portal.finalUrl,
+    portalResult: portalDiagnostics(portal.response, portal.finalUrl)
   };
 }
 

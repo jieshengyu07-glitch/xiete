@@ -103,9 +103,116 @@ function bindWarningResponse(jwxtStatus) {
     code: 0,
     bound: true,
     verified: false,
+    syncReady: false,
     portalAuthStatus: "OK",
     jwxtStatus,
-    message: "教务账号已验证并保存，但教务系统暂时不可用，课表和成绩稍后可重试刷新。"
+    message: "账号已绑定，成绩系统暂时不可用，可稍后刷新。"
+  };
+}
+
+function safePortalResult(result) {
+  const value = result && typeof result === "object" ? result : {};
+  return {
+    status: Number(value.status || 0),
+    finalHost: String(value.finalHost || ""),
+    pathname: String(value.pathname || ""),
+    contentType: String(value.contentType || ""),
+    containsPortalHome: Boolean(value.containsPortalHome),
+    containsLoginForm: Boolean(value.containsLoginForm),
+    containsInvalidCredential: Boolean(value.containsInvalidCredential),
+    containsCaptcha: Boolean(value.containsCaptcha),
+    containsMaintenance: Boolean(value.containsMaintenance)
+  };
+}
+
+function portalResultFromError(err) {
+  if (err && err.portalResult) return safePortalResult(err.portalResult);
+  const response = err && err.response;
+  let finalHost = "";
+  let pathname = "";
+  const rawUrl = String((err && err.config && err.config.url) || (response && response.config && response.config.url) || "");
+  try {
+    const parsed = rawUrl ? new URL(rawUrl) : null;
+    finalHost = parsed ? parsed.hostname : "";
+    pathname = parsed ? parsed.pathname || "/" : "";
+  } catch (parseErr) {
+    finalHost = "";
+    pathname = "";
+  }
+  return safePortalResult({
+    status: response && response.status,
+    finalHost,
+    pathname,
+    contentType: response && response.headers && response.headers["content-type"]
+  });
+}
+
+function logPortalResult(result) {
+  const safe = safePortalResult(result);
+  console.log("[bind] portal-result" +
+    " status=" + safe.status +
+    " finalHost=" + (safe.finalHost || "unknown") +
+    " pathname=" + (safe.pathname || "unknown") +
+    " contentType=" + (safe.contentType || "unknown") +
+    " containsPortalHome=" + safe.containsPortalHome +
+    " containsLoginForm=" + safe.containsLoginForm +
+    " containsInvalidCredential=" + safe.containsInvalidCredential +
+    " containsCaptcha=" + safe.containsCaptcha +
+    " containsMaintenance=" + safe.containsMaintenance);
+}
+
+function classifyPortalCredentialError(err) {
+  const result = portalResultFromError(err);
+  const jwxt = classifyJwxtLoginError(err);
+  const rawCode = String(err && (err.code || err.error || err.reason) || "");
+  const networkCodes = ["ECONNABORTED", "ETIMEDOUT", "ENOTFOUND", "ECONNRESET", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "ERR_BAD_RESPONSE"];
+
+  if (result.containsInvalidCredential || jwxt.error === "JWXT_INVALID_CREDENTIALS") {
+    return {
+      code: "INVALID_CREDENTIALS",
+      portalAuthStatus: "INVALID_CREDENTIALS",
+      jwxtStatus: "LOGIN_FAILED",
+      status: 400,
+      message: "账号或密码错误，请检查后重试。",
+      result
+    };
+  }
+
+  if (result.containsCaptcha || jwxt.error === "JWXT_CAPTCHA_REQUIRED" || jwxt.error === "JWXT_CAPTCHA_INVALID" || jwxt.error === "JWXT_CAPTCHA_SESSION_EXPIRED") {
+    return {
+      code: "PORTAL_VERIFICATION_REQUIRED",
+      portalAuthStatus: "VERIFICATION_REQUIRED",
+      jwxtStatus: "CAPTCHA_REQUIRED",
+      status: 400,
+      message: "门户需要验证码或人机验证，请稍后重试或使用验证码登录。",
+      result
+    };
+  }
+
+  if (
+    result.status >= 500 ||
+    result.containsMaintenance ||
+    networkCodes.includes(rawCode) ||
+    jwxt.error === "JWXT_UNAVAILABLE" ||
+    jwxt.error === "JWXT_TIMEOUT"
+  ) {
+    return {
+      code: "PORTAL_UNAVAILABLE",
+      portalAuthStatus: "UNAVAILABLE",
+      jwxtStatus: "LOGIN_FAILED",
+      status: 503,
+      message: "门户暂时不可用，请稍后再试。",
+      result
+    };
+  }
+
+  return {
+    code: "PORTAL_LOGIN_UNCONFIRMED",
+    portalAuthStatus: "LOGIN_UNCONFIRMED",
+    jwxtStatus: "LOGIN_FAILED",
+    status: 400,
+    message: "门户返回登录页，但未明确提示账号或密码错误，请稍后重试。",
+    result
   };
 }
 
@@ -699,6 +806,8 @@ app.post("/check", auth, async (req, res) => {
 function apiErrorStatus(code) {
   if (String(code || "").startsWith("XG_")) return 400;
   if (code === "LOGIN_REQUIRED" || code === "INVALID_CAPTCHA_LOGIN_INPUT") return 400;
+  if (code === "INVALID_CREDENTIALS" || code === "PORTAL_LOGIN_UNCONFIRMED" || code === "PORTAL_VERIFICATION_REQUIRED") return 400;
+  if (code === "PORTAL_UNAVAILABLE") return 503;
   if (code === "JWXT_CAPTCHA_REQUIRED" || code === "JWXT_CAPTCHA_INVALID") return 400;
   if (code === "JWXT_INVALID_CREDENTIALS" || code === "INVALID_CREDENTIALS" || code === "CAPTCHA_LOGIN_FAILED" || code === "CAPTCHA_SESSION_EXPIRED" || code === "JWXT_CAPTCHA_SESSION_EXPIRED") return 400;
   if (code === "JWXT_SSO_FAILED") return 502;
@@ -1023,57 +1132,65 @@ app.post("/bind-account", auth, async (req, res) => {
     console.log("[bind] verifying portal credentials");
     portal = await httpPortalLogin(studentId, password);
   } catch (err) {
-    const classified = classifyJwxtLoginError(err);
-    console.log("[bind] portal classified error=" + classified.error);
+    const classified = classifyPortalCredentialError(err);
+    logPortalResult(classified.result);
+    console.log("[bind] portal-classified code=" + classified.code);
 
-    if (classified.error === "JWXT_INVALID_CREDENTIALS") {
+    if (classified.code === "INVALID_CREDENTIALS") {
       credentialStore.updateBoundAccountStatus(req.userId, "LOGIN_FAILED", {
-        portalAuthStatus: "INVALID_CREDENTIALS",
+        portalAuthStatus: classified.portalAuthStatus,
         clearLastJwxtLoginAt: true
       });
       return res.status(400).json({
         success: false,
         bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
-        portalAuthStatus: "INVALID_CREDENTIALS",
-        jwxtStatus: "LOGIN_FAILED",
-        error: "JWXT_INVALID_CREDENTIALS",
+        portalAuthStatus: classified.portalAuthStatus,
+        jwxtStatus: classified.jwxtStatus,
+        error: classified.code,
         message: classified.message
       });
     }
 
-    if (classified.error === "JWXT_CAPTCHA_REQUIRED") {
+    if (classified.code === "PORTAL_VERIFICATION_REQUIRED") {
       credentialStore.updateBoundAccountStatus(req.userId, "CAPTCHA_REQUIRED", {
-        portalAuthStatus: "CAPTCHA_REQUIRED",
+        portalAuthStatus: classified.portalAuthStatus,
         clearLastJwxtLoginAt: true
       });
       return res.status(400).json({
         success: false,
         bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
-        portalAuthStatus: "CAPTCHA_REQUIRED",
-        jwxtStatus: "CAPTCHA_REQUIRED",
-        error: "JWXT_CAPTCHA_REQUIRED",
+        portalAuthStatus: classified.portalAuthStatus,
+        jwxtStatus: classified.jwxtStatus,
+        error: classified.code,
         message: classified.message
       });
     }
 
-    return res.status(apiErrorStatus(classified.error)).json({
+    credentialStore.updateBoundAccountStatus(req.userId, classified.jwxtStatus, {
+      portalAuthStatus: classified.portalAuthStatus,
+      clearLastJwxtLoginAt: true
+    });
+    return res.status(classified.status).json({
       success: false,
       bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
-      portalAuthStatus: "FAILED",
-      jwxtStatus: "LOGIN_FAILED",
-      error: classified.error,
+      portalAuthStatus: classified.portalAuthStatus,
+      jwxtStatus: classified.jwxtStatus,
+      error: classified.code,
       message: classified.message
     });
   }
 
+  logPortalResult(portal && portal.portalResult);
+  console.log("[bind] portal-verified ok=true");
   credentialStore.saveBoundAccount(studentId, password, req.userId);
+  console.log("[bind] account-saved");
   credentialStore.updateBoundAccountStatus(req.userId, "COOKIE_EXPIRED", {
     portalAuthStatus: "OK",
     clearLastJwxtLoginAt: true
   });
 
   try {
-    console.log("[bind] portal ok; trying jwxt sso");
+    console.log("[bind] trying jwxt sso");
     const jwxt = await continueJwxtSso(portal.cookieJar);
     const jwxtCookies = selectJwxtGradeCookies(jwxt.cookies);
     const hasRoute = jwxtCookies.some(c => c.name === "route");
@@ -1115,7 +1232,7 @@ app.post("/bind-account", auth, async (req, res) => {
   } catch (err) {
     const classified = classifyJwxtLoginError(err);
     const publicStatus = jwxtPublicStatusFromError(classified.error);
-    console.log("[bind] portal ok; jwxt classified error=" + classified.error);
+    console.log("[bind] jwxt-refresh-failed code=" + classified.error);
     credentialStore.updateBoundAccountStatus(req.userId, publicStatus, {
       portalAuthStatus: "OK",
       clearLastJwxtLoginAt: true
