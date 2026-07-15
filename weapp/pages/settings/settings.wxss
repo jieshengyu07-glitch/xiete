@@ -148,39 +148,3 @@
   background: #fffafa;
   color: #d92d20;
 }
-
-.debug-toggle {
-  padding: 18rpx 0 28rpx;
-  color: #8a94a6;
-  font-size: 25rpx;
-  text-align: center;
-}
-
-.debug-card {
-  box-shadow: none;
-}
-
-.diagnostic {
-  margin-top: 18rpx;
-  padding: 18rpx 20rpx;
-  border: 1rpx solid #fed7aa;
-  border-radius: 14rpx;
-  background: #fff7ed;
-  color: #9a3412;
-  font-size: 24rpx;
-  line-height: 1.6;
-  word-break: break-all;
-}
-
-.diagnostic-title {
-  margin-bottom: 6rpx;
-  color: #7c2d12;
-  font-weight: 600;
-}
-
-.debug-desc {
-  margin-top: 18rpx;
-  color: #98a2b3;
-  font-size: 24rpx;
-  line-height: 1.6;
-}

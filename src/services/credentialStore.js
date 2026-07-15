@@ -16,6 +16,19 @@ let cachedEnvFile = null;
 let validatedCredentialSecret = null;
 const migrationWarnings = new Set();
 
+function writeJsonAtomic(file, data) {
+  const temporary = file + ".tmp-" + process.pid + "-" + Date.now();
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(temporary, file);
+  } catch (err) {
+    try {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    } catch (cleanupErr) {}
+    throw err;
+  }
+}
+
 function readEnvFile() {
   if (cachedEnvFile) return cachedEnvFile;
 
@@ -212,7 +225,7 @@ function saveBoundAccount(studentId, password, userId) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   console.log("[user-scope] credentialStore.saveAccount scope=" + (userId ? "user" : "legacy"));
   const existing = readBoundAccountMeta(userId) || {};
-  fs.writeFileSync(file, JSON.stringify({
+  writeJsonAtomic(file, {
     studentId: String(studentId),
     passwordEnc: encryptSecret(password),
     boundAt: existing.boundAt || new Date().toISOString(),
@@ -225,7 +238,7 @@ function saveBoundAccount(studentId, password, userId) {
     lastJwxtError: existing.lastJwxtError || null,
     lastJwxtErrorMessage: existing.lastJwxtErrorMessage || null,
     updatedAt: new Date().toISOString()
-  }, null, 2));
+  });
 }
 
 function updateBoundAccountStatus(userId, status, extra) {
@@ -244,7 +257,7 @@ function updateBoundAccountStatus(userId, status, extra) {
     if (extra && extra.lastJwxtError !== undefined) data.lastJwxtError = extra.lastJwxtError;
     if (extra && extra.lastJwxtErrorMessage !== undefined) data.lastJwxtErrorMessage = extra.lastJwxtErrorMessage;
     data.updatedAt = new Date().toISOString();
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+    writeJsonAtomic(file, data);
     return true;
   } catch (err) {
     return false;

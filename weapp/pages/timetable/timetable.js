@@ -60,6 +60,7 @@ function showCaptchaRequired(onRetry) {
 
 Page({
   data: {
+    viewMode: "today",
     loading: true,
     syncing: false,
     error: "",
@@ -70,15 +71,41 @@ Page({
     weekTypeText: "",
     hasTimetable: false,
     hasTodayCourses: false,
-    sections: defaultSections()
+    sections: defaultSections(),
+    weekDays: []
   },
 
   onShow() {
-    this.loadToday();
+    this._timetablePageActive = true;
+    this._syncPollAttempts = 0;
+    this.loadCurrent();
+  },
+
+  onHide() {
+    this._timetablePageActive = false;
+    this.stopSyncPolling();
+  },
+
+  onUnload() {
+    this._timetablePageActive = false;
+    this.stopSyncPolling();
   },
 
   onPullDownRefresh() {
-    this.loadToday().then(() => wx.stopPullDownRefresh());
+    this.loadCurrent().then(() => wx.stopPullDownRefresh());
+  },
+
+  switchView(e) {
+    const mode = e.currentTarget.dataset.mode === "week" ? "week" : "today";
+    if (mode === this.data.viewMode) return;
+    this.stopSyncPolling();
+    this._syncPollAttempts = 0;
+    this.setData({ viewMode: mode, error: "", notice: "" });
+    this.loadCurrent();
+  },
+
+  loadCurrent(options) {
+    return this.data.viewMode === "week" ? this.loadWeek(options) : this.loadToday(options);
   },
 
   applyToday(data) {
@@ -87,27 +114,108 @@ Page({
     this.setData({
       dateText: displayDate(data.date),
       weekdayText: WEEKDAY_NAMES[data.weekday] || "",
-      weekText: "第" + (data.currentTeachingWeek || data.weekNumber || "-") + "教学周",
+      weekText: data.isTeachingPeriod === false
+        ? (data.academicStatusText || "非教学周")
+        : ("第" + (data.currentTeachingWeek || data.weekNumber || "-") + "教学周"),
       weekTypeText: normalizeWeekType(data),
       hasTimetable: Boolean(data.hasTimetable),
       hasTodayCourses,
-      notice: data.warning ? (data.message || "教务系统暂时不可用，当前显示上次同步课表") : "",
+      syncing: Boolean(data.syncing),
+      notice: data.syncing ? "正在同步课表..." : (data.isTeachingPeriod === false
+        ? (data.message || data.academicStatusText || "当前为非教学周")
+        : (data.warning ? (data.message || "教务系统暂时不可用，当前显示上次同步课表") : "")),
       sections
     });
   },
 
-  async loadToday() {
-    this.setData({ loading: true, error: "" });
+  applyWeek(data) {
+    const weekDays = (Array.isArray(data.days) ? data.days : []).map(day => {
+      const sections = normalizeSections(day.sections);
+      return {
+        weekday: day.weekday,
+        weekdayText: WEEKDAY_NAMES[day.weekday] || "",
+        sections,
+        courseSections: sections.filter(section => section.courses.length > 0),
+        hasCourses: sections.some(section => section.courses.length > 0)
+      };
+    });
+    this.setData({
+      dateText: displayDate(data.date),
+      weekdayText: "",
+      weekText: data.isTeachingPeriod === false
+        ? (data.academicStatusText || "非教学周")
+        : ("第" + (data.currentTeachingWeek || data.weekNumber || "-") + "教学周"),
+      weekTypeText: normalizeWeekType(data),
+      hasTimetable: Boolean(data.hasTimetable),
+      hasTodayCourses: weekDays.some(day => day.hasCourses),
+      syncing: Boolean(data.syncing),
+      notice: data.syncing ? "正在同步课表..." : (data.isTeachingPeriod === false
+        ? (data.message || data.academicStatusText || "当前为非教学周")
+        : (data.warning ? (data.message || "教务系统暂时不可用，当前显示上次同步课表") : "")),
+      weekDays
+    });
+  },
+
+  stopSyncPolling() {
+    if (this._syncPollTimer) {
+      clearTimeout(this._syncPollTimer);
+      this._syncPollTimer = null;
+    }
+  },
+
+  scheduleSyncPolling() {
+    this.stopSyncPolling();
+    if (!this._timetablePageActive) return;
+    this._syncPollAttempts = Number(this._syncPollAttempts || 0) + 1;
+    if (this._syncPollAttempts > 40) {
+      this.setData({ syncing: false, notice: "课表同步时间较长，请稍后下拉刷新" });
+      return;
+    }
+    this._syncPollTimer = setTimeout(() => {
+      this._syncPollTimer = null;
+      if (this._timetablePageActive) this.loadCurrent({ polling: true });
+    }, 3000);
+  },
+
+  async loadToday(options) {
+    const polling = Boolean(options && options.polling);
+    if (!polling) this.setData({ loading: true, error: "" });
     try {
       const data = await api.request("/timetable/today");
       this.applyToday(data || {});
       this.setData({
         loading: false,
-        error: data && !data.hasTimetable ? (data.message || "") : ""
+        error: data && !data.hasTimetable && !data.syncing ? (data.message || "") : ""
       });
+      if (data && data.syncing) this.scheduleSyncPolling();
+      else this.stopSyncPolling();
     } catch (err) {
+      this.stopSyncPolling();
       this.setData({
         loading: false,
+        syncing: false,
+        error: (err && (err.message || err.errMsg)) || "课表加载失败"
+      });
+    }
+  },
+
+  async loadWeek(options) {
+    const polling = Boolean(options && options.polling);
+    if (!polling) this.setData({ loading: true, error: "" });
+    try {
+      const data = await api.request("/timetable/week");
+      this.applyWeek(data || {});
+      this.setData({
+        loading: false,
+        error: data && !data.hasTimetable && !data.syncing ? (data.message || "") : ""
+      });
+      if (data && data.syncing) this.scheduleSyncPolling();
+      else this.stopSyncPolling();
+    } catch (err) {
+      this.stopSyncPolling();
+      this.setData({
+        loading: false,
+        syncing: false,
         error: (err && (err.message || err.errMsg)) || "课表加载失败"
       });
     }
@@ -124,11 +232,11 @@ Page({
       if (result && result.success === false) {
         if (isCaptchaRequired(result)) {
           showCaptchaRequired(() => this.syncTimetable());
-          await this.loadToday();
+          await this.loadCurrent();
           return;
         }
 
-        await this.loadToday();
+        await this.loadCurrent();
         const hasCache = Boolean(result.hasCache || this.data.hasTimetable);
         const message = result.message || (hasCache
           ? "教务系统暂时不可用，当前显示上次同步课表"
@@ -142,7 +250,7 @@ Page({
       }
 
       wx.showToast({ title: "课表已刷新", icon: "success" });
-      await this.loadToday();
+      await this.loadCurrent();
       if (result && (result.syncedCount === 0 || result.count === 0)) {
         wx.showModal({
           title: "未发现课表",

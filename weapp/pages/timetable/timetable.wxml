@@ -6,11 +6,16 @@
   <block wx:else>
     <view class="timetable-hero">
       <view class="hero-main">
-        <view class="page-title">每日课表</view>
+        <view class="page-title">课表</view>
         <view class="date-line">{{dateText}} {{weekdayText}}</view>
         <view class="week-line">{{weekText}} · {{weekTypeText}}</view>
       </view>
       <button class="refresh-btn" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">刷新课表</button>
+    </view>
+
+    <view class="view-switch">
+      <view class="switch-item {{viewMode==='today' ? 'active' : ''}}" data-mode="today" bindtap="switchView">今日</view>
+      <view class="switch-item {{viewMode==='week' ? 'active' : ''}}" data-mode="week" bindtap="switchView">本周</view>
     </view>
 
     <view wx:if="{{notice}}" class="notice-card">{{notice}}</view>
@@ -19,7 +24,7 @@
       <view class="error-text">{{error}}</view>
     </view>
 
-    <view class="section-list">
+    <view wx:if="{{!syncing && viewMode==='today'}}" class="section-list">
       <view wx:for="{{sections}}" wx:key="section" class="lesson-card">
         <view class="lesson-head">
           <view class="lesson-title">{{item.title}}</view>
@@ -45,6 +50,21 @@
           <view wx:if="{{course.weeksRaw}}" class="course-row">
             <text class="course-label">周次</text>
             <text>{{course.weeksRaw}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{!syncing && viewMode==='week'}}" class="week-list">
+      <view wx:for="{{weekDays}}" wx:key="weekday" class="week-day-card">
+        <view class="week-day-title">{{item.weekdayText}}</view>
+        <view wx:if="{{!item.hasCourses}}" class="no-class">无课</view>
+        <view wx:for="{{item.courseSections}}" wx:for-item="section" wx:key="section" class="week-section">
+          <view class="week-section-head">{{section.title}} · {{section.timeText}}</view>
+          <view wx:for="{{section.courses}}" wx:for-item="course" wx:key="id" class="course-block">
+            <view class="course-name">{{course.courseName}}</view>
+            <view class="course-row"><text class="course-label">教室</text><text>{{course.displayLocation || course.classroomRaw || course.displayRoom || "地点待定"}}</text></view>
+            <view wx:if="{{course.teacherName}}" class="course-row"><text class="course-label">老师</text><text>{{course.teacherName}}</text></view>
           </view>
         </view>
       </view>

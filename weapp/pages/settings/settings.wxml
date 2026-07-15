@@ -30,24 +30,4 @@
     <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
   </view>
 
-  <view class="debug-toggle" bindtap="toggleDebug">关于与调试 {{debugExpanded ? '收起' : '展开'}}</view>
-  <view wx:if="{{debugExpanded}}" class="card debug-card">
-    <view class="row">
-      <text class="label">apiBase</text>
-      <text class="value">{{apiAddr}}</text>
-    </view>
-    <view class="row">
-      <text class="label">clientVersion</text>
-      <text class="value">{{clientVersion}}</text>
-    </view>
-    <view class="row">
-      <text class="label">连接状态</text>
-      <text class="value">{{loginStatus}}</text>
-    </view>
-    <view wx:if="{{connectionError}}" class="diagnostic">
-      <view class="diagnostic-title">连接诊断</view>
-      <view class="diagnostic-text">{{connectionError}}</view>
-    </view>
-    <view class="debug-desc">后端 API 需要保持在线；教务账号只用于课表、成绩和教务状态同步。</view>
-  </view>
 </view>

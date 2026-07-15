@@ -1,4 +1,5 @@
 const app = getApp();
+const api = require("../../utils/api");
 
 const TOKEN_KEY = "token";
 const USER_INFO_KEY = "userInfo";
@@ -24,6 +25,8 @@ function friendlyTime(value) {
 
 function gradeStatusInfo(value) {
   if (value === "ready") return { text: "可查询", className: "ok" };
+  if (value === "not_bound") return { text: "未绑定校园账号", className: "muted" };
+  if (value === "recovering") return { text: "正在恢复登录状态", className: "muted" };
   if (value === "login_required") return { text: "需要重新登录", className: "warn" };
   if (value === "unavailable") return { text: "暂不可用", className: "muted" };
   return { text: "暂无状态", className: "muted" };
@@ -56,7 +59,19 @@ Page({
   },
 
   onShow() {
+    this._profilePageActive = true;
+    this._statusPollAttempts = 0;
     this.refreshLocalState();
+  },
+
+  onHide() {
+    this._profilePageActive = false;
+    this.stopStatusPolling();
+  },
+
+  onUnload() {
+    this._profilePageActive = false;
+    this.stopStatusPolling();
   },
 
   refreshLocalState() {
@@ -96,35 +111,28 @@ Page({
   },
 
   requestWithToken(path) {
-    const token = wx.getStorageSync(TOKEN_KEY);
-    return new Promise((resolve, reject) => {
-      if (!token) {
-        reject(new Error("NO_TOKEN"));
-        return;
-      }
-      wx.request({
-        url: app.globalData.apiBase + path,
-        method: "GET",
-        header: { Authorization: "Bearer " + token },
-        timeout: 10000,
-        success: res => {
-          if (res.statusCode === 401) {
-            this.clearLocalAuthState(false);
-            reject(new Error("UNAUTHORIZED"));
-            return;
-          }
-          if (res.statusCode >= 400) {
-            reject(new Error("HTTP " + res.statusCode));
-            return;
-          }
-          resolve(res.data || {});
-        },
-        fail: reject
-      });
-    });
+    return api.request(path, { timeout: 10000 });
   },
 
-  async refreshStatus() {
+  stopStatusPolling() {
+    if (this._statusPollTimer) {
+      clearTimeout(this._statusPollTimer);
+      this._statusPollTimer = null;
+    }
+  },
+
+  scheduleStatusPolling() {
+    this.stopStatusPolling();
+    if (!this._profilePageActive) return;
+    this._statusPollAttempts = Number(this._statusPollAttempts || 0) + 1;
+    if (this._statusPollAttempts > 10) return;
+    this._statusPollTimer = setTimeout(() => {
+      this._statusPollTimer = null;
+      if (this._profilePageActive) this.refreshStatus({ polling: true });
+    }, 2000);
+  },
+
+  async refreshStatus(options) {
     const token = wx.getStorageSync(TOKEN_KEY);
     if (!token) {
       this.refreshLocalState();
@@ -156,7 +164,13 @@ Page({
         lastCheckAtText: friendlyTime(status.lastCheckAt || status.lastSuccessfulSyncAt),
         loadingStatus: false
       });
+      if (status.sessionRecoveryPending || status.gradeQueryStatus === "recovering") {
+        this.scheduleStatusPolling();
+      } else {
+        this.stopStatusPolling();
+      }
     } catch (err) {
+      this.stopStatusPolling();
       this.setData({
         gradeQueryStatusText: "暂不可用",
         gradeStatusClass: "muted",

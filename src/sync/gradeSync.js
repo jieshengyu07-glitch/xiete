@@ -17,10 +17,15 @@ async function syncUserGrades(userId, options) {
 
   const credentials = credentialStore.getJwxtCredentials(userId);
   if (!credentials) {
+    const finishedAt = new Date().toISOString();
     userPersistence.updateSyncState(userId, {
-      status: "login_required",
+      status: "failed",
+      type: "grades",
+      startedAt: finishedAt,
+      finishedAt,
+      errorCode: "LOGIN_REQUIRED",
       lastError: "LOGIN_REQUIRED"
-    });
+    }, "grades");
     return {
       success: false,
       error: "LOGIN_REQUIRED",
@@ -28,29 +33,51 @@ async function syncUserGrades(userId, options) {
     };
   }
 
+  userPersistence.updateSyncState(userId, {
+    status: "running",
+    type: "grades",
+    startedAt: new Date().toISOString(),
+    finishedAt: "",
+    errorCode: "",
+    lastError: ""
+  }, "grades");
+
   try {
     const result = await runCycleForUser(userId);
     if (result && result.success) {
       userPersistence.mirrorFromStorage(userId, storage, {
         kind: "grades",
-        status: "ok"
+        status: "success"
       });
+      userPersistence.updateSyncState(userId, {
+        status: "success",
+        type: "grades",
+        finishedAt: new Date().toISOString(),
+        errorCode: "",
+        lastError: ""
+      }, "grades");
       return result;
     }
 
     const code = normalizeErrorCode(result);
     userPersistence.updateSyncState(userId, {
       status: "failed",
+      type: "grades",
+      finishedAt: new Date().toISOString(),
+      errorCode: code,
       lastError: code
-    });
+    }, "grades");
     userPersistence.saveCampusState(userId, storage);
     return result;
   } catch (err) {
     const code = String((err && err.code) || "SYNC_FAILED");
     userPersistence.updateSyncState(userId, {
       status: "failed",
+      type: "grades",
+      finishedAt: new Date().toISOString(),
+      errorCode: code,
       lastError: code
-    });
+    }, "grades");
     userPersistence.saveCampusState(userId, storage);
     if (options && options.throwOnError) throw err;
     return {
@@ -76,7 +103,12 @@ function scheduleUserGradeSync(userId, reason) {
   return task;
 }
 
+function isUserGradeSyncRunning(userId) {
+  return Boolean(userId && running.has(userId));
+}
+
 module.exports = {
   syncUserGrades,
-  scheduleUserGradeSync
+  scheduleUserGradeSync,
+  isUserGradeSyncRunning
 };

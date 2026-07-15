@@ -1,5 +1,7 @@
 ﻿const path = require('path');
 
+const fs = require('fs');
+
 function resolveDataDir() {
   const configured = String(process.env.DATA_DIR || '').trim();
   if (configured) return path.resolve(configured);
@@ -12,6 +14,47 @@ function resolveDataDir() {
 }
 
 let dataPathLogged = false;
+
+const PRODUCTION_LEGACY_CREDENTIAL_ENV_NAMES = [
+  'COOKIES_JSON',
+  'JWXT_STUDENT_ID',
+  'JWXT_PASSWORD'
+];
+
+function assertProductionEnvSafety() {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const configured = PRODUCTION_LEGACY_CREDENTIAL_ENV_NAMES.filter(name =>
+    String(process.env[name] || '').trim()
+  );
+  if (!configured.length) return;
+
+  console.warn(
+    '[security] production legacy credential environment variables are forbidden: ' +
+    configured.join(',')
+  );
+  const err = new Error('PRODUCTION_LEGACY_CREDENTIALS_FORBIDDEN');
+  err.code = 'PRODUCTION_LEGACY_CREDENTIALS_FORBIDDEN';
+  throw err;
+}
+
+function assertDataDirWritable() {
+  const dir = config.dataDir;
+  fs.mkdirSync(dir, { recursive: true });
+  const probe = path.join(dir, '.write-probe-' + process.pid + '-' + Date.now());
+  try {
+    fs.writeFileSync(probe, 'ok', 'utf8');
+    fs.unlinkSync(probe);
+  } catch (cause) {
+    try {
+      if (fs.existsSync(probe)) fs.unlinkSync(probe);
+    } catch (cleanupErr) {}
+    const err = new Error('DATA_DIR is not writable: ' + dir);
+    err.code = 'DATA_DIR_NOT_WRITABLE';
+    err.cause = cause;
+    throw err;
+  }
+}
 
 // ============ 用户配置 ============
 // 通过环境变量提供教务账号，避免在代码中保存明文账号密码。
@@ -48,5 +91,7 @@ function logDataPath() {
 
 config.logDataPath = logDataPath;
 config.resolveDataDir = resolveDataDir;
+config.assertProductionEnvSafety = assertProductionEnvSafety;
+config.assertDataDirWritable = assertDataDirWritable;
 
 module.exports = config;

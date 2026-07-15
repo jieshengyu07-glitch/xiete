@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "description": "大学校园成绩监控 API 服务",
   "main": "src/index.js",
+  "engines": {
+    "node": ">=20 <25"
+  },
   "scripts": {
     "start": "node src/index.js",
+    "test": "node scripts/run-tests.js",
+    "check": "node scripts/check-js-syntax.js",
     "login": "node src/login_once.js",
     "setup": "node src/setup.js"
   },
@@ -14,7 +19,7 @@
     "crypto-js": "^4.2.0",
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.3",
-    "node-cron": "^3.0.0"
+    "node-cron": "^4.6.0"
   },
   "optionalDependencies": {
     "playwright-core": "^1.0.0"

@@ -30,16 +30,24 @@ class JsonStorage {
         this._save();
       }
     } catch (err) {
+      if (err && (err.code === 'STORAGE_WRITE_FAILED' || err.code === 'EACCES' || err.code === 'EPERM' || err.code === 'ENOSPC')) throw err;
       console.error('[存储] 读取数据文件失败，使用默认数据:', err.message);
       this.data = this._getDefaultData();
     }
   }
 
   _save() {
+    const temporary = this.filePath + '.tmp-' + process.pid + '-' + Date.now();
     try {
-      fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf-8');
+      fs.writeFileSync(temporary, JSON.stringify(this.data, null, 2), 'utf-8');
+      fs.renameSync(temporary, this.filePath);
     } catch (err) {
       console.error('[存储] 保存数据文件失败:', err.message);
+      try {
+        if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+      } catch (cleanupErr) {}
+      err.code = err.code || 'STORAGE_WRITE_FAILED';
+      throw err;
     }
   }
 

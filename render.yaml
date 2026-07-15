@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: xiete
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    numInstances: 1
+    disk:
+      name: campus-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: JWT_SECRET
+        sync: false
+      - key: CREDENTIAL_SECRET
+        sync: false
+      - key: WECHAT_APPID
+        sync: false
+      - key: WECHAT_SECRET
+        sync: false
+      - key: TIMETABLE_TERM_YEAR
+        value: "2025"
+      - key: TIMETABLE_TERM_SEMESTER
+        value: "12"
+      - key: SEMESTER_START_DATE
+        value: "2026-02-24"
+      - key: TEACHING_WEEK_START_DATE
+        value: "2026-03-09"
+      - key: TEACHING_WEEK_END_DATE
+        value: "2026-07-12"
+      - key: MAX_TEACHING_WEEKS
+        value: "18"

@@ -1,6 +1,11 @@
 ﻿const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const config = require("./config");
+
+config.assertProductionEnvSafety();
+config.assertDataDirWritable();
+
 const { runCycle, runCycleForUser, loadCookies, writeCookies, deleteCookies } = require("./checker");
 const storage = require("./db/storage");
 const Scheduler = require("./scheduler/cron");
@@ -11,11 +16,11 @@ const { assertJwtConfig, signToken, verifyToken } = require("./utils/jwt");
 const courseRatingStore = require("./rating/courseRatingStore");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 const { assertWechatConfig, resolveWechatOpenid } = require("./services/wechatAuth");
-const config = require("./config");
 const userPersistence = require("./services/userPersistence");
-const { scheduleUserGradeSync } = require("./sync/gradeSync");
-const { scheduleCampusSessionBootstrap } = require("./sync/campusSessionBootstrap");
-const { currentTermInfo, loadConfiguredTerm } = require("./timetable/calendar");
+const { scheduleUserGradeSync, isUserGradeSyncRunning } = require("./sync/gradeSync");
+const { scheduleUserTimetableSync, isUserTimetableSyncRunning } = require("./sync/timetableSync");
+const { scheduleCampusSessionBootstrap, isCampusSessionBootstrapRunning } = require("./sync/campusSessionBootstrap");
+const { currentTermInfo, loadConfiguredTerm, assertTermConfig } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
 const { createCaptchaSession, loginWithCaptcha, clearCaptchaSessionsForUser } = require("./login/captchaSession");
 const {
@@ -27,6 +32,7 @@ const { userIdHash } = require("./utils/userIdHash");
 
 assertJwtConfig();
 assertWechatConfig();
+if (process.env.NODE_ENV === "production") assertTermConfig();
 config.logDataPath();
 
 const app = express();
@@ -49,6 +55,9 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/admin/diagnose-data", (req, res) => {
+  if (!adminDebugRoutesEnabled()) {
+    return res.status(404).json({ success: false, error: "NOT_FOUND" });
+  }
   const access = isDiagnosticAdminAuthorized(req.get(ADMIN_HEADER));
   if (!access.enabled) {
     return res.status(404).json({ success: false, error: "NOT_FOUND" });
@@ -73,6 +82,16 @@ function ensureValidScope(req, res) {
     return false;
   }
   return true;
+}
+
+function adminDebugRoutesEnabled() {
+  return process.env.NODE_ENV === "development" ||
+    String(process.env.ADMIN_MODE || "").trim().toLowerCase() === "true";
+}
+
+function requireAdminMode(req, res, next) {
+  if (adminDebugRoutesEnabled()) return next();
+  return res.status(404).json({ success: false, error: "NOT_FOUND" });
 }
 
 function logUserScope(req, label) {
@@ -365,14 +384,19 @@ function shouldScheduleGradeSync(userId, activeStorage, gradesCache) {
   const accountMeta = credentialStore.readBoundAccountMeta(userId);
   const cooldown = isRetryCooledDown(accountMeta);
   if (cooldown.cooledDown) return false;
-  const syncState = userPersistence.readSyncState(userId);
+  const syncState = userPersistence.readSyncState(userId, "grades");
   const cachedGrades = gradesCache && Array.isArray(gradesCache.grades) ? gradesCache.grades : [];
   const lastSync = Math.max(
     timeValue(syncState.lastGradeSync),
     timeValue(activeStorage && activeStorage.data && activeStorage.data.lastRunAt),
     timeValue(gradesCache && gradesCache.updatedAt)
   );
-  if (!cachedGrades.length) return true;
+  if (!cachedGrades.length) {
+    const lastFinishedAt = timeValue(syncState.finishedAt);
+    const recentlyFinished = lastFinishedAt && Date.now() - lastFinishedAt < AUTO_GRADE_SYNC_INTERVAL_MS;
+    if (recentlyFinished && (syncState.status === "success" || syncState.status === "failed")) return false;
+    return true;
+  }
   return Date.now() - lastSync > AUTO_GRADE_SYNC_INTERVAL_MS;
 }
 
@@ -610,16 +634,21 @@ app.get("/api/home", (req, res) => {
   }
 });
 
-// Background scheduler
-const scheduler = new Scheduler(async () => {
-  const r = await runCycle();
-  if (r.success) console.log("[bg] " + r.gradesCount + " grades" + (r.added.length ? " +" + r.added.length : "") + (r.changed.length ? " ~" + r.changed.length : ""));
-  else console.log("[bg] " + (r.error || r.message));
-});
-if (String(process.env.DISABLE_SCHEDULER || "") === "1") {
-  console.log("[bg] scheduler disabled by DISABLE_SCHEDULER=1");
+// Legacy global scheduler is development-only. Production synchronization is
+// initiated through the existing user-scoped grade/timetable flows.
+if (process.env.NODE_ENV === "production") {
+  console.log("[scheduler] disabled in production");
 } else {
-  scheduler.start();
+  const scheduler = new Scheduler(async () => {
+    const r = await runCycle();
+    if (r.success) console.log("[bg] " + r.gradesCount + " grades" + (r.added.length ? " +" + r.added.length : "") + (r.changed.length ? " ~" + r.changed.length : ""));
+    else console.log("[bg] " + (r.error || r.message));
+  });
+  if (String(process.env.DISABLE_SCHEDULER || "") === "1") {
+    console.log("[bg] scheduler disabled by DISABLE_SCHEDULER=1");
+  } else {
+    scheduler.start();
+  }
 }
 
 // GET /status
@@ -662,7 +691,9 @@ function publicCampusLoginStatus(bound, jwxtStatus) {
 function publicGradeQueryStatus(activeStorage, campusLoginStatus) {
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
   const code = normalizeJwxtApiCode(meta && meta.lastError);
-  if (campusLoginStatus === "missing" || campusLoginStatus === "expired" || code === "XG_LOGIN_REQUIRED" || code === "CAMPUS_LOGIN_REQUIRED") {
+  if (campusLoginStatus === "missing") return "not_bound";
+  if (campusLoginStatus === "recovering") return "recovering";
+  if (campusLoginStatus === "expired" || code === "XG_LOGIN_REQUIRED" || code === "CAMPUS_LOGIN_REQUIRED") {
     return "login_required";
   }
   if (code === "JWXT_UNAVAILABLE" || code === "JWXT_TIMEOUT" || code === "XG_SCORE_QUERY_FAILED") return "unavailable";
@@ -686,9 +717,12 @@ app.get("/status", auth, (req, res) => {
   const unevaluatedCourses = buildUnevaluatedCourses(activeStorage);
   const hasXg = xgScoreConfigured(activeStorage);
   const gradeSource = detectGradeSource(activeStorage, hasXg, bound || valid);
-  const sessionRecoveryPending = Boolean(req.userId && bound);
-  if (sessionRecoveryPending) scheduleCampusSessionBootstrap(req.userId);
-  const campusLoginStatus = sessionRecoveryPending ? "valid" : publicCampusLoginStatus(bound, jwxtStatus);
+  const lastAccountError = normalizeJwxtApiCode(accountMeta && accountMeta.lastJwxtError);
+  const recoveryBlocked = ["ACCOUNT_RELOGIN_REQUIRED", "INVALID_CREDENTIALS", "LOGIN_FAILED", "JWXT_INVALID_CREDENTIALS", "JWXT_LOGIN_FAILED"].includes(lastAccountError);
+  if (req.userId && bound) scheduleCampusSessionBootstrap(req.userId);
+  const sessionRecoveryPending = Boolean(req.userId && bound && !valid && !recoveryBlocked &&
+    (isCampusSessionBootstrapRunning(req.userId) || publicCampusLoginStatus(bound, jwxtStatus) !== "expired"));
+  const campusLoginStatus = sessionRecoveryPending ? "recovering" : publicCampusLoginStatus(bound, jwxtStatus);
   const gradeQueryStatus = publicGradeQueryStatus(activeStorage, campusLoginStatus);
   let hasTimetable = false;
   try {
@@ -798,7 +832,14 @@ app.get("/grades", auth, (req, res) => {
     ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage)
     : { grades: activeStorage.getGrades(), updatedAt: activeStorage.data?.lastRunAt || null };
   const syncScheduled = req.userId ? maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades") : false;
+  const syncing = Boolean(req.userId && !gradesCache.grades.length && (syncScheduled || isUserGradeSyncRunning(req.userId)));
+  const syncState = req.userId ? userPersistence.readSyncState(req.userId, "grades") : {};
+  const syncStatus = syncing ? "running" : (syncState.status || (gradesCache.grades.length ? "success" : "idle"));
+  const syncErrorCode = syncStatus === "failed" ? String(syncState.errorCode || syncState.lastError || "SYNC_FAILED") : "";
   const grades = gradesCache.grades.map(compactGrade);
+  console.log("[grades] userIdHash=" + userIdHash(req.userId) + " source=" + (syncing ? "sync" : "file"));
+  console.log("[grades] count=" + grades.length);
+  if (syncing) console.log("[grades] syncing=true");
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
   const warning = warningCode === "ACCOUNT_RELOGIN_REQUIRED" ||
     (grades.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode));
@@ -806,9 +847,14 @@ app.get("/grades", auth, (req, res) => {
     success: true,
     fromCache: true,
     syncScheduled,
+    syncing,
+    syncStatus,
+    errorCode: syncErrorCode || null,
     warning,
     warningCode: warning ? warningCode : null,
-    message: warning ? cacheWarningMessage("grades", true, warningCode) : (grades.length ? "" : "暂无成绩缓存，教务系统恢复后可重新检查。"),
+    message: syncing ? "正在同步成绩..." :
+      (syncStatus === "failed" ? cacheWarningMessage("grades", false, syncErrorCode) :
+        (warning ? cacheWarningMessage("grades", true, warningCode) : (grades.length ? "" : "暂无成绩缓存，教务系统恢复后可重新检查。"))),
     hasGrades: grades.length > 0,
     lastSuccessfulSyncAt: gradesCache.updatedAt || meta.lastSuccessfulSyncAt || activeStorage.data?.lastRunAt || null,
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
@@ -875,7 +921,7 @@ app.post("/check", auth, async (req, res) => {
       userPersistence.updateSyncState(req.userId, {
         status: "failed",
         lastError: code
-      });
+      }, "grades");
       userPersistence.saveCampusState(req.userId, activeStorage);
     }
     res.json({
@@ -1008,6 +1054,7 @@ function dateParam(req) {
 }
 
 function timetableDebug(info, totalCached, matchedCount) {
+  if (process.env.NODE_ENV !== "development") return undefined;
   return {
     date: info.date,
     weekday: info.weekday,
@@ -1020,6 +1067,16 @@ function timetableDebug(info, totalCached, matchedCount) {
 
 function emptyTimetableMessage(rows) {
   return rows.length ? "" : "暂无课表缓存，请稍后重试或在教务系统恢复后刷新。";
+}
+
+function maybeScheduleTimetableSync(userId, rows) {
+  if (!userId || rows.length || !credentialStore.getJwxtCredentials(userId)) return false;
+  const state = userPersistence.readSyncState(userId, "timetable");
+  const finishedAt = state.type === "timetable" ? timeValue(state.finishedAt) : 0;
+  if (finishedAt && Date.now() - finishedAt < AUTO_GRADE_SYNC_INTERVAL_MS &&
+      (state.status === "success" || state.status === "failed")) return false;
+  scheduleUserTimetableSync(userId);
+  return true;
 }
 
 function sendTermConfigError(res, err) {
@@ -1075,15 +1132,19 @@ app.get("/timetable/today", auth, (req, res) => {
     return res.status(500).json({ success: false, error: "TIMETABLE_TODAY_FAILED", message: err.message });
   }
   const { rows } = termRowsForRequest(req);
+  const syncScheduled = maybeScheduleTimetableSync(req.userId, rows);
+  const syncing = !rows.length && (syncScheduled || isUserTimetableSyncRunning(req.userId));
+  const syncState = userPersistence.readSyncState(req.userId, "timetable");
+  const syncStatus = syncing ? "running" : (syncState.type === "timetable" ? syncState.status : (rows.length ? "success" : "idle"));
   const activeStorage = requestStorage(req);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("timetable") : {};
   const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
   const warning = rows.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode);
-  const todayRows = rows
+  const todayRows = info.isTeachingPeriod ? rows
     .filter(item => Number(item.weekday) === Number(info.weekday))
     .filter(item => timetableAppliesToWeek(item, info.weekNumber))
-    .sort((a, b) => Number(a.section) - Number(b.section));
+    .sort((a, b) => Number(a.section) - Number(b.section)) : [];
 
   res.json({
     success: true,
@@ -1092,11 +1153,14 @@ app.get("/timetable/today", auth, (req, res) => {
     warningCode: warning ? warningCode : null,
     ...info,
     hasTimetable: rows.length > 0,
-    message: warning ? cacheWarningMessage("timetable", true, warningCode) : emptyTimetableMessage(rows),
+    syncing,
+    syncStatus,
+    message: syncing ? "正在同步课表..." : (!info.isTeachingPeriod ? info.academicStatusText : (warning ? cacheWarningMessage("timetable", true, warningCode) : emptyTimetableMessage(rows))),
     lastSuccessfulSyncAt: meta.lastSuccessfulSyncAt || activeStorage.data?.timetableLastSyncAt || null,
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
     debug: timetableDebug(info, rows.length, todayRows.length),
-    sections: fillDaySections(todayRows)
+    timetable: syncing ? [] : todayRows,
+    sections: syncing ? [] : fillDaySections(todayRows)
   });
 });
 
@@ -1115,14 +1179,18 @@ app.get("/timetable/week", auth, (req, res) => {
     return res.status(500).json({ success: false, error: "TIMETABLE_WEEK_FAILED", message: err.message });
   }
   const { rows } = termRowsForRequest(req);
+  const syncScheduled = maybeScheduleTimetableSync(req.userId, rows);
+  const syncing = !rows.length && (syncScheduled || isUserTimetableSyncRunning(req.userId));
+  const syncState = userPersistence.readSyncState(req.userId, "timetable");
+  const syncStatus = syncing ? "running" : (rows.length ? "success" : (syncState.status || "idle"));
   const activeStorage = requestStorage(req);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("timetable") : {};
   const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
   const warning = rows.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode);
-  const filtered = rows
+  const filtered = info.isTeachingPeriod ? rows
     .filter(item => timetableAppliesToWeek(item, info.weekNumber))
-    .sort((a, b) => Number(a.weekday) - Number(b.weekday) || Number(a.section) - Number(b.section));
+    .sort((a, b) => Number(a.weekday) - Number(b.weekday) || Number(a.section) - Number(b.section)) : [];
 
   const days = [1, 2, 3, 4, 5, 6, 7].map(weekday => ({
     weekday,
@@ -1136,11 +1204,13 @@ app.get("/timetable/week", auth, (req, res) => {
     warningCode: warning ? warningCode : null,
     ...info,
     hasTimetable: rows.length > 0,
-    message: warning ? cacheWarningMessage("timetable", true, warningCode) : emptyTimetableMessage(rows),
+    syncing,
+    syncStatus,
+    message: syncing ? "正在同步课表..." : (!info.isTeachingPeriod ? info.academicStatusText : (warning ? cacheWarningMessage("timetable", true, warningCode) : emptyTimetableMessage(rows))),
     lastSuccessfulSyncAt: meta.lastSuccessfulSyncAt || activeStorage.data?.timetableLastSyncAt || null,
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
     debug: timetableDebug(info, rows.length, filtered.length),
-    days
+    days: syncing ? [] : days
   });
 });
 
@@ -1202,7 +1272,7 @@ app.post("/timetable/sync", auth, async (req, res) => {
       userPersistence.updateSyncState(req.userId, {
         status: "failed",
         lastError: code
-      });
+      }, "timetable");
       userPersistence.saveCampusState(req.userId, activeStorage);
     }
     res.json({
@@ -1375,7 +1445,7 @@ app.post("/unbind-account", auth, (req, res) => {
 });
 
 // POST /upload-cookies
-app.post("/upload-cookies", auth, (req, res) => {
+app.post("/upload-cookies", requireAdminMode, auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   try {
     const data = req.body;
@@ -1403,7 +1473,7 @@ app.post("/upload-cookies", auth, (req, res) => {
 
 
 // POST /upload-xg-session
-app.post("/upload-xg-session", auth, (req, res) => {
+app.post("/upload-xg-session", requireAdminMode, auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   try {
     const scoreUrl = String((req.body && req.body.xgScoreUrl) || "").trim();
@@ -1470,5 +1540,6 @@ app.post("/grades/import", auth, (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log("API running on http://localhost:" + PORT);
-  console.log("Endpoints: GET /status  GET /grades  POST /check  POST /upload-cookies");
+  console.log("Endpoints: GET /status  GET /grades  POST /check");
+  if (adminDebugRoutesEnabled()) console.log("[admin] cookie/session debug routes enabled");
 });

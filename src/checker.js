@@ -18,8 +18,14 @@ const COOKIE_FILE = path.join(config.dataDir, "cookies.json");
 const DATA_DIR = path.dirname(COOKIE_FILE);
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// On startup: if COOKIES_JSON env var is set and file doesnt exist, write it
-if (process.env.COOKIES_JSON) {
+function legacyEnvCookiesAllowed() {
+  return process.env.NODE_ENV === "development" ||
+    String(process.env.LEGACY_SINGLE_USER_MODE || "") === "1";
+}
+
+// Development and explicit legacy single-user scripts may initialize the
+// legacy root cookie file. User-scoped requests never use this fallback.
+if (process.env.COOKIES_JSON && legacyEnvCookiesAllowed()) {
   try {
     const parsed = JSON.parse(process.env.COOKIES_JSON);
     if (Array.isArray(parsed) && parsed.length > 0 && !fs.existsSync(COOKIE_FILE)) {
@@ -39,6 +45,19 @@ function scopeLabel(userId) {
   return userId ? "user" : "legacy";
 }
 
+function writeJsonAtomic(file, data) {
+  const temporary = file + ".tmp-" + process.pid + "-" + Date.now();
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(temporary, file);
+  } catch (err) {
+    try {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    } catch (cleanupErr) {}
+    throw err;
+  }
+}
+
 function loadCookies(userId) {
   const file = cookieFile(userId);
   console.log("[user-scope] loadCookies scope=" + scopeLabel(userId));
@@ -46,8 +65,9 @@ function loadCookies(userId) {
   if (fs.existsSync(file)) {
     try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { console.error("[checker] Failed to parse cookies.json"); }
   }
-  // Fallback to env var at runtime
-  if (process.env.COOKIES_JSON) {
+  // Only the legacy, non-user scope may read COOKIES_JSON, and only when
+  // explicitly running in development or legacy single-user mode.
+  if (!userId && process.env.COOKIES_JSON && legacyEnvCookiesAllowed()) {
     try { return JSON.parse(process.env.COOKIES_JSON); } catch {}
   }
   return null;
@@ -85,7 +105,7 @@ function writeCookies(cookiesData, userId) {
   const file = cookieFile(userId);
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(cookiesData, null, 2));
+  writeJsonAtomic(file, cookiesData);
   console.log("[user-scope] writeCookies scope=" + scopeLabel(userId) + " count=" + (Array.isArray(cookiesData) ? cookiesData.length : 0));
 }
 

@@ -22,7 +22,16 @@ function readJson(file, fallback) {
 
 function writeJson(file, data) {
   ensureDir(path.dirname(file));
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+  const temporary = file + ".tmp-" + process.pid + "-" + Date.now();
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(temporary, file);
+  } catch (err) {
+    try {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    } catch (cleanupErr) {}
+    throw err;
+  }
 }
 
 function readCookiesFile(paths) {
@@ -72,13 +81,57 @@ function defaultTimetableCache() {
   };
 }
 
+function defaultTaskState(type) {
+  return {
+    status: "",
+    lastError: "",
+    type: type || "",
+    startedAt: "",
+    finishedAt: "",
+    errorCode: ""
+  };
+}
+
 function defaultSyncState() {
   return {
     lastGradeSync: "",
     lastTimetableSync: "",
     status: "",
-    lastError: ""
+    lastError: "",
+    type: "",
+    startedAt: "",
+    finishedAt: "",
+    errorCode: "",
+    tasks: {
+      grades: defaultTaskState("grades"),
+      timetable: defaultTaskState("timetable"),
+      campus: defaultTaskState("campus")
+    }
   };
+}
+
+function normalizeSyncState(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const state = Object.assign(defaultSyncState(), source);
+  const tasks = source.tasks && typeof source.tasks === "object" ? source.tasks : {};
+  state.tasks = {
+    grades: Object.assign(defaultTaskState("grades"), tasks.grades || {}),
+    timetable: Object.assign(defaultTaskState("timetable"), tasks.timetable || {}),
+    campus: Object.assign(defaultTaskState("campus"), tasks.campus || {})
+  };
+
+  // Older sync.json files only have the top-level shape. Preserve their last
+  // known task state until that task writes the new nested form.
+  if (source.type && state.tasks[source.type] && !tasks[source.type]) {
+    state.tasks[source.type] = Object.assign(defaultTaskState(source.type), {
+      status: source.status || "",
+      lastError: source.lastError || "",
+      startedAt: source.startedAt || "",
+      finishedAt: source.finishedAt || "",
+      errorCode: source.errorCode || ""
+    });
+  }
+  return state;
 }
 
 function initUserData(userId) {
@@ -151,17 +204,26 @@ function saveTimetableCache(userId, timetable, updatedAt) {
   return data;
 }
 
-function readSyncState(userId) {
+function readSyncState(userId, type) {
   const paths = initUserData(userId);
-  return Object.assign(defaultSyncState(), readJson(paths.syncPath, {}));
+  const state = normalizeSyncState(readJson(paths.syncPath, {}));
+  if (!type) return state;
+  const task = state.tasks[type] || defaultTaskState(type);
+  return Object.assign({}, state, task, { type, tasks: state.tasks });
 }
 
-function updateSyncState(userId, patch) {
+function updateSyncState(userId, patch, type) {
   const paths = initUserData(userId);
   const current = readSyncState(userId);
-  const next = Object.assign({}, current, patch || {});
+  const change = patch || {};
+  const taskType = type || change.type || "";
+  const next = Object.assign({}, current, change);
+  next.tasks = Object.assign({}, current.tasks);
+  if (taskType && next.tasks[taskType]) {
+    next.tasks[taskType] = Object.assign({}, next.tasks[taskType], change, { type: taskType });
+  }
   writeJson(paths.syncPath, next);
-  return next;
+  return taskType ? readSyncState(userId, taskType) : next;
 }
 
 function campusStateFromStorage(userId, activeStorage) {
@@ -213,7 +275,7 @@ function mirrorFromStorage(userId, activeStorage, options) {
   };
   if (!options || options.kind === "grades" || !options.kind) patch.lastGradeSync = now;
   if (options && options.kind === "timetable") patch.lastTimetableSync = now;
-  updateSyncState(userId, patch);
+  updateSyncState(userId, patch, options && options.kind ? options.kind : "grades");
 
   return { grades, timetable };
 }

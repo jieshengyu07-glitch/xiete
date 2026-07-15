@@ -40,7 +40,7 @@ async function bootstrapCampusSession(userId, overrides) {
       lastJwxtError: "ACCOUNT_RELOGIN_REQUIRED",
       lastJwxtErrorMessage: "校园账号登录已过期，请重新绑定"
     });
-    deps.userPersistence.updateSyncState(userId, { status: "failed", lastError: "ACCOUNT_RELOGIN_REQUIRED" });
+    deps.userPersistence.updateSyncState(userId, { status: "failed", lastError: "ACCOUNT_RELOGIN_REQUIRED" }, "campus");
     return reloginResult("CREDENTIALS_UNAVAILABLE");
   }
 
@@ -76,7 +76,7 @@ async function bootstrapCampusSession(userId, overrides) {
       lastJwxtError: null,
       lastJwxtErrorMessage: null
     });
-    deps.userPersistence.updateSyncState(userId, { status: "ready", lastError: "" });
+    deps.userPersistence.updateSyncState(userId, { status: "ready", lastError: "" }, "campus");
     return { success: true, jwxtReady, xgReady };
   }
 
@@ -84,7 +84,7 @@ async function bootstrapCampusSession(userId, overrides) {
     lastJwxtError: "ACCOUNT_RELOGIN_REQUIRED",
     lastJwxtErrorMessage: "校园账号登录已过期，请重新绑定"
   });
-  deps.userPersistence.updateSyncState(userId, { status: "failed", lastError: "ACCOUNT_RELOGIN_REQUIRED" });
+  deps.userPersistence.updateSyncState(userId, { status: "failed", lastError: "ACCOUNT_RELOGIN_REQUIRED" }, "campus");
   return reloginResult(lastCause);
 }
 
@@ -105,7 +105,12 @@ function scheduleCampusSessionBootstrap(userId, overrides) {
   return task;
 }
 
+function isCampusSessionBootstrapRunning(userId) {
+  return Boolean(userId && running.has(userId));
+}
+
 module.exports = {
   bootstrapCampusSession,
-  scheduleCampusSessionBootstrap
+  scheduleCampusSessionBootstrap,
+  isCampusSessionBootstrapRunning
 };

@@ -28,7 +28,9 @@ function defaultTermConfig(today) {
       termYear: String(year),
       termSemester: "3",
       semesterStartDate: firstMonday(year, 8),
-      teachingWeekStartDate: ""
+      teachingWeekStartDate: "",
+      teachingWeekEndDate: "",
+      maxTeachingWeeks: 18
     };
   }
 
@@ -36,7 +38,9 @@ function defaultTermConfig(today) {
     termYear: String(year - 1),
     termSemester: "12",
     semesterStartDate: process.env.SEMESTER_START_DATE || (year === 2026 ? "2026-02-24" : firstMonday(year, 1)),
-    teachingWeekStartDate: process.env.TEACHING_WEEK_START_DATE || ""
+    teachingWeekStartDate: process.env.TEACHING_WEEK_START_DATE || "",
+    teachingWeekEndDate: process.env.TEACHING_WEEK_END_DATE || "",
+    maxTeachingWeeks: 18
   };
 }
 
@@ -55,7 +59,9 @@ function loadConfiguredTerm() {
     termYear: String(process.env.TIMETABLE_TERM_YEAR || fileConfig.termYear || fallback.termYear),
     termSemester: String(process.env.TIMETABLE_TERM_SEMESTER || fileConfig.termSemester || fallback.termSemester),
     semesterStartDate: String(process.env.SEMESTER_START_DATE || fileConfig.semesterStartDate || fallback.semesterStartDate || ""),
-    teachingWeekStartDate: String(process.env.TEACHING_WEEK_START_DATE || fileConfig.teachingWeekStartDate || fallback.teachingWeekStartDate || "")
+    teachingWeekStartDate: String(process.env.TEACHING_WEEK_START_DATE || fileConfig.teachingWeekStartDate || fallback.teachingWeekStartDate || ""),
+    teachingWeekEndDate: String(process.env.TEACHING_WEEK_END_DATE || fileConfig.teachingWeekEndDate || fallback.teachingWeekEndDate || ""),
+    maxTeachingWeeks: Math.max(1, Number(process.env.MAX_TEACHING_WEEKS || fileConfig.maxTeachingWeeks || fallback.maxTeachingWeeks || 18))
   };
 }
 
@@ -74,29 +80,67 @@ function startOfChinaDay(value) {
   return new Date(china.getUTCFullYear(), china.getUTCMonth(), china.getUTCDate());
 }
 
-function teachingWeekInfo(termConfig, date) {
-  if (!termConfig || !parseDateOnly(termConfig.teachingWeekStartDate)) {
-    const err = new Error("teachingWeekStartDate is required in data/term_config.json");
+function assertTermConfig(termConfig) {
+  const term = termConfig || loadConfiguredTerm();
+  const start = parseDateOnly(term.teachingWeekStartDate);
+  const end = term.teachingWeekEndDate ? parseDateOnly(term.teachingWeekEndDate) : null;
+  if (!start) {
+    const err = new Error("TEACHING_WEEK_START_DATE must be configured as YYYY-MM-DD");
     err.code = "TERM_CONFIG_INVALID";
     throw err;
   }
+  if (!Number.isFinite(Number(term.maxTeachingWeeks)) || Number(term.maxTeachingWeeks) < 1) {
+    const err = new Error("MAX_TEACHING_WEEKS must be a positive integer");
+    err.code = "TERM_CONFIG_INVALID";
+    throw err;
+  }
+  if (term.teachingWeekEndDate && !end) {
+    const err = new Error("TEACHING_WEEK_END_DATE must be configured as YYYY-MM-DD");
+    err.code = "TERM_CONFIG_INVALID";
+    throw err;
+  }
+  if (end && end.getTime() < start.getTime()) {
+    const err = new Error("TEACHING_WEEK_END_DATE must not be earlier than TEACHING_WEEK_START_DATE");
+    err.code = "TERM_CONFIG_INVALID";
+    throw err;
+  }
+  return term;
+}
+
+function teachingWeekInfo(termConfig, date) {
+  const term = assertTermConfig(termConfig);
 
   const today = startOfChinaDay(date);
-  const start = startOfChinaDay(termConfig.teachingWeekStartDate);
+  const start = startOfChinaDay(term.teachingWeekStartDate);
   const diffDays = Math.floor((today.getTime() - start.getTime()) / 86400000);
-  const weekNumber = Math.max(1, Math.floor(diffDays / 7) + 1);
+  const rawWeekNumber = Math.floor(diffDays / 7) + 1;
+  const maxTeachingWeeks = Number(term.maxTeachingWeeks || 18);
+  const calculatedEnd = new Date(start.getTime() + maxTeachingWeeks * 7 * 86400000 - 86400000);
+  const configuredEnd = term.teachingWeekEndDate ? startOfChinaDay(term.teachingWeekEndDate) : null;
+  const teachingEnd = configuredEnd || calculatedEnd;
+  const isTeachingPeriod = diffDays >= 0 && today.getTime() <= teachingEnd.getTime() && rawWeekNumber <= maxTeachingWeeks;
+  const weekNumber = isTeachingPeriod
+    ? rawWeekNumber
+    : (diffDays < 0 ? 1 : maxTeachingWeeks);
   const weekday = today.getDay() === 0 ? 7 : today.getDay();
-  const weekType = weekNumber % 2 === 1 ? "ODD" : "EVEN";
+  const weekType = isTeachingPeriod ? (weekNumber % 2 === 1 ? "ODD" : "EVEN") : "NONE";
+  const academicStatus = isTeachingPeriod ? "TEACHING" : (diffDays < 0 ? "BEFORE_TERM" : "HOLIDAY");
   return {
-    termYear: String(termConfig.termYear),
-    termSemester: String(termConfig.termSemester),
-    semesterStartDate: termConfig.semesterStartDate,
-    teachingWeekStartDate: termConfig.teachingWeekStartDate,
+    termYear: String(term.termYear),
+    termSemester: String(term.termSemester),
+    semesterStartDate: term.semesterStartDate,
+    teachingWeekStartDate: term.teachingWeekStartDate,
+    teachingWeekEndDate: dateOnly(teachingEnd),
+    maxTeachingWeeks,
     weekNumber,
     currentTeachingWeek: weekNumber,
     weekType,
-    weekTypeText: weekType === "ODD" ? "单周" : "双周",
-    weekTypeName: weekType === "ODD" ? "单周" : "双周",
+    weekTypeText: weekType === "ODD" ? "单周" : (weekType === "EVEN" ? "双周" : "非教学周"),
+    weekTypeName: weekType === "ODD" ? "单周" : (weekType === "EVEN" ? "双周" : "非教学周"),
+    isTeachingPeriod,
+    isHoliday: academicStatus === "HOLIDAY",
+    academicStatus,
+    academicStatusText: academicStatus === "TEACHING" ? "教学周" : (academicStatus === "BEFORE_TERM" ? "学期未开始" : "假期"),
     weekday,
     date: dateOnly(today)
   };
@@ -108,6 +152,7 @@ function currentTermInfo(date) {
 
 module.exports = {
   loadConfiguredTerm,
+  assertTermConfig,
   teachingWeekInfo,
   currentTermInfo
 };

@@ -45,12 +45,25 @@ Page({
     count: 0,
     loading: true,
     refreshing: false,
+    syncing: false,
     error: null,
     notice: ""
   },
 
   onShow() {
+    this._gradesPageActive = true;
+    this._syncPollAttempts = 0;
     this.loadGrades();
+  },
+
+  onHide() {
+    this._gradesPageActive = false;
+    this.stopSyncPolling();
+  },
+
+  onUnload() {
+    this._gradesPageActive = false;
+    this.stopSyncPolling();
   },
 
   onPullDownRefresh() {
@@ -80,13 +93,39 @@ Page({
     });
   },
 
-  loadGrades() {
-    this.setData({ loading: true, error: null });
+  stopSyncPolling() {
+    if (this._syncPollTimer) {
+      clearTimeout(this._syncPollTimer);
+      this._syncPollTimer = null;
+    }
+  },
+
+  scheduleSyncPolling() {
+    this.stopSyncPolling();
+    if (!this._gradesPageActive) return;
+    this._syncPollAttempts = Number(this._syncPollAttempts || 0) + 1;
+    if (this._syncPollAttempts > 40) {
+      this.setData({
+        syncing: false,
+        notice: "成绩同步时间较长，请稍后下拉刷新"
+      });
+      return;
+    }
+    this._syncPollTimer = setTimeout(() => {
+      this._syncPollTimer = null;
+      if (this._gradesPageActive) this.loadGrades({ polling: true });
+    }, 3000);
+  },
+
+  loadGrades(options) {
+    const polling = Boolean(options && options.polling);
+    if (!polling) this.setData({ loading: true, error: null });
     return api.request("/grades").then(data => {
       const rawGrades = data.grades || [];
       const grades = rawGrades.map(normalizeGrade);
       const groupedGrades = this.normalizeGroups(data, grades);
       const currentGroup = groupedGrades[0] || null;
+      const syncing = Boolean(data.syncing);
       this.setData({
         grades,
         groupedGrades,
@@ -94,10 +133,17 @@ Page({
         currentGrades: currentGroup ? currentGroup.grades : [],
         activeTermIndex: 0,
         count: data.count || grades.length,
+        syncing,
         notice: data.warning ? (data.message || "教务系统暂时不可用，当前显示上次查询成绩") : "",
         error: grades.length ? null : (data.message || "暂无成绩数据，请先完成登录或刷新成绩"),
         loading: false
       });
+      if (syncing) {
+        this.setData({ notice: "正在同步成绩...", error: null });
+        this.scheduleSyncPolling();
+      } else {
+        this.stopSyncPolling();
+      }
     }).catch(err => {
       const keepGrades = this.data.grades && this.data.grades.length;
       this.setData({
@@ -109,6 +155,8 @@ Page({
   },
 
   async refreshGrades() {
+    this.stopSyncPolling();
+    this._syncPollAttempts = 0;
     this.setData({ refreshing: true, notice: "", error: null });
     wx.showLoading({ title: "刷新成绩..." });
     try {

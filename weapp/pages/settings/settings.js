@@ -1,5 +1,4 @@
 const api = require("../../utils/api");
-const app = getApp();
 const { formatJwxtErrorMessage, isInvalidCredentials } = require("../../utils/jwxtError");
 
 const BOUND_HINT_KEY = "jwxtBound";
@@ -107,11 +106,6 @@ function isTimeoutError(err) {
 
 Page({
   data: {
-    apiAddr: app.globalData.apiBase,
-    clientVersion: app.globalData.clientVersion || "0.1.4-jwt",
-    loginStatus: "未连接",
-    connectionError: "",
-    debugExpanded: false,
     studentId: "",
     password: "",
     binding: false,
@@ -142,19 +136,12 @@ Page({
   },
 
   refreshStatus() {
-    this.setData({
-      apiAddr: app.globalData.apiBase,
-      clientVersion: app.globalData.clientVersion || "0.1.4-jwt"
-    });
-
     api.request("/status")
       .then(status => {
         const display = deriveStatus(status || {});
         const lastSync = status && (status.lastSuccessfulSyncAt || status.lastCheckAt);
         const failedSync = status && status.lastFailedSyncAt;
         this.setDisplayStatus(display, {
-          loginStatus: "已连接",
-          connectionError: "",
           lastSyncText: formatTime(lastSync),
           syncMetaText: failedSync && display.status === "SYNC_FAILED" ? ("最近失败：" + formatTime(failedSync)) : ""
         });
@@ -162,16 +149,10 @@ Page({
       .catch(err => {
         const display = deriveStatus(null);
         this.setDisplayStatus(display, {
-          loginStatus: "未连接",
-          connectionError: formatJwxtErrorMessage(err, app.globalData.lastLoginError || "无法连接 API"),
           lastSyncText: "",
           syncMetaText: ""
         });
       });
-  },
-
-  toggleDebug() {
-    this.setData({ debugExpanded: !this.data.debugExpanded });
   },
 
   onStudentIdInput(e) {
