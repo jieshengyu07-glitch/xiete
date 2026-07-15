@@ -15,6 +15,7 @@ const { assertWechatConfig, resolveWechatOpenid } = require("./services/wechatAu
 const config = require("./config");
 const userPersistence = require("./services/userPersistence");
 const { scheduleUserGradeSync } = require("./sync/gradeSync");
+const { scheduleCampusSessionBootstrap } = require("./sync/campusSessionBootstrap");
 const { currentTermInfo, loadConfiguredTerm } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
 const { createCaptchaSession, loginWithCaptcha, clearCaptchaSessionsForUser } = require("./login/captchaSession");
@@ -423,6 +424,7 @@ app.post("/auth/wechat-login", async (req, res) => {
         nickname: ""
       }
     });
+    scheduleCampusSessionBootstrap(userId);
   } catch (err) {
     if (err && err.code === "WECHAT_CONFIG_MISSING") {
       return res.status(500).json({
@@ -663,7 +665,9 @@ app.get("/status", auth, (req, res) => {
   const unevaluatedCourses = buildUnevaluatedCourses(activeStorage);
   const hasXg = xgScoreConfigured(activeStorage);
   const gradeSource = detectGradeSource(activeStorage, hasXg, bound || valid);
-  const campusLoginStatus = publicCampusLoginStatus(bound, jwxtStatus);
+  const sessionRecoveryPending = Boolean(req.userId && bound);
+  if (sessionRecoveryPending) scheduleCampusSessionBootstrap(req.userId);
+  const campusLoginStatus = sessionRecoveryPending ? "valid" : publicCampusLoginStatus(bound, jwxtStatus);
   const gradeQueryStatus = publicGradeQueryStatus(activeStorage, campusLoginStatus);
   let hasTimetable = false;
   try {
@@ -676,6 +680,7 @@ app.get("/status", auth, (req, res) => {
     bound,
     campusLoginStatus,
     gradeQueryStatus,
+    sessionRecoveryPending,
     portalAuthStatus: bound ? ((accountMeta && accountMeta.portalAuthStatus) || (credentials ? "OK" : "FAILED")) : "FAILED",
     jwxtStatus,
     cookieValid: valid,
@@ -774,7 +779,8 @@ app.get("/grades", auth, (req, res) => {
   const syncScheduled = req.userId ? maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades") : false;
   const grades = gradesCache.grades.map(compactGrade);
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
-  const warning = grades.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode);
+  const warning = warningCode === "ACCOUNT_RELOGIN_REQUIRED" ||
+    (grades.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode));
   res.json({
     success: true,
     fromCache: true,

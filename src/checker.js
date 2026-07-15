@@ -403,6 +403,38 @@ async function executeCheck(cookies, activeStorage) {
   }
 }
 
+async function validateJwxtSessionForUser(userId) {
+  const cookies = loadCookies(userId);
+  if (!cookies) return { valid: false, shouldRecover: true, error: "login_required" };
+  const cookieHeader = buildCookieHeader(cookies, "newjwc.tyust.edu.cn");
+  if (!cookieHeader) return { valid: false, shouldRecover: true, error: "login_required" };
+
+  try {
+    const response = await axios.get(
+      "https://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default",
+      {
+        headers: { Cookie: cookieHeader },
+        maxRedirects: 0,
+        validateStatus: status => true,
+        timeout: 10000
+      }
+    );
+    const classified = classifyResponse(response);
+    if (!classified) return { valid: true, shouldRecover: false, error: null };
+    return {
+      valid: false,
+      shouldRecover: classified.status === "cookie_expired" || classified.status === "login_required",
+      error: classified.status
+    };
+  } catch (err) {
+    return {
+      valid: false,
+      shouldRecover: false,
+      error: isJwxtUnavailableError(err) ? "JWXT_UNAVAILABLE" : "JWXT_TIMEOUT"
+    };
+  }
+}
+
 function xgErrorResult(err) {
   const code = err && err.code ? err.code : "XG_SCORE_QUERY_FAILED";
   const message = code === "ACCOUNT_RELOGIN_REQUIRED" || code === "CAMPUS_LOGIN_REQUIRED" || code === "XG_LOGIN_REQUIRED"
@@ -636,4 +668,12 @@ async function runCycleForUser(userId) {
   return result;
 }
 
-module.exports = { runCycle, runCycleForUser, loadCookies, writeCookies, deleteCookies };
+module.exports = {
+  runCycle,
+  runCycleForUser,
+  loadCookies,
+  writeCookies,
+  deleteCookies,
+  refreshCookiesFromEnv,
+  validateJwxtSessionForUser
+};
