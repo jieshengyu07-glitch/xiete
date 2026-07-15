@@ -19,6 +19,11 @@ const { scheduleCampusSessionBootstrap } = require("./sync/campusSessionBootstra
 const { currentTermInfo, loadConfiguredTerm } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
 const { createCaptchaSession, loginWithCaptcha, clearCaptchaSessionsForUser } = require("./login/captchaSession");
+const {
+  ADMIN_HEADER,
+  diagnoseDataDirectory,
+  isDiagnosticAdminAuthorized
+} = require("./services/dataDirectoryDiagnostic");
 
 assertJwtConfig();
 assertWechatConfig();
@@ -41,6 +46,19 @@ app.use((req, res, next) => {
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", version: "1.0.0" });
+});
+
+app.get("/admin/diagnose-data", (req, res) => {
+  const access = isDiagnosticAdminAuthorized(req.get(ADMIN_HEADER));
+  if (!access.enabled) {
+    return res.status(404).json({ success: false, error: "NOT_FOUND" });
+  }
+  if (!access.authorized) {
+    return res.status(403).json({ success: false, error: "FORBIDDEN" });
+  }
+
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(diagnoseDataDirectory(config.dataDir));
 });
 
 app.use(express.json({ limit: "1mb" }));
