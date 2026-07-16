@@ -14,15 +14,15 @@
 
     <view wx:if="{{notice && !syncing}}" class="notice-card">{{notice}}</view>
 
-    <view wx:if="{{syncing}}" class="notice-card">正在同步成绩...</view>
+    <view wx:if="{{syncing}}" class="notice-card">{{notice || "正在同步成绩..."}}</view>
 
-    <view wx:elif="{{grades.length===0}}" class="card empty-card">
+    <view wx:if="{{!syncing && grades.length===0}}" class="card empty-card">
       <view class="empty-title">暂无成绩数据，请先完成登录或刷新成绩</view>
       <view class="tips">成绩由后端统一处理后返回，前端不会解析学工系统 HTML。</view>
       <button class="btn" loading="{{refreshing}}" disabled="{{refreshing}}" bindtap="refreshGrades">刷新成绩</button>
     </view>
 
-    <block wx:else>
+    <block wx:if="{{grades.length>0}}">
       <view wx:if="{{error}}" class="card">
         <view class="tips">{{error}}</view>
       </view>

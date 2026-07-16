@@ -122,7 +122,8 @@ async function testSyncFailedState() {
 async function testFirstOpenPolling() {
   const template = fs.readFileSync(path.resolve(__dirname, "../weapp/pages/grades/grades.wxml"), "utf8");
   assert.strictEqual(template.includes('wx:if="{{syncing}}"'), true);
-  assert.strictEqual(template.includes('wx:elif="{{grades.length===0}}"'), true);
+  assert.strictEqual(template.includes('wx:if="{{!syncing && grades.length===0}}"'), true);
+  assert.strictEqual(template.includes('wx:if="{{grades.length>0}}"'), true);
 
   const originalGetApp = global.getApp;
   global.getApp = () => ({ globalData: {} });

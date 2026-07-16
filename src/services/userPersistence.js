@@ -322,6 +322,21 @@ function ensureGradesCacheFromStorage(userId, activeStorage) {
   return cache;
 }
 
+function deleteUserData(userId) {
+  const safe = safeUserId(userId);
+  if (!safe) return false;
+  const paths = getUserPaths(safe);
+  const target = path.resolve(paths.userDir);
+  const usersRoot = path.resolve(paths.userDir, "..");
+  if (path.dirname(target) !== usersRoot || target === usersRoot) {
+    const err = new Error("INVALID_USER_DATA_PATH");
+    err.code = "INVALID_USER_DATA_PATH";
+    throw err;
+  }
+  if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+  return true;
+}
+
 module.exports = {
   initUserData,
   readProfile,
@@ -336,5 +351,6 @@ module.exports = {
   updateSyncState,
   saveCampusState,
   mirrorFromStorage,
-  ensureGradesCacheFromStorage
+  ensureGradesCacheFromStorage,
+  deleteUserData
 };

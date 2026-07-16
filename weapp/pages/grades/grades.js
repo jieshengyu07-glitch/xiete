@@ -120,7 +120,7 @@ Page({
 
   loadGrades(options) {
     const polling = Boolean(options && options.polling);
-    if (!polling) this.setData({ loading: true, error: null });
+    if (!polling && !this.data.grades.length) this.setData({ loading: true, error: null });
     return api.request("/grades").then(data => {
       const rawGrades = data.grades || [];
       const grades = rawGrades.map(normalizeGrade);
@@ -140,7 +140,10 @@ Page({
         loading: false
       });
       if (syncing) {
-        this.setData({ notice: "正在同步成绩...", error: null });
+        this.setData({
+          notice: grades.length ? "正在后台刷新成绩，当前显示上次结果" : "正在同步成绩...",
+          error: null
+        });
         this.scheduleSyncPolling();
       } else {
         this.stopSyncPolling();

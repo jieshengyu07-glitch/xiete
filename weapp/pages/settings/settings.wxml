@@ -12,7 +12,13 @@
     <view class="hint">教务账号仅用于课表、成绩和教务状态同步。绑定后系统会自动同步，无需重复登录教务系统。</view>
     <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
     <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
-    <button class="bind-btn" loading="{{binding}}" disabled="{{binding}}" bindtap="bindAccount">绑定教务账号</button>
+    <view class="privacy-consent">
+      <checkbox-group bindchange="onPrivacyChange">
+        <label class="privacy-label"><checkbox value="accepted" checked="{{privacyAccepted}}" color="#1677ff" />我已阅读并同意</label>
+      </checkbox-group>
+      <text class="privacy-link" bindtap="openPrivacy">《用户隐私保护指引》</text>
+    </view>
+    <button class="bind-btn" loading="{{binding}}" disabled="{{binding || !privacyAccepted}}" bindtap="bindAccount">绑定教务账号</button>
     <view wx:if="{{showRebindActions}}" class="action-row">
       <button class="light-btn" bindtap="retryLater">稍后再试</button>
     </view>

@@ -44,7 +44,9 @@ async function syncUserGrades(userId, options) {
   }, "grades");
 
   try {
-    const result = await runCycleForUser(userId);
+    const result = await runCycleForUser(userId, {
+      skipJwxt: Boolean(options && options.skipJwxt)
+    });
     if (result && result.success) {
       markCampusLoginValid(userId, result.gradeSource || result.source || "grades");
       userPersistence.mirrorFromStorage(userId, storage, {
@@ -90,11 +92,11 @@ async function syncUserGrades(userId, options) {
   }
 }
 
-function scheduleUserGradeSync(userId, reason) {
+function scheduleUserGradeSync(userId, reason, options) {
   if (!userId) return null;
   if (running.has(userId)) return running.get(userId);
 
-  const task = syncUserGrades(userId, { reason }).catch(err => {
+  const task = syncUserGrades(userId, Object.assign({}, options || {}, { reason })).catch(err => {
     console.log("[user-sync] grade-sync-failed code=" + String((err && err.code) || "SYNC_FAILED"));
     return null;
   }).finally(() => {

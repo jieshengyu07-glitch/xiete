@@ -1,0 +1,27 @@
+<view class="privacy-page">
+  <view class="privacy-card">
+    <view class="title">用户隐私保护说明</view>
+    <view class="updated">更新日期：2026年7月16日</view>
+
+    <view class="section-title">1. 服务说明</view>
+    <view class="text">本小程序是校园信息辅助工具，并非学校官方应用。成绩、课表及账号状态以学校系统最终结果为准。</view>
+
+    <view class="section-title">2. 我们处理的信息</view>
+    <view class="text">为提供微信身份识别，我们会处理微信登录临时凭证并在服务器端获得用户唯一标识。为提供成绩与课表同步，在用户主动绑定后会处理学号、加密保存的校园账号密码、校园系统登录状态、成绩和课表缓存。运行日志仅记录脱敏用户标识及错误码，不记录账号密码或登录凭据原文。</view>
+
+    <view class="section-title">3. 使用目的与安全措施</view>
+    <view class="text">上述信息仅用于用户身份隔离、校园账号自动恢复、成绩查询和课表查询。校园密码使用独立密钥加密保存；不同用户数据存放在相互隔离的目录；网络请求使用 HTTPS。</view>
+
+    <view class="section-title">4. 保存与删除</view>
+    <view class="text">解除校园账号绑定会删除账号凭据和教务 Cookie，但保留成绩、课表缓存供用户查看。用户可在“我的—隐私与数据”中清除本地登录信息，或永久删除云端保存的账号、会话、成绩和课表数据。</view>
+
+    <view class="section-title">5. 信息共享</view>
+    <view class="text">除为完成用户主动请求而访问学校统一门户、教务系统和学工系统外，我们不会向无关第三方出售或提供个人信息。服务器部署服务商仅承担基础设施托管。</view>
+
+    <view class="section-title">6. 联系方式</view>
+    <view class="text">运营主体与联系方式以微信公众平台公示的小程序主体信息及《用户隐私保护指引》为准。</view>
+
+    <button class="official-btn" bindtap="openOfficialPrivacy">查看微信平台隐私保护指引</button>
+    <button wx:if="{{accepted}}" class="withdraw-btn" bindtap="withdrawConsent">撤回隐私同意</button>
+  </view>
+</view>

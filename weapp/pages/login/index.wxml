@@ -1,15 +1,25 @@
 <view class="login-page">
   <view class="login-card">
     <view class="login-icon">科</view>
-    <view class="login-title">登录科大助手</view>
+    <view class="login-title">登录校园助手</view>
     <view class="login-desc">使用微信登录后，可保存校园数据、使用个性化功能并保持登录状态。</view>
 
-    <button class="primary-btn" loading="{{loggingIn}}" disabled="{{loggingIn}}" bindtap="login">微信一键登录</button>
+    <view class="privacy-consent">
+      <checkbox-group bindchange="onPrivacyChange">
+        <label class="privacy-label">
+          <checkbox value="accepted" checked="{{privacyAccepted}}" color="#1677ff" />
+          <text>我已阅读并同意</text>
+        </label>
+      </checkbox-group>
+      <text class="privacy-link" bindtap="openPrivacy">《用户隐私保护指引》</text>
+    </view>
+
+    <button class="primary-btn" loading="{{loggingIn}}" disabled="{{loggingIn || !privacyAccepted}}" bindtap="login">微信一键登录</button>
 
     <view wx:if="{{error}}" class="error-text">{{error}}</view>
 
     <view class="secondary-note">
-      教务账号仅用于课表、成绩和教务状态同步，登录后可在设置中绑定。
+      本小程序并非学校官方应用。教务账号仅用于课表、成绩和教务状态同步，密码会加密保存，不会展示给其他用户。
     </view>
     <view class="settings-link" bindtap="goSettings">前往设置绑定教务</view>
   </view>

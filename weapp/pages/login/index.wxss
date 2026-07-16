@@ -50,6 +50,31 @@
   line-height: 88rpx;
 }
 
+.privacy-consent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin-top: 28rpx;
+  color: #667085;
+  font-size: 24rpx;
+}
+
+.privacy-label {
+  display: flex;
+  align-items: center;
+}
+
+.privacy-label checkbox {
+  transform: scale(0.78);
+}
+
+.privacy-link {
+  color: #1677ff;
+  font-weight: 700;
+}
+
 .error-text {
   margin-top: 18rpx;
   color: #d92d20;

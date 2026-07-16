@@ -683,7 +683,7 @@ async function runCycle() {
   return result;
 }
 
-async function runCycleForUser(userId) {
+async function runCycleForUser(userId, options) {
   gradeCheckLog("start", { userScope: "user" });
   const userStorage = createStorageForUser(userId);
   const hasCampusAccount = Boolean(credentialStore.getJwxtCredentials(userId));
@@ -691,16 +691,19 @@ async function runCycleForUser(userId) {
   const mode = gradeChannelMode();
   gradeCheckLog("channel-mode", { mode });
 
-  if (mode === "xg") {
-    gradeCheckLog("skip-jwxt", { reason: "forced-xg-test" });
-    return executeXgCheck(userStorage, userId, "forced-xg-test");
+  if (mode === "xg" || (options && options.skipJwxt)) {
+    const reason = mode === "xg" ? "forced-xg" : "jwxt-cooldown";
+    gradeCheckLog("skip-jwxt", { reason });
+    return executeXgCheck(userStorage, userId, reason);
   }
 
   const jwxtResult = await tryJwxtCheckForUser(userId, userStorage);
   if (jwxtResult && jwxtResult.success) return jwxtResult;
-  if (jwxtResult && (jwxtResult.error === "ACCOUNT_RELOGIN_REQUIRED" || jwxtResult.cookieStatus === "ACCOUNT_RELOGIN_REQUIRED")) return jwxtResult;
   if (mode === "jwxt") return jwxtResult;
 
+  // Even when JWXT recovery reports an account error, an existing XG session
+  // may still be valid. Auto mode must always give the independent XG channel
+  // a chance before asking the user to rebind.
   const xgReason = jwxtResult && (jwxtResult.error || jwxtResult.cookieStatus) || "JWXT_FAILED";
   const xgResult = await executeXgCheck(userStorage, userId, xgReason);
   if (xgResult && xgResult.success) return xgResult;

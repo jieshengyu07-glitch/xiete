@@ -77,27 +77,10 @@ Page({
   statusMessage(status) {
     if (!status || !status.bound) return "未绑定教务账号。绑定后可自动同步课表、成绩和教务状态。";
 
-    const jwxtStatus = String(status.jwxtStatus || "").toUpperCase();
-    const cookieStatus = String(status.cookieStatus || "").toUpperCase();
-
-    if (jwxtStatus === "OK" || jwxtStatus === "SYNC_OK" || cookieStatus === "COOKIE_VALID") {
-      return "同步成功。教务数据已更新，可正常使用课表和成绩查询。";
-    }
-    if (jwxtStatus === "UNAVAILABLE" || jwxtStatus === "TIMEOUT" || cookieStatus === "JWXT_UNAVAILABLE" || cookieStatus === "JWXT_TIMEOUT") {
-      return "教务系统暂时不可用。学校教务系统可能正在维护，请稍后再试。";
-    }
-    if (
-      jwxtStatus === "LOGIN_FAILED" ||
-      jwxtStatus === "CAPTCHA_REQUIRED" ||
-      jwxtStatus === "COOKIE_EXPIRED" ||
-      jwxtStatus === "SSO_FAILED" ||
-      cookieStatus === "LOGIN_FAILED" ||
-      cookieStatus === "JWXT_CAPTCHA_REQUIRED" ||
-      cookieStatus === "COOKIE_EXPIRED" ||
-      cookieStatus === "JWXT_SSO_FAILED"
-    ) {
-      return "自动同步失败，需要重新验证。可能是密码变更、学校系统验证或教务系统维护导致。";
-    }
+    const campusStatus = String(status.campusLoginStatus || "").toLowerCase();
+    if (campusStatus === "valid") return "校园账号状态正常，可使用课表和成绩查询。";
+    if (campusStatus === "recovering") return "校园账号已绑定，系统正在后台自动恢复。";
+    if (campusStatus === "relogin_required") return "校园账号自动恢复未成功，请在“我的”页面重新验证。";
     return "已绑定教务账号。系统会自动同步课表和成绩，无需重复登录。";
   },
 

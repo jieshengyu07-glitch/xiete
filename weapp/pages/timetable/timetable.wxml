@@ -24,7 +24,7 @@
       <view class="error-text">{{error}}</view>
     </view>
 
-    <view wx:if="{{!syncing && viewMode==='today'}}" class="section-list">
+    <view wx:if="{{(!syncing || hasTimetable) && viewMode==='today'}}" class="section-list">
       <view wx:for="{{sections}}" wx:key="section" class="lesson-card">
         <view class="lesson-head">
           <view class="lesson-title">{{item.title}}</view>
@@ -55,7 +55,7 @@
       </view>
     </view>
 
-    <view wx:if="{{!syncing && viewMode==='week'}}" class="week-list">
+    <view wx:if="{{(!syncing || hasTimetable) && viewMode==='week'}}" class="week-list">
       <view wx:for="{{weekDays}}" wx:key="weekday" class="week-day-card">
         <view class="week-day-title">{{item.weekdayText}}</view>
         <view wx:if="{{!item.hasCourses}}" class="no-class">无课</view>

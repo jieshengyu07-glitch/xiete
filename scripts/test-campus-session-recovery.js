@@ -1,4 +1,10 @@
 const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "campus-session-recovery-"));
+process.env.NODE_ENV = "development";
+process.env.DATA_DIR = dataDir;
 process.env.CREDENTIAL_SECRET = process.env.CREDENTIAL_SECRET || "recovery-test-credential-secret-0123456789-abcdef";
 const {
   MAX_FAILED_ATTEMPTS,
@@ -66,6 +72,21 @@ async function main() {
   console.log("recoveryRateLimitTest=passed");
 
   resetRecoveryStateForTests();
+  let xgAttemptsAfterJwxtFailures = 0;
+  for (let index = 0; index < MAX_FAILED_ATTEMPTS; index += 1) {
+    await recoverCampusSession("channel-isolation-user", "jwxt", async () => {
+      throw Object.assign(new Error("jwxt unavailable"), { code: "JWXT_UNAVAILABLE" });
+    });
+  }
+  const isolatedXg = await recoverCampusSession("channel-isolation-user", "xg", async () => {
+    xgAttemptsAfterJwxtFailures += 1;
+    return { scoreUrl: "https://xg.example/score", cookies: "restored" };
+  });
+  assert.strictEqual(isolatedXg.success, true);
+  assert.strictEqual(xgAttemptsAfterJwxtFailures, 1);
+  console.log("jwxtRateLimitDoesNotBlockXgFallbackTest=passed");
+
+  resetRecoveryStateForTests();
   const modulePath = require.resolve("../src/sync/campusSessionRecovery");
   const restartUser = "restart-limited-user";
   await recoverCampusSession(restartUser, "jwxt", async () => {
@@ -92,4 +113,6 @@ async function main() {
 main().catch(err => {
   console.error(err.stack || err.message);
   process.exitCode = 1;
+}).finally(() => {
+  fs.rmSync(dataDir, { recursive: true, force: true });
 });

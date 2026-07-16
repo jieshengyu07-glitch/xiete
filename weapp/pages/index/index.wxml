@@ -9,7 +9,7 @@
       <text class="label">{{error}}</text>
     </view>
     <button class="btn" bindtap="refresh">重新连接</button>
-    <view class="tips">请确认后端服务已启动：npm start</view>
+    <view class="tips">请检查网络连接后重试；服务恢复后页面会正常加载。</view>
   </view>
 
   <block wx:else>
@@ -32,13 +32,13 @@
         <view class="status-cell">
           <view class="status-label">服务</view>
           <view class="status-value">
-            <text class="status-dot {{status.status==='running'?'status-ok':'status-err'}}"></text>{{status.status}}
+            <text class="status-dot {{status.status==='running'?'status-ok':'status-err'}}"></text>{{status.status==='running'?'正常':'暂不可用'}}
           </view>
         </view>
         <view class="status-cell">
-          <view class="status-label">Cookie</view>
+          <view class="status-label">校园账号</view>
           <view class="status-value">
-            <text class="status-dot {{status.cookieValid || status.cookieStatus==='account_saved' || status.cookieStatus==='pending_verify'?'status-ok':'status-err'}}"></text>{{status.cookieValid?'有效':(status.cookieStatus==='account_saved' || status.cookieStatus==='pending_verify'?'已保存':(status.cookieStatus==='jwxt_unavailable'?'暂不可用':'需绑定'))}}
+            <text class="status-dot {{status.bound?'status-ok':'status-err'}}"></text>{{status.bound?(status.campusLoginStatus==='recovering'?'恢复中':'已绑定'):'未绑定'}}
           </view>
         </view>
         <view class="status-cell wide">

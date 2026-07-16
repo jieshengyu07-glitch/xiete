@@ -1,8 +1,12 @@
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "performance-flow-"));
+process.env.NODE_ENV = "development";
+process.env.DATA_DIR = dataDir;
 const checker = require("../src/checker");
 
 async function concurrencyLimitTest() {
@@ -28,8 +32,12 @@ function nonBlockingUxSourceTest() {
   const grades = fs.readFileSync(path.join(root, "weapp", "pages", "grades", "grades.js"), "utf8");
   const timetable = fs.readFileSync(path.join(root, "weapp", "pages", "timetable", "timetable.js"), "utf8");
   const settings = fs.readFileSync(path.join(root, "weapp", "pages", "settings", "settings.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "weapp", "app.js"), "utf8");
+  const gradesView = fs.readFileSync(path.join(root, "weapp", "pages", "grades", "grades.wxml"), "utf8");
+  const timetableView = fs.readFileSync(path.join(root, "weapp", "pages", "timetable", "timetable.wxml"), "utf8");
 
-  assert.match(server, /scheduleUserGradeSync\(req\.userId, "manual-refresh"\)/);
+  assert.match(server, /scheduleUserGradeSync\(req\.userId, "manual-refresh"/);
+  assert.match(server, /skipJwxt = cooldown\.cooledDown && channelMode === "auto"/);
   assert.match(server, /scheduleUserTimetableSync\(req\.userId\)/);
   assert.match(server, /scheduleBindCompletion\(req\.userId, portal\)/);
   assert.match(grades, /result && result\.syncing/);
@@ -37,10 +45,16 @@ function nonBlockingUxSourceTest() {
   assert.doesNotMatch(grades, /showLoading\(\{ title: "刷新成绩/);
   assert.doesNotMatch(timetable, /showLoading\(\{ title: "刷新课表/);
   assert.doesNotMatch(settings, /showLoading\(\{ title: "绑定中/);
+  assert.match(app, /if \(this\.globalData\.loginPromise\) return this\.globalData\.loginPromise/);
+  assert.match(gradesView, /wx:if="\{\{grades\.length>0\}\}"/);
+  assert.match(timetableView, /\(!syncing \|\| hasTimetable\)/);
   console.log("nonBlockingRefreshAndBindUxTest=passed");
 }
 
-concurrencyLimitTest().then(nonBlockingUxSourceTest).catch(err => {
-  console.error(err);
-  process.exitCode = 1;
-});
+concurrencyLimitTest()
+  .then(nonBlockingUxSourceTest)
+  .catch(err => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => fs.rmSync(dataDir, { recursive: true, force: true }));

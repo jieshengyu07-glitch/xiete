@@ -1,0 +1,58 @@
+.privacy-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24rpx 24rpx calc(40rpx + env(safe-area-inset-bottom));
+  background: #f5f7fb;
+}
+
+.privacy-card {
+  padding: 34rpx 30rpx;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(38, 84, 153, 0.07);
+}
+
+.title {
+  color: #152338;
+  font-size: 38rpx;
+  font-weight: 800;
+}
+
+.updated {
+  margin: 12rpx 0 28rpx;
+  color: #98a2b3;
+  font-size: 23rpx;
+}
+
+.section-title {
+  margin: 28rpx 0 10rpx;
+  color: #25324a;
+  font-size: 28rpx;
+  font-weight: 750;
+}
+
+.text {
+  color: #667085;
+  font-size: 25rpx;
+  line-height: 1.75;
+}
+
+.official-btn,
+.withdraw-btn {
+  height: 82rpx;
+  margin-top: 32rpx;
+  border-radius: 16rpx;
+  font-size: 26rpx;
+  line-height: 82rpx;
+}
+
+.official-btn {
+  background: #1677ff;
+  color: #ffffff;
+}
+
+.withdraw-btn {
+  border: 1rpx solid #ffd6d6;
+  background: #fffafa;
+  color: #d92d20;
+}

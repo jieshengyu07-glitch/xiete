@@ -55,7 +55,8 @@ Page({
     gradeQueryStatusText: "暂无状态",
     gradeStatusClass: "muted",
     lastCheckAtText: "暂无同步记录",
-    loadingStatus: false
+    loadingStatus: false,
+    deletingData: false
   },
 
   onShow() {
@@ -203,6 +204,40 @@ Page({
       return;
     }
     wx.navigateTo({ url: "/pages/settings/settings" });
+  },
+
+  openPrivacy() {
+    if (typeof wx.openPrivacyContract === "function") {
+      wx.openPrivacyContract({ fail: () => wx.navigateTo({ url: "/pages/privacy/index" }) });
+      return;
+    }
+    wx.navigateTo({ url: "/pages/privacy/index" });
+  },
+
+  deleteCloudData() {
+    if (!this.data.isWxLoggedIn || this.data.deletingData) return;
+    wx.showModal({
+      title: "删除个人数据",
+      content: "将永久删除云端保存的校园账号、登录会话、成绩和课表缓存。此操作不可恢复，确定继续吗？",
+      confirmText: "永久删除",
+      confirmColor: "#d92d20",
+      success: result => {
+        if (!result.confirm) return;
+        this.setData({ deletingData: true });
+        api.post("/account/delete-data", {}, { timeout: 30000 }).then(() => {
+          this.setData({ deletingData: false });
+          this.clearLocalAuthState(false);
+          wx.showToast({ title: "个人数据已删除", icon: "success" });
+        }).catch(err => {
+          this.setData({ deletingData: false });
+          const code = String((err && (err.error || err.code || (err.data && err.data.error))) || "");
+          wx.showToast({
+            title: code === "DATA_SYNC_IN_PROGRESS" ? "数据同步中，请稍后再试" : "删除失败，请稍后重试",
+            icon: "none"
+          });
+        });
+      }
+    });
   },
 
   confirmClearCache() {

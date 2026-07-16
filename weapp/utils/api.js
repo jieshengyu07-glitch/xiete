@@ -1,6 +1,9 @@
 const app = getApp();
 
 const LOGIN_PAGE = "/pages/login/index";
+const PRIVACY_ACCEPTED_KEY = "privacyAccepted";
+const pendingGets = new Map();
+let loginNavigationPending = false;
 
 function getToken() {
   return wx.getStorageSync("token") || "";
@@ -18,15 +21,26 @@ function authError(message) {
 }
 
 function goLoginPage() {
+  if (loginNavigationPending) return;
+  loginNavigationPending = true;
   wx.navigateTo({
     url: LOGIN_PAGE,
-    fail: () => {}
+    complete: () => {
+      setTimeout(() => { loginNavigationPending = false; }, 500);
+    }
   });
 }
 
 function ensureLogin(force) {
   const token = getToken();
   if (!force && token) return Promise.resolve(token);
+
+  if (!wx.getStorageSync(PRIVACY_ACCEPTED_KEY)) {
+    goLoginPage();
+    const err = authError("PRIVACY_CONSENT_REQUIRED");
+    err.code = "PRIVACY_CONSENT_REQUIRED";
+    return Promise.reject(err);
+  }
 
   if (typeof app.loginWithWechat !== "function") {
     goLoginPage();
@@ -123,7 +137,15 @@ function sendPublic(path, method, data, options) {
 }
 
 function request(path, options) {
-  return send(path, "GET", null, options, false);
+  const key = String(path || "");
+  if (pendingGets.has(key)) return pendingGets.get(key);
+  const task = send(path, "GET", null, options, false);
+  const cleanup = () => {
+    if (pendingGets.get(key) === task) pendingGets.delete(key);
+  };
+  task.then(cleanup, cleanup);
+  pendingGets.set(key, task);
+  return task;
 }
 
 function post(path, data, options) {

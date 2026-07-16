@@ -180,7 +180,7 @@ Page({
 
   async loadToday(options) {
     const polling = Boolean(options && options.polling);
-    if (!polling) this.setData({ loading: true, error: "" });
+    if (!polling && !this.data.hasTimetable) this.setData({ loading: true, error: "" });
     try {
       const data = await api.request("/timetable/today");
       this.applyToday(data || {});
@@ -202,7 +202,7 @@ Page({
 
   async loadWeek(options) {
     const polling = Boolean(options && options.polling);
-    if (!polling) this.setData({ loading: true, error: "" });
+    if (!polling && !this.data.hasTimetable) this.setData({ loading: true, error: "" });
     try {
       const data = await api.request("/timetable/week");
       this.applyWeek(data || {});

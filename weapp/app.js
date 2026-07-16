@@ -40,7 +40,10 @@ App({
   },
 
   loginWithWechat(force) {
-    if (!force && this.globalData.loginPromise) return this.globalData.loginPromise;
+    // A forced refresh must still share an in-flight wx.login exchange. When
+    // several requests receive 401 together, starting multiple exchanges can
+    // race and overwrite a newer token with an older response.
+    if (this.globalData.loginPromise) return this.globalData.loginPromise;
 
     this.globalData.loginPromise = new Promise((resolve, reject) => {
       wx.login({

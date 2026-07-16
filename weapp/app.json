@@ -5,6 +5,7 @@
     "pages/profile/index",
     "pages/login/index",
     "pages/settings/settings",
+    "pages/privacy/index",
     "pages/index/index"
   ],
   "window": {

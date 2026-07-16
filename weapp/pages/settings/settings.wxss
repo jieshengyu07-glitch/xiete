@@ -83,6 +83,30 @@
   box-shadow: 0 10rpx 24rpx rgba(22, 119, 255, 0.2);
 }
 
+.privacy-consent {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin: 4rpx 0 18rpx;
+  color: #667085;
+  font-size: 24rpx;
+}
+
+.privacy-label {
+  display: flex;
+  align-items: center;
+}
+
+.privacy-label checkbox {
+  transform: scale(0.78);
+}
+
+.privacy-link {
+  color: #1677ff;
+  font-weight: 700;
+}
+
 .action-row {
   margin-top: 18rpx;
 }

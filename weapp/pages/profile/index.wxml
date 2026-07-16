@@ -25,4 +25,13 @@
     <button class="action-btn primary" loading="{{loadingStatus}}" disabled="{{loadingStatus}}" bindtap="refreshStatus">刷新状态</button>
     <button class="action-btn secondary-action" bindtap="manageJwxt">{{bindButtonText}}</button>
   </view>
+
+  <view class="privacy-card">
+    <view class="section-title">隐私与数据</view>
+    <button class="privacy-action" bindtap="openPrivacy">查看用户隐私保护指引</button>
+    <button wx:if="{{isWxLoggedIn}}" class="privacy-action" bindtap="confirmClearCache">清除本地登录信息</button>
+    <button wx:if="{{isWxLoggedIn}}" class="privacy-action danger" loading="{{deletingData}}" disabled="{{deletingData}}" bindtap="deleteCloudData">删除云端个人数据</button>
+  </view>
+
+  <view class="disclaimer">本小程序为校园工具，不代表学校官方。成绩与课表以学校系统最终数据为准。</view>
 </view>

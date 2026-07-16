@@ -3,6 +3,7 @@ const { formatJwxtErrorMessage, isInvalidCredentials } = require("../../utils/jw
 
 const BOUND_HINT_KEY = "jwxtBound";
 const OLD_BOUND_HINT_KEY = "jwxtBoundHint";
+const PRIVACY_ACCEPTED_KEY = "privacyAccepted";
 
 function formatTime(t) {
   if (!t) return "";
@@ -20,14 +21,15 @@ function normalizeCode(value) {
 }
 
 function deriveStatus(status) {
-  const hasBoundJwxt = Boolean(
+  const serverBound = status && typeof status.bound === "boolean" ? status.bound : null;
+  const hasBoundJwxt = serverBound !== null ? serverBound : (Boolean(
     status &&
-    (status.bound ||
-      status.portalAuthStatus === "OK" ||
+    (status.portalAuthStatus === "OK" ||
       status.cookieStatus === "account_saved" ||
       status.cookieStatus === "pending_verify")
-  ) || Boolean(wx.getStorageSync(BOUND_HINT_KEY));
+  ) || Boolean(wx.getStorageSync(BOUND_HINT_KEY)));
 
+  const campusLoginStatus = normalizeCode(status && status.campusLoginStatus);
   const jwxtStatus = normalizeCode(status && status.jwxtStatus);
   const cookieStatus = normalizeCode(status && status.cookieStatus);
 
@@ -41,22 +43,32 @@ function deriveStatus(status) {
     };
   }
 
-  if (jwxtStatus === "SYNCING") {
+  if (campusLoginStatus === "RELOGIN_REQUIRED") {
     return {
-      status: "SYNCING",
-      tone: "warn",
-      title: "正在同步教务数据",
-      desc: "正在连接教务系统，请稍候。",
+      status: "SYNC_FAILED",
+      tone: "err",
+      title: "校园账号需要重新验证",
+      desc: "自动恢复未成功，请确认密码是否已变更后重新绑定。",
       bound: true
     };
   }
 
-  if (jwxtStatus === "OK" || jwxtStatus === "SYNC_OK" || cookieStatus === "COOKIE_VALID") {
+  if (campusLoginStatus === "RECOVERING" || jwxtStatus === "SYNCING") {
+    return {
+      status: "SYNCING",
+      tone: "warn",
+      title: "账号已绑定，正在自动恢复",
+      desc: "系统正在恢复教务登录状态，无需重复绑定；成绩和课表缓存仍可使用。",
+      bound: true
+    };
+  }
+
+  if (campusLoginStatus === "VALID" || jwxtStatus === "OK" || jwxtStatus === "SYNC_OK" || cookieStatus === "COOKIE_VALID") {
     return {
       status: "SYNC_OK",
       tone: "ok",
-      title: "同步成功",
-      desc: "教务数据已更新，可正常使用课表和成绩查询。",
+      title: "校园账号可用",
+      desc: "账号已绑定，可正常使用课表和成绩查询。",
       bound: true
     };
   }
@@ -104,6 +116,35 @@ function isTimeoutError(err) {
   return message.includes("timeout") || message.includes("timed out");
 }
 
+function errorCode(err) {
+  return normalizeCode(err && (err.error || err.code || (err.data && err.data.error)));
+}
+
+function isTransientBindError(err) {
+  const code = errorCode(err);
+  return isTimeoutError(err) || [
+    "PORTAL_UNAVAILABLE",
+    "JWXT_UNAVAILABLE",
+    "JWXT_TIMEOUT",
+    "JWXT_SSO_FAILED",
+    "ECONNABORTED",
+    "ETIMEDOUT",
+    "ECONNRESET",
+    "ENOTFOUND",
+    "EAI_AGAIN"
+  ].includes(code);
+}
+
+function recoveringDisplay() {
+  return {
+    status: "SYNCING",
+    tone: "warn",
+    title: "账号已绑定，正在自动恢复",
+    desc: "教务系统暂时不可用，系统会自动重试，无需重复绑定。",
+    bound: true
+  };
+}
+
 Page({
   data: {
     studentId: "",
@@ -117,11 +158,28 @@ Page({
     hasBoundJwxt: false,
     lastSyncText: "",
     syncMetaText: "",
-    showRebindActions: false
+    showRebindActions: false,
+    privacyAccepted: false
   },
 
   onShow() {
+    this.setData({ privacyAccepted: Boolean(wx.getStorageSync(PRIVACY_ACCEPTED_KEY)) });
     this.refreshStatus();
+  },
+
+  onPrivacyChange(e) {
+    const accepted = Boolean(e && e.detail && e.detail.value && e.detail.value.length);
+    this.setData({ privacyAccepted: accepted });
+    if (accepted) wx.setStorageSync(PRIVACY_ACCEPTED_KEY, true);
+    else wx.removeStorageSync(PRIVACY_ACCEPTED_KEY);
+  },
+
+  openPrivacy() {
+    if (typeof wx.openPrivacyContract === "function") {
+      wx.openPrivacyContract({ fail: () => wx.navigateTo({ url: "/pages/privacy/index" }) });
+      return;
+    }
+    wx.navigateTo({ url: "/pages/privacy/index" });
   },
 
   setDisplayStatus(display, extra) {
@@ -171,6 +229,10 @@ Page({
       wx.showToast({ title: "请输入学号和教务密码", icon: "none" });
       return;
     }
+    if (!this.data.privacyAccepted) {
+      wx.showToast({ title: "请先阅读并同意隐私保护指引", icon: "none" });
+      return;
+    }
 
     this.setData({ binding: true });
     this.setDisplayStatus({
@@ -189,11 +251,15 @@ Page({
         wx.removeStorageSync(OLD_BOUND_HINT_KEY);
         const display = deriveStatus({
           bound: true,
+          campusLoginStatus: data.campusLoginStatus,
           jwxtStatus: data.verified === true || data.jwxtStatus === "OK" ? "SYNC_OK" : (data.jwxtStatus || "BOUND"),
           portalAuthStatus: data.portalAuthStatus || "OK"
         });
         this.setDisplayStatus(display, { lastSyncText: data.verified === true ? formatTime(new Date().toISOString()) : "" });
-        wx.showToast({ title: "绑定成功", icon: "success" });
+        wx.showToast({
+          title: data.campusLoginStatus === "recovering" ? "账号已绑定，正在恢复" : "绑定成功",
+          icon: data.campusLoginStatus === "recovering" ? "none" : "success"
+        });
         return;
       }
 
@@ -205,26 +271,42 @@ Page({
   },
 
   handleBindFailure(err) {
+    const wasBound = Boolean(
+      this.data.hasBoundJwxt ||
+      wx.getStorageSync(BOUND_HINT_KEY) ||
+      (err && err.data && err.data.bound)
+    );
+
     if (isInvalidCredentials(err)) {
-      this.setDisplayStatus({
+      this.setDisplayStatus(wasBound ? {
+        status: "SYNC_FAILED",
+        tone: "err",
+        title: "校园账号需要重新验证",
+        desc: "本次验证的账号或密码不正确，原绑定信息未被删除。",
+        bound: true
+      } : {
         status: "UNBOUND",
         tone: "muted",
         title: "未绑定教务账号",
         desc: "绑定后可自动同步课表、成绩和教务状态。",
         bound: false
       });
-      wx.showToast({ title: "学号或教务密码错误，请检查后重试", icon: "none" });
+      wx.showToast({ title: "学号或教务密码错误", icon: "none" });
       return;
     }
 
-    if (this.data.hasBoundJwxt || wx.getStorageSync(BOUND_HINT_KEY)) {
-      this.setDisplayStatus({
-        status: "SYNC_FAILED",
-        tone: "err",
-        title: "自动同步失败，需要重新验证",
-        desc: "可能是密码变更、学校系统验证或教务系统维护导致，请重新绑定或稍后再试。",
-        bound: true
+    if (wasBound && isTransientBindError(err)) {
+      this.setDisplayStatus(recoveringDisplay());
+      wx.showModal({
+        title: "账号仍已绑定",
+        content: "教务系统暂时不可用，系统会在后台自动恢复，无需重复绑定。",
+        showCancel: false
       });
+      return;
+    }
+
+    if (wasBound) {
+      this.setDisplayStatus(recoveringDisplay());
     } else {
       this.setDisplayStatus({
         status: "UNBOUND",
@@ -235,9 +317,10 @@ Page({
       });
     }
 
-    const fallback = isTimeoutError(err) ? "学校教务系统可能正在维护，请稍后再试。" : "绑定失败，请稍后再试。";
+    const transient = isTransientBindError(err);
+    const fallback = transient ? "学校系统暂时不可用，本次未更改绑定信息，请稍后再试。" : "暂时无法验证账号，请稍后再试。";
     wx.showModal({
-      title: "绑定失败",
+      title: transient ? "暂时无法验证" : "账号验证未完成",
       content: formatJwxtErrorMessage(err, fallback),
       showCancel: false
     });

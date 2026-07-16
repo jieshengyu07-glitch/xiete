@@ -373,6 +373,7 @@ function cacheWarningMessage(kind, hasCache, code) {
 }
 
 const AUTO_GRADE_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+const FAILED_SYNC_RETRY_INTERVAL_MS = 60 * 1000;
 
 function timeValue(value) {
   const ms = value ? new Date(value).getTime() : 0;
@@ -384,7 +385,8 @@ function shouldScheduleGradeSync(userId, activeStorage, gradesCache) {
   if (!credentialStore.getJwxtCredentials(userId)) return false;
   const accountMeta = credentialStore.readBoundAccountMeta(userId);
   const cooldown = isRetryCooledDown(accountMeta);
-  if (cooldown.cooledDown) return false;
+  const channelMode = gradeChannelMode();
+  if (cooldown.cooledDown && channelMode === "jwxt") return false;
   const syncState = userPersistence.readSyncState(userId, "grades");
   const cachedGrades = gradesCache && Array.isArray(gradesCache.grades) ? gradesCache.grades : [];
   const lastSync = Math.max(
@@ -394,8 +396,12 @@ function shouldScheduleGradeSync(userId, activeStorage, gradesCache) {
   );
   if (!cachedGrades.length) {
     const lastFinishedAt = timeValue(syncState.finishedAt);
-    const recentlyFinished = lastFinishedAt && Date.now() - lastFinishedAt < AUTO_GRADE_SYNC_INTERVAL_MS;
-    if (recentlyFinished && (syncState.status === "success" || syncState.status === "failed")) return false;
+    const sinceFinished = lastFinishedAt ? Date.now() - lastFinishedAt : Infinity;
+    if (syncState.status === "failed" && sinceFinished < FAILED_SYNC_RETRY_INTERVAL_MS) return false;
+    if (syncState.status === "success" && sinceFinished < AUTO_GRADE_SYNC_INTERVAL_MS) return false;
+    // A JWXT cooldown should accelerate the independent XG fallback, not
+    // suppress all grade synchronization for 30 minutes.
+    if (cooldown.cooledDown && channelMode !== "jwxt") return true;
     return true;
   }
   return Date.now() - lastSync > AUTO_GRADE_SYNC_INTERVAL_MS;
@@ -403,8 +409,10 @@ function shouldScheduleGradeSync(userId, activeStorage, gradesCache) {
 
 function maybeScheduleGradeSync(userId, activeStorage, gradesCache, reason) {
   if (!shouldScheduleGradeSync(userId, activeStorage, gradesCache)) return false;
+  const cooldown = isRetryCooledDown(credentialStore.readBoundAccountMeta(userId));
+  const skipJwxt = cooldown.cooledDown && gradeChannelMode() === "auto";
   console.log("[user-sync] schedule-grade-sync reason=" + (reason || "auto"));
-  scheduleUserGradeSync(userId, reason || "auto");
+  scheduleUserGradeSync(userId, reason || "auto", { skipJwxt });
   return true;
 }
 
@@ -998,7 +1006,7 @@ app.get("/grades", auth, (req, res) => {
     ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage)
     : { grades: activeStorage.getGrades(), updatedAt: activeStorage.data?.lastRunAt || null };
   const syncScheduled = req.userId ? maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades") : false;
-  const syncing = Boolean(req.userId && !gradesCache.grades.length && (syncScheduled || isUserGradeSyncRunning(req.userId)));
+  const syncing = Boolean(req.userId && (syncScheduled || isUserGradeSyncRunning(req.userId)));
   const syncState = req.userId ? userPersistence.readSyncState(req.userId, "grades") : {};
   const syncStatus = syncing ? "running" : (syncState.status || (gradesCache.grades.length ? "success" : "idle"));
   const syncErrorCode = syncStatus === "failed" ? String(syncState.errorCode || syncState.lastError || "SYNC_FAILED") : "";
@@ -1018,7 +1026,7 @@ app.get("/grades", auth, (req, res) => {
     errorCode: syncErrorCode || null,
     warning,
     warningCode: warning ? warningCode : null,
-    message: syncing ? "正在同步成绩..." :
+    message: syncing ? (grades.length ? "正在后台刷新成绩，当前显示上次结果" : "正在同步成绩...") :
       (syncStatus === "failed" ? cacheWarningMessage("grades", false, syncErrorCode) :
         (warning ? cacheWarningMessage("grades", true, warningCode) : (grades.length ? "" : "暂无成绩缓存，教务系统恢复后可重新检查。"))),
     hasGrades: grades.length > 0,
@@ -1049,7 +1057,7 @@ app.post("/check", auth, async (req, res) => {
   const hasCache = cachedGrades.length > 0;
   const channelMode = gradeChannelMode();
   const cooldown = isRetryCooledDown(req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null);
-  if (cooldown.cooledDown && channelMode !== "xg") {
+  if (cooldown.cooledDown && channelMode === "jwxt") {
     console.log("[grade-check] step=failed code=" + cooldown.error + " reason=cooldown");
     return res.json({
       success: false,
@@ -1069,7 +1077,8 @@ app.post("/check", auth, async (req, res) => {
   }
   if (req.userId) {
     const alreadyRunning = isUserGradeSyncRunning(req.userId);
-    scheduleUserGradeSync(req.userId, "manual-refresh");
+    const skipJwxt = cooldown.cooledDown && channelMode === "auto";
+    scheduleUserGradeSync(req.userId, "manual-refresh", { skipJwxt });
     console.log("[grade-check] step=accepted background=true alreadyRunning=" + alreadyRunning);
     return res.json({
       success: true,
@@ -1258,8 +1267,9 @@ function maybeScheduleTimetableSync(userId, rows) {
   if (!userId || rows.length || !credentialStore.getJwxtCredentials(userId)) return false;
   const state = userPersistence.readSyncState(userId, "timetable");
   const finishedAt = state.type === "timetable" ? timeValue(state.finishedAt) : 0;
-  if (finishedAt && Date.now() - finishedAt < AUTO_GRADE_SYNC_INTERVAL_MS &&
-      (state.status === "success" || state.status === "failed")) return false;
+  const sinceFinished = finishedAt ? Date.now() - finishedAt : Infinity;
+  if (state.status === "failed" && sinceFinished < FAILED_SYNC_RETRY_INTERVAL_MS) return false;
+  if (state.status === "success" && sinceFinished < AUTO_GRADE_SYNC_INTERVAL_MS) return false;
   scheduleUserTimetableSync(userId);
   return true;
 }
@@ -1318,7 +1328,7 @@ app.get("/timetable/today", auth, (req, res) => {
   }
   const { rows } = termRowsForRequest(req);
   const syncScheduled = maybeScheduleTimetableSync(req.userId, rows);
-  const syncing = !rows.length && (syncScheduled || isUserTimetableSyncRunning(req.userId));
+  const syncing = Boolean(syncScheduled || isUserTimetableSyncRunning(req.userId));
   const syncState = userPersistence.readSyncState(req.userId, "timetable");
   const syncStatus = syncing ? "running" : (syncState.type === "timetable" ? syncState.status : (rows.length ? "success" : "idle"));
   const activeStorage = requestStorage(req);
@@ -1340,12 +1350,12 @@ app.get("/timetable/today", auth, (req, res) => {
     hasTimetable: rows.length > 0,
     syncing,
     syncStatus,
-    message: syncing ? "正在同步课表..." : (!info.isTeachingPeriod ? info.academicStatusText : (warning ? cacheWarningMessage("timetable", true, warningCode) : emptyTimetableMessage(rows))),
+    message: syncing ? (rows.length ? "正在后台刷新课表，当前显示上次结果" : "正在同步课表...") : (!info.isTeachingPeriod ? info.academicStatusText : (warning ? cacheWarningMessage("timetable", true, warningCode) : emptyTimetableMessage(rows))),
     lastSuccessfulSyncAt: meta.lastSuccessfulSyncAt || activeStorage.data?.timetableLastSyncAt || null,
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
     debug: timetableDebug(info, rows.length, todayRows.length),
-    timetable: syncing ? [] : todayRows,
-    sections: syncing ? [] : fillDaySections(todayRows)
+    timetable: syncing && !rows.length ? [] : todayRows,
+    sections: syncing && !rows.length ? [] : fillDaySections(todayRows)
   });
 });
 
@@ -1365,7 +1375,7 @@ app.get("/timetable/week", auth, (req, res) => {
   }
   const { rows } = termRowsForRequest(req);
   const syncScheduled = maybeScheduleTimetableSync(req.userId, rows);
-  const syncing = !rows.length && (syncScheduled || isUserTimetableSyncRunning(req.userId));
+  const syncing = Boolean(syncScheduled || isUserTimetableSyncRunning(req.userId));
   const syncState = userPersistence.readSyncState(req.userId, "timetable");
   const syncStatus = syncing ? "running" : (rows.length ? "success" : (syncState.status || "idle"));
   const activeStorage = requestStorage(req);
@@ -1391,11 +1401,11 @@ app.get("/timetable/week", auth, (req, res) => {
     hasTimetable: rows.length > 0,
     syncing,
     syncStatus,
-    message: syncing ? "正在同步课表..." : (!info.isTeachingPeriod ? info.academicStatusText : (warning ? cacheWarningMessage("timetable", true, warningCode) : emptyTimetableMessage(rows))),
+    message: syncing ? (rows.length ? "正在后台刷新课表，当前显示上次结果" : "正在同步课表...") : (!info.isTeachingPeriod ? info.academicStatusText : (warning ? cacheWarningMessage("timetable", true, warningCode) : emptyTimetableMessage(rows))),
     lastSuccessfulSyncAt: meta.lastSuccessfulSyncAt || activeStorage.data?.timetableLastSyncAt || null,
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
     debug: timetableDebug(info, rows.length, filtered.length),
-    days: syncing ? [] : days
+    days: syncing && !rows.length ? [] : days
   });
 });
 
@@ -1612,6 +1622,38 @@ app.post("/unbind-account", auth, (req, res) => {
       success: false,
       error: "UNBIND_FAILED",
       message: err.message
+    });
+  }
+});
+
+// POST /account/delete-data
+// User-initiated privacy control: permanently removes all user-scoped files.
+app.post("/account/delete-data", auth, (req, res) => {
+  if (!ensureValidScope(req, res)) return;
+  logUserScope(req, "POST /account/delete-data");
+  if (
+    isBindCompletionRunning(req.userId) ||
+    isCampusSessionBootstrapRunning(req.userId) ||
+    isUserGradeSyncRunning(req.userId) ||
+    isUserTimetableSyncRunning(req.userId)
+  ) {
+    return res.status(409).json({
+      success: false,
+      error: "DATA_SYNC_IN_PROGRESS",
+      message: "数据正在同步，请稍后再删除"
+    });
+  }
+  try {
+    clearCaptchaSessionsForUser(req.userId);
+    userPersistence.deleteUserData(req.userId);
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ success: true, deleted: true });
+  } catch (err) {
+    console.log("[privacy] delete-user-data failed code=" + String((err && err.code) || "DELETE_USER_DATA_FAILED"));
+    return res.status(500).json({
+      success: false,
+      error: "DELETE_USER_DATA_FAILED",
+      message: "个人数据删除失败，请稍后重试"
     });
   }
 });
