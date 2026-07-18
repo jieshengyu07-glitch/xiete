@@ -3,6 +3,13 @@
     <view class="loading">加载中...</view>
   </view>
 
+  <view wx:elif="{{authRequired}}" class="card auth-card">
+    <view class="auth-icon">绩</view>
+    <view class="auth-title">登录后查看成绩</view>
+    <view class="auth-desc">本服务仅面向持有学校有效统一身份认证账号的校内用户。</view>
+    <button class="auth-button" bindtap="goLogin">前往登录</button>
+  </view>
+
   <block wx:else>
     <view class="summary-card">
       <view class="summary-main">

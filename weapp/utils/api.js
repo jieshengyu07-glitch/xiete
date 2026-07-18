@@ -48,6 +48,14 @@ function ensureLogin(force) {
     return Promise.reject(err);
   }
 
+  // Initial authentication must always be initiated by an explicit user
+  // action on the public landing/login page. `force` is reserved for renewing
+  // a previously established session after an authenticated request gets 401.
+  if (!force) {
+    goLoginPage();
+    return Promise.reject(authError("AUTH_REQUIRED"));
+  }
+
   if (typeof app.loginWithWechat !== "function") {
     goLoginPage();
     return Promise.reject(authError());

@@ -1,4 +1,127 @@
-.redirect-page {
+.landing-page {
   min-height: 100vh;
-  background: #f3f7ff;
+  box-sizing: border-box;
+  padding: 44rpx 28rpx calc(44rpx + env(safe-area-inset-bottom));
+  background: #f5f8fd;
+}
+
+.brand-card {
+  padding: 40rpx 30rpx 36rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #1677ff 0%, #44a3ff 100%);
+  color: #ffffff;
+  text-align: center;
+  box-shadow: 0 16rpx 38rpx rgba(22, 119, 255, 0.2);
+}
+
+.brand-icon {
+  width: 96rpx;
+  height: 96rpx;
+  margin: 0 auto 20rpx;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 42rpx;
+  font-weight: 850;
+  line-height: 96rpx;
+}
+
+.brand-name {
+  font-size: 42rpx;
+  font-weight: 850;
+}
+
+.brand-desc {
+  margin-top: 12rpx;
+  opacity: 0.9;
+  font-size: 25rpx;
+}
+
+.scope-card {
+  margin-top: 24rpx;
+  padding: 32rpx 28rpx;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 30rpx rgba(38, 84, 153, 0.08);
+}
+
+.scope-title {
+  color: #152338;
+  font-size: 32rpx;
+  font-weight: 850;
+}
+
+.scope-highlight {
+  margin-top: 18rpx;
+  padding: 20rpx;
+  border: 1rpx solid #cfe2ff;
+  border-radius: 16rpx;
+  background: #f0f6ff;
+  color: #175ca8;
+  font-size: 26rpx;
+  font-weight: 750;
+  line-height: 1.6;
+}
+
+.scope-item {
+  display: flex;
+  gap: 18rpx;
+  margin-top: 26rpx;
+}
+
+.scope-index {
+  flex-shrink: 0;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: #eaf2ff;
+  color: #1677ff;
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 44rpx;
+  text-align: center;
+}
+
+.scope-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.scope-label {
+  color: #25324a;
+  font-size: 27rpx;
+  font-weight: 800;
+}
+
+.scope-text {
+  margin-top: 8rpx;
+  color: #667085;
+  font-size: 24rpx;
+  line-height: 1.65;
+}
+
+.unofficial-note {
+  margin: 22rpx 8rpx;
+  color: #8a94a6;
+  font-size: 23rpx;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.continue-btn {
+  height: 88rpx;
+  margin: 0;
+  border-radius: 18rpx;
+  background: #1677ff;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 88rpx;
+}
+
+.privacy-link {
+  padding: 24rpx 0 8rpx;
+  color: #1677ff;
+  font-size: 24rpx;
+  font-weight: 700;
+  text-align: center;
 }

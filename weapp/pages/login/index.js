@@ -49,12 +49,7 @@ Page({
       this.setData({ loggingIn: false });
       wx.showToast({ title: "登录成功", icon: "success" });
       setTimeout(() => {
-        const pages = getCurrentPages();
-        if (pages.length > 1) {
-          wx.navigateBack();
-        } else {
-          wx.switchTab({ url: "/pages/profile/index" });
-        }
+        wx.switchTab({ url: "/pages/timetable/timetable" });
       }, 500);
     }).catch(() => {
       this.setData({
@@ -63,9 +58,5 @@ Page({
       });
       wx.showToast({ title: "登录失败", icon: "none" });
     });
-  },
-
-  goSettings() {
-    wx.navigateTo({ url: "/pages/settings/settings" });
   }
 });

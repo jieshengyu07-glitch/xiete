@@ -23,7 +23,8 @@ function manualLogoutGuardsTest() {
   assert.match(grades, /resetLoggedOutState/);
   assert.match(grades, /grades: \[\]/);
   assert.match(grades, /if \(!wx\.getStorageSync\("token"\)\)/);
-  assert.match(grades, /navigateTo\(\{ url: "\/pages\/login\/index" \}\)/);
+  assert.match(grades, /authRequired: true/);
+  assert.match(grades, /goLogin\(\)/);
   assert.match(timetable, /resetLoggedOutState/);
   assert.match(timetable, /authRequired: true/);
   assert.match(timetable, /sections: defaultSections\(\)/);

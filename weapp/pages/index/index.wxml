@@ -1,1 +1,38 @@
-<view class="redirect-page"></view>
+<view class="landing-page">
+  <view class="brand-card">
+    <view class="brand-icon">科</view>
+    <view class="brand-name">校园助手</view>
+    <view class="brand-desc">面向校内用户的课表与成绩查询工具</view>
+  </view>
+
+  <view class="scope-card">
+    <view class="scope-title">服务对象说明</view>
+    <view class="scope-highlight">仅限太原科技大学在校学生及持有学校有效统一身份认证账号的校内用户使用</view>
+    <view class="scope-item">
+      <view class="scope-index">1</view>
+      <view class="scope-content">
+        <view class="scope-label">登录身份</view>
+        <view class="scope-text">微信登录仅用于识别小程序用户并隔离个人数据，本小程序不获取用户手机号。</view>
+      </view>
+    </view>
+    <view class="scope-item">
+      <view class="scope-index">2</view>
+      <view class="scope-content">
+        <view class="scope-label">校园账号鉴权</view>
+        <view class="scope-text">使用课表和成绩服务前，需绑定本人有效校园账号，并由学校统一身份认证系统核验账号有效性。</view>
+      </view>
+    </view>
+    <view class="scope-item">
+      <view class="scope-index">3</view>
+      <view class="scope-content">
+        <view class="scope-label">使用限制</view>
+        <view class="scope-text">非上述服务对象或没有有效校内账号的用户，无法使用校园数据查询与同步服务。</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="unofficial-note">本小程序为校园工具，不代表学校官方应用。</view>
+
+  <button class="continue-btn" bindtap="continueToService">{{loggedIn ? '进入课表' : '我符合服务对象条件，继续登录'}}</button>
+  <view class="privacy-link" bindtap="openPrivacy">查看《用户隐私保护指引》</view>
+</view>

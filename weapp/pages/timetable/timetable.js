@@ -1,6 +1,5 @@
 const api = require("../../utils/api");
 const { formatJwxtErrorMessage, isCaptchaRequired, isLoginRequired } = require("../../utils/jwxtError");
-const MANUAL_LOGOUT_KEY = "manualLogout";
 
 const WEEKDAY_NAMES = ["", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
 const SECTION_TIMES = {
@@ -84,7 +83,7 @@ Page({
   onShow() {
     this._timetablePageActive = true;
     this._syncPollAttempts = 0;
-    if (!wx.getStorageSync("token") && wx.getStorageSync(MANUAL_LOGOUT_KEY)) {
+    if (!wx.getStorageSync("token")) {
       this.resetLoggedOutState();
       return;
     }
@@ -125,6 +124,11 @@ Page({
   },
 
   onPullDownRefresh() {
+    if (!wx.getStorageSync("token")) {
+      this.resetLoggedOutState();
+      wx.stopPullDownRefresh();
+      return;
+    }
     this.loadCurrent().then(() => wx.stopPullDownRefresh());
   },
 

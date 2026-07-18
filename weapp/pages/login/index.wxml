@@ -2,7 +2,13 @@
   <view class="login-card">
     <view class="login-icon">科</view>
     <view class="login-title">登录校园助手</view>
-    <view class="login-desc">使用微信登录后，可保存校园数据、使用个性化功能并保持登录状态。</view>
+    <view class="login-desc">仅限太原科技大学在校学生及持有学校有效统一身份认证账号的校内用户登录使用。</view>
+
+    <view class="login-scope">
+      <view class="login-scope-title">登录与账号鉴权说明</view>
+      <view class="login-scope-text">微信登录仅用于识别小程序用户和隔离个人数据，不获取手机号。</view>
+      <view class="login-scope-text">使用课表和成绩前，还需绑定本人校园账号，并由学校统一身份认证系统核验。</view>
+    </view>
 
     <view class="privacy-consent">
       <checkbox-group bindchange="onPrivacyChange">
@@ -14,13 +20,12 @@
       <text class="privacy-link" bindtap="openPrivacy">《用户隐私保护指引》</text>
     </view>
 
-    <button class="primary-btn" loading="{{loggingIn}}" disabled="{{loggingIn || !privacyAccepted}}" bindtap="login">微信一键登录</button>
+    <button class="primary-btn" loading="{{loggingIn}}" disabled="{{loggingIn || !privacyAccepted}}" bindtap="login">微信身份登录（不获取手机号）</button>
 
     <view wx:if="{{error}}" class="error-text">{{error}}</view>
 
     <view class="secondary-note">
       本小程序并非学校官方应用。教务账号仅用于课表、成绩和教务状态同步，密码会加密保存，不会展示给其他用户。
     </view>
-    <view class="settings-link" bindtap="goSettings">前往设置绑定教务</view>
   </view>
 </view>

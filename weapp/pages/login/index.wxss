@@ -39,6 +39,28 @@
   line-height: 1.6;
 }
 
+.login-scope {
+  margin-top: 24rpx;
+  padding: 22rpx;
+  border: 1rpx solid #cfe2ff;
+  border-radius: 16rpx;
+  background: #f4f8ff;
+  text-align: left;
+}
+
+.login-scope-title {
+  color: #25324a;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.login-scope-text {
+  margin-top: 10rpx;
+  color: #667085;
+  font-size: 23rpx;
+  line-height: 1.6;
+}
+
 .primary-btn {
   height: 88rpx;
   margin-top: 36rpx;
@@ -87,11 +109,4 @@
   color: #98a2b3;
   font-size: 24rpx;
   line-height: 1.55;
-}
-
-.settings-link {
-  margin-top: 18rpx;
-  color: #1677ff;
-  font-size: 25rpx;
-  font-weight: 750;
 }

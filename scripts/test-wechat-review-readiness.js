@@ -26,10 +26,13 @@ function staticReviewChecks() {
   const server = read("src/server.js");
 
   assert(appJson.pages.includes("pages/privacy/index"));
-  assert.strictEqual(appJson.pages[0], "pages/timetable/timetable");
+  assert.strictEqual(appJson.pages[0], "pages/index/index");
   assert.strictEqual(appJson.pages.includes("pages/index/index"), true);
-  assert.match(legacyEntry, /switchTab/);
-  assert.match(legacyEntry, /pages\/timetable\/timetable/);
+  assert.doesNotMatch(legacyEntry, /onLoad\(\)[\s\S]*loginWithWechat/);
+  assert.match(legacyEntryView, /仅限太原科技大学在校学生/);
+  assert.match(legacyEntryView, /学校统一身份认证系统核验账号有效性/);
+  assert.match(legacyEntryView, /不获取用户手机号/);
+  assert.match(legacyEntryView, /我符合服务对象条件，继续登录/);
   assert.doesNotMatch(legacyEntryView, /成绩监测中心|服务状态|最近成绩变化/);
   const ignoredFolders = (projectConfig.packOptions && projectConfig.packOptions.ignore || [])
     .filter(item => item.type === "folder")
@@ -38,7 +41,12 @@ function staticReviewChecks() {
     assert(ignoredFolders.includes(folder));
   });
   assert.match(api, /PRIVACY_CONSENT_REQUIRED/);
+  assert.match(api, /if \(!force\)/);
+  assert.match(api, /AUTH_REQUIRED/);
   assert.match(login, /用户隐私保护指引/);
+  assert.match(login, /仅限太原科技大学在校学生/);
+  assert.match(login, /不获取手机号/);
+  assert.match(login, /微信身份登录（不获取手机号）/);
   assert.match(login, /disabled="\{\{loggingIn \|\| !privacyAccepted\}\}"/);
   assert.match(settings, /用户隐私保护指引/);
   assert.match(settings, /disabled="\{\{binding \|\| !privacyAccepted\}\}"/);
@@ -68,8 +76,44 @@ function cloudDataDeletionTest() {
   console.log("userInitiatedCloudDataDeletionTest=passed");
 }
 
+function publicLandingDoesNotAutoLoginTest() {
+  const indexPath = path.join(root, "weapp/pages/index/index.js");
+  let pageDefinition;
+  let navigatedTo = "";
+  let loginOrRequestCalls = 0;
+  const originalPage = global.Page;
+  const originalWx = global.wx;
+  global.Page = definition => { pageDefinition = definition; };
+  global.wx = {
+    getStorageSync: () => "",
+    navigateTo: options => { navigatedTo = options.url; },
+    switchTab: () => {},
+    login: () => { loginOrRequestCalls += 1; },
+    request: () => { loginOrRequestCalls += 1; }
+  };
+  try {
+    delete require.cache[require.resolve(indexPath)];
+    require(indexPath);
+    const page = Object.assign({}, pageDefinition, {
+      data: Object.assign({}, pageDefinition.data),
+      setData(patchValue) { Object.assign(this.data, patchValue); }
+    });
+    page.onShow();
+    assert.strictEqual(loginOrRequestCalls, 0);
+    assert.strictEqual(navigatedTo, "");
+    page.continueToService();
+    assert.strictEqual(loginOrRequestCalls, 0);
+    assert.strictEqual(navigatedTo, "/pages/login/index");
+    console.log("publicLandingDoesNotAutoLoginTest=passed");
+  } finally {
+    global.Page = originalPage;
+    global.wx = originalWx;
+  }
+}
+
 try {
   staticReviewChecks();
+  publicLandingDoesNotAutoLoginTest();
   cloudDataDeletionTest();
 } finally {
   fs.rmSync(dataDir, { recursive: true, force: true });

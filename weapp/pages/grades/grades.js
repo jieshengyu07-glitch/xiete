@@ -46,6 +46,7 @@ Page({
     loading: true,
     refreshing: false,
     syncing: false,
+    authRequired: false,
     error: null,
     notice: ""
   },
@@ -55,7 +56,6 @@ Page({
     this._syncPollAttempts = 0;
     if (!wx.getStorageSync("token")) {
       this.resetLoggedOutState();
-      wx.navigateTo({ url: "/pages/login/index" });
       return;
     }
     this.loadGrades();
@@ -73,9 +73,14 @@ Page({
       loading: false,
       refreshing: false,
       syncing: false,
+      authRequired: true,
       error: "请先登录后查看成绩",
       notice: ""
     });
+  },
+
+  goLogin() {
+    wx.navigateTo({ url: "/pages/login/index" });
   },
 
   onHide() {
@@ -89,6 +94,11 @@ Page({
   },
 
   onPullDownRefresh() {
+    if (!wx.getStorageSync("token")) {
+      this.resetLoggedOutState();
+      wx.stopPullDownRefresh();
+      return;
+    }
     this.loadGrades().then(() => wx.stopPullDownRefresh());
   },
 
@@ -157,6 +167,7 @@ Page({
         activeTermIndex: 0,
         count: data.count || grades.length,
         syncing,
+        authRequired: false,
         notice: data.reviewDemo ? "当前为审核演示数据，不包含真实个人信息" :
           (data.warning ? (data.message || "教务系统暂时不可用，当前显示上次查询成绩") : ""),
         error: grades.length ? null : (data.message || "暂无成绩数据，请先完成登录或刷新成绩"),
@@ -182,6 +193,11 @@ Page({
   },
 
   async refreshGrades() {
+    if (!wx.getStorageSync("token")) {
+      this.resetLoggedOutState();
+      this.goLogin();
+      return;
+    }
     this.stopSyncPolling();
     this._syncPollAttempts = 0;
     this.setData({ refreshing: true, notice: "", error: null });

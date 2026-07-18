@@ -2,6 +2,48 @@
   padding-bottom: calc(28rpx + env(safe-area-inset-bottom));
 }
 
+.auth-card {
+  margin-top: 72rpx;
+  padding: 56rpx 36rpx 40rpx;
+  text-align: center;
+}
+
+.auth-icon {
+  width: 104rpx;
+  height: 104rpx;
+  margin: 0 auto 28rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #1677ff 0%, #44a3ff 100%);
+  color: #ffffff;
+  font-size: 42rpx;
+  font-weight: 850;
+  line-height: 104rpx;
+}
+
+.auth-title {
+  color: #152338;
+  font-size: 34rpx;
+  font-weight: 850;
+}
+
+.auth-desc {
+  margin: 18rpx auto 32rpx;
+  color: #77849a;
+  font-size: 25rpx;
+  line-height: 1.65;
+}
+
+.auth-button {
+  height: 84rpx;
+  margin: 0;
+  border-radius: 18rpx;
+  background: #1677ff;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 84rpx;
+}
+
 .summary-card {
   display: flex;
   align-items: center;
