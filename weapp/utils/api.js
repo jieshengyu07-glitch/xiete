@@ -2,6 +2,7 @@ const app = getApp();
 
 const LOGIN_PAGE = "/pages/login/index";
 const PRIVACY_ACCEPTED_KEY = "privacyAccepted";
+const MANUAL_LOGOUT_KEY = "manualLogout";
 const pendingGets = new Map();
 let loginNavigationPending = false;
 
@@ -34,6 +35,11 @@ function goLoginPage() {
 function ensureLogin(force) {
   const token = getToken();
   if (!force && token) return Promise.resolve(token);
+
+  if (wx.getStorageSync(MANUAL_LOGOUT_KEY)) {
+    goLoginPage();
+    return Promise.reject(authError("MANUAL_LOGOUT"));
+  }
 
   if (!wx.getStorageSync(PRIVACY_ACCEPTED_KEY)) {
     goLoginPage();
@@ -152,6 +158,10 @@ function post(path, data, options) {
   return send(path, "POST", data, options, false);
 }
 
+function del(path, data, options) {
+  return send(path, "DELETE", data, options, false);
+}
+
 function publicRequest(path, options) {
   return sendPublic(path, "GET", null, options);
 }
@@ -162,5 +172,6 @@ module.exports = {
   publicRequest,
   publicGet: publicRequest,
   post,
+  del,
   ensureLogin
 };

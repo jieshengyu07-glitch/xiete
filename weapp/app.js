@@ -24,7 +24,8 @@ App({
     apiEnv: getApiEnv(),
     clientVersion: "0.1.4-jwt",
     loginPromise: null,
-    lastLoginError: ""
+    lastLoginError: "",
+    authEpoch: 0
   },
 
   onLaunch() {
@@ -63,6 +64,8 @@ App({
               if (token) {
                 this.globalData.lastLoginError = "";
                 wx.setStorageSync("token", token);
+                wx.removeStorageSync("manualLogout");
+                this.globalData.authEpoch += 1;
                 resolve(token);
                 return;
               }

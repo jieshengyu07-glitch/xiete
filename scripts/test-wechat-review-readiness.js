@@ -43,8 +43,10 @@ function staticReviewChecks() {
   assert.match(privacy, /加密保存的校园账号密码/);
   assert.match(privacy, /不记录账号密码或登录凭据原文/);
   assert.match(privacy, /永久删除云端保存/);
+  assert.match(server, /app\.delete\("\/account\/data", auth/);
   assert.match(server, /app\.post\("\/account\/delete-data", auth/);
-  assert.match(server, /DATA_SYNC_IN_PROGRESS/);
+  assert.match(server, /scheduleFinalUserDataDeletion/);
+  assert.doesNotMatch(server, /error: "DATA_SYNC_IN_PROGRESS"/);
   console.log("wechatReviewPrivacySurfaceTest=passed");
 }
 

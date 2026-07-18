@@ -5,6 +5,7 @@ const TOKEN_KEY = "token";
 const USER_INFO_KEY = "userInfo";
 const JWXT_BOUND_KEY = "jwxtBound";
 const OLD_JWXT_BOUND_HINT_KEY = "jwxtBoundHint";
+const MANUAL_LOGOUT_KEY = "manualLogout";
 
 function friendlyTime(value) {
   if (!value) return "暂无同步记录";
@@ -224,7 +225,7 @@ Page({
       success: result => {
         if (!result.confirm) return;
         this.setData({ deletingData: true });
-        api.post("/account/delete-data", {}, { timeout: 30000 }).then(() => {
+        api.del("/account/data", {}, { timeout: 120000 }).then(() => {
           this.setData({ deletingData: false });
           this.clearLocalAuthState(false);
           wx.showToast({ title: "个人数据已删除", icon: "success" });
@@ -253,10 +254,12 @@ Page({
   },
 
   clearLocalAuthState(showToast) {
+    wx.setStorageSync(MANUAL_LOGOUT_KEY, true);
     wx.removeStorageSync(TOKEN_KEY);
     wx.removeStorageSync(USER_INFO_KEY);
     wx.removeStorageSync(JWXT_BOUND_KEY);
     wx.removeStorageSync(OLD_JWXT_BOUND_HINT_KEY);
+    if (app && app.globalData) app.globalData.authEpoch = Number(app.globalData.authEpoch || 0) + 1;
     this.setData({
       isWxLoggedIn: false,
       userInfo: null,

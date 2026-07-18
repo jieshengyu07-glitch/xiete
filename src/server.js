@@ -30,6 +30,7 @@ const {
   isDiagnosticAdminAuthorized
 } = require("./services/dataDirectoryDiagnostic");
 const { userIdHash } = require("./utils/userIdHash");
+const userDataDeletion = require("./services/userDataDeletion");
 
 assertJwtConfig();
 assertWechatConfig();
@@ -42,7 +43,7 @@ const SCHOOL_DATA_PATH = path.join(config.dataDir, "school.json");
 
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") {
     res.status(204).end();
@@ -464,9 +465,55 @@ function selectJwxtGradeCookies(cookies) {
 }
 
 const bindCompletionTasks = new Map();
+const dataDeletionCleanupTimers = new Map();
 
 function isBindCompletionRunning(userId) {
   return Boolean(userId && bindCompletionTasks.has(userId));
+}
+
+function isUserBackgroundWorkRunning(userId) {
+  return Boolean(
+    isBindCompletionRunning(userId) ||
+    isCampusSessionBootstrapRunning(userId) ||
+    isUserGradeSyncRunning(userId) ||
+    isUserTimetableSyncRunning(userId)
+  );
+}
+
+function scheduleFinalUserDataDeletion(userId) {
+  if (!userId || dataDeletionCleanupTimers.has(userId)) return;
+  const startedAt = Date.now();
+
+  const finish = () => {
+    dataDeletionCleanupTimers.delete(userId);
+    userDataDeletion.finishUserDataDeletion(userId);
+  };
+
+  const check = () => {
+    const timedOut = Date.now() - startedAt >= 5 * 60 * 1000;
+    if (isUserBackgroundWorkRunning(userId) && !timedOut) {
+      const timer = setTimeout(check, 250);
+      if (typeof timer.unref === "function") timer.unref();
+      dataDeletionCleanupTimers.set(userId, timer);
+      return;
+    }
+
+    try {
+      // A task that was already in flight may have recreated a user-scoped
+      // file after the first deletion. Remove the directory once more after
+      // all known work has settled.
+      userPersistence.deleteUserData(userId);
+      console.log("[privacy] delete-user-data complete userIdHash=" + userIdHash(userId));
+    } catch (err) {
+      console.log("[privacy] delete-user-data cleanup-failed code=" + String((err && err.code) || "DELETE_USER_DATA_FAILED"));
+    } finally {
+      finish();
+    }
+  };
+
+  const timer = setTimeout(check, 0);
+  if (typeof timer.unref === "function") timer.unref();
+  dataDeletionCleanupTimers.set(userId, timer);
 }
 
 function waitForBindCompletion(task, timeoutMs) {
@@ -545,6 +592,13 @@ app.post("/auth/wechat-login", async (req, res) => {
   try {
     const code = req.body && req.body.code;
     const userId = await resolveWechatOpenid(code);
+    if (userDataDeletion.isUserDataDeletionPending(userId)) {
+      return res.status(423).json({
+        success: false,
+        error: "DATA_DELETION_IN_PROGRESS",
+        message: "个人数据正在删除，请稍后重新登录"
+      });
+    }
     const token = signToken({ userId });
     console.log("[auth] wechat-login success");
     res.json({
@@ -999,15 +1053,14 @@ function compactGrade(g) {
 app.get("/grades", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /grades");
-  const activeStorage = requestStorage(req);
+  // Strictly user-scoped: never fall back to the process-wide legacy store.
+  const activeStorage = storage.createStorageForUser(req.userId);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
-  const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
-  const gradesCache = req.userId
-    ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage)
-    : { grades: activeStorage.getGrades(), updatedAt: activeStorage.data?.lastRunAt || null };
-  const syncScheduled = req.userId ? maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades") : false;
-  const syncing = Boolean(req.userId && (syncScheduled || isUserGradeSyncRunning(req.userId)));
-  const syncState = req.userId ? userPersistence.readSyncState(req.userId, "grades") : {};
+  const accountMeta = credentialStore.readBoundAccountMeta(req.userId);
+  const gradesCache = userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage);
+  const syncScheduled = maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades");
+  const syncing = Boolean(syncScheduled || isUserGradeSyncRunning(req.userId));
+  const syncState = userPersistence.readSyncState(req.userId, "grades");
   const syncStatus = syncing ? "running" : (syncState.status || (gradesCache.grades.length ? "success" : "idle"));
   const syncErrorCode = syncStatus === "failed" ? String(syncState.errorCode || syncState.lastError || "SYNC_FAILED") : "";
   const grades = gradesCache.grades.map(compactGrade);
@@ -1626,37 +1679,48 @@ app.post("/unbind-account", auth, (req, res) => {
   }
 });
 
-// POST /account/delete-data
-// User-initiated privacy control: permanently removes all user-scoped files.
-app.post("/account/delete-data", auth, (req, res) => {
+// DELETE /account/data (POST alias retained for already released clients).
+// A successful response means the user directory is already absent.
+function deleteAccountData(req, res) {
   if (!ensureValidScope(req, res)) return;
-  logUserScope(req, "POST /account/delete-data");
-  if (
-    isBindCompletionRunning(req.userId) ||
-    isCampusSessionBootstrapRunning(req.userId) ||
-    isUserGradeSyncRunning(req.userId) ||
-    isUserTimetableSyncRunning(req.userId)
-  ) {
-    return res.status(409).json({
-      success: false,
-      error: "DATA_SYNC_IN_PROGRESS",
-      message: "数据正在同步，请稍后再删除"
-    });
+  logUserScope(req, req.method + " " + req.path);
+  if (!userDataDeletion.beginUserDataDeletion(req.userId)) {
+    return res.status(202).json({ success: true, deleted: false, deletionPending: true });
   }
   try {
     clearCaptchaSessionsForUser(req.userId);
     userPersistence.deleteUserData(req.userId);
+    const deletionPending = isUserBackgroundWorkRunning(req.userId);
+    if (deletionPending) {
+      scheduleFinalUserDataDeletion(req.userId);
+    } else {
+      // With no in-flight writer there is no reason to keep the lock after the
+      // directory has been synchronously removed.
+      userDataDeletion.finishUserDataDeletion(req.userId);
+    }
+    const userDir = userPersistence.getUserDataPath(req.userId);
+    if (!userDir || fs.existsSync(userDir)) {
+      const verificationError = new Error("USER_DATA_DIRECTORY_STILL_EXISTS");
+      verificationError.code = "USER_DATA_DIRECTORY_STILL_EXISTS";
+      throw verificationError;
+    }
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ success: true, deleted: true });
+    return res.json({ success: true, deleted: true, deletionPending });
   } catch (err) {
     console.log("[privacy] delete-user-data failed code=" + String((err && err.code) || "DELETE_USER_DATA_FAILED"));
+    // A concurrent file write can temporarily prevent the first removal. The
+    // background cleanup retries after current user jobs have settled.
+    scheduleFinalUserDataDeletion(req.userId);
     return res.status(500).json({
       success: false,
       error: "DELETE_USER_DATA_FAILED",
       message: "个人数据删除失败，请稍后重试"
     });
   }
-});
+}
+
+app.delete("/account/data", auth, deleteAccountData);
+app.post("/account/delete-data", auth, deleteAccountData);
 
 // POST /upload-cookies
 app.post("/upload-cookies", requireAdminMode, auth, (req, res) => {

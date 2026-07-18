@@ -1,5 +1,6 @@
 const api = require("../../utils/api");
 const { formatJwxtErrorMessage, isCaptchaRequired, isLoginRequired } = require("../../utils/jwxtError");
+const MANUAL_LOGOUT_KEY = "manualLogout";
 
 const WEEKDAY_NAMES = ["", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
 const SECTION_TIMES = {
@@ -78,7 +79,29 @@ Page({
   onShow() {
     this._timetablePageActive = true;
     this._syncPollAttempts = 0;
+    if (!wx.getStorageSync("token") && wx.getStorageSync(MANUAL_LOGOUT_KEY)) {
+      this.resetLoggedOutState();
+      return;
+    }
     this.loadCurrent();
+  },
+
+  resetLoggedOutState() {
+    this.stopSyncPolling();
+    this.setData({
+      loading: false,
+      syncing: false,
+      error: "请先登录后查看课表",
+      notice: "",
+      dateText: "",
+      weekdayText: "",
+      weekText: "",
+      weekTypeText: "",
+      hasTimetable: false,
+      hasTodayCourses: false,
+      sections: defaultSections(),
+      weekDays: []
+    });
   },
 
   onHide() {

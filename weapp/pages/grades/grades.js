@@ -53,7 +53,29 @@ Page({
   onShow() {
     this._gradesPageActive = true;
     this._syncPollAttempts = 0;
+    if (!wx.getStorageSync("token")) {
+      this.resetLoggedOutState();
+      wx.navigateTo({ url: "/pages/login/index" });
+      return;
+    }
     this.loadGrades();
+  },
+
+  resetLoggedOutState() {
+    this.stopSyncPolling();
+    this.setData({
+      grades: [],
+      groupedGrades: [],
+      currentGroup: null,
+      currentGrades: [],
+      activeTermIndex: 0,
+      count: 0,
+      loading: false,
+      refreshing: false,
+      syncing: false,
+      error: "请先登录后查看成绩",
+      notice: ""
+    });
   },
 
   onHide() {

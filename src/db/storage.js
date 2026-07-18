@@ -4,10 +4,12 @@ const config = require('../config');
 const { getUserPaths } = require('../services/userPaths');
 const { buildGradeFallbackKey, buildGradeKey, normalizeGrade } = require('../grade/gradeNormalizer');
 const { mergeGrades: mergeGradeCollections } = require('../grade/gradeMerger');
+const { assertUserDataWritable } = require('../services/userDataDeletion');
 
 class JsonStorage {
-  constructor(filePath) {
+  constructor(filePath, userId) {
     this.filePath = filePath || path.join(config.dataDir, 'campus.json');
+    this.userId = userId || '';
     this.dataDir = path.dirname(this.filePath);
     this.data = null;
     this._ensureDataDir();
@@ -15,6 +17,7 @@ class JsonStorage {
   }
 
   _ensureDataDir() {
+    if (this.userId) assertUserDataWritable(this.userId);
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });
     }
@@ -37,6 +40,7 @@ class JsonStorage {
   }
 
   _save() {
+    if (this.userId) assertUserDataWritable(this.userId);
     const temporary = this.filePath + '.tmp-' + process.pid + '-' + Date.now();
     try {
       fs.writeFileSync(temporary, JSON.stringify(this.data, null, 2), 'utf-8');
@@ -462,7 +466,7 @@ class JsonStorage {
 }
 
 function createStorageForUser(userId) {
-  return new JsonStorage(getUserPaths(userId).campusPath);
+  return new JsonStorage(getUserPaths(userId).campusPath, userId);
 }
 
 const defaultStorage = new JsonStorage();

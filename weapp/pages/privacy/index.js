@@ -28,6 +28,7 @@ Page({
         if (!result.confirm) return;
         wx.removeStorageSync(PRIVACY_ACCEPTED_KEY);
         wx.removeStorageSync("token");
+        wx.setStorageSync("manualLogout", true);
         wx.removeStorageSync("userInfo");
         wx.removeStorageSync("jwxtBound");
         wx.removeStorageSync("jwxtBoundHint");

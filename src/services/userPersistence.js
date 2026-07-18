@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { getUserPaths, safeUserId } = require("./userPaths");
 const credentialStore = require("./credentialStore");
+const { assertUserDataWritable } = require("./userDataDeletion");
 
 function nowIso() {
   return new Date().toISOString();
@@ -135,6 +136,7 @@ function normalizeSyncState(value) {
 }
 
 function initUserData(userId) {
+  assertUserDataWritable(userId);
   const paths = getUserPaths(userId);
   ensureDir(paths.userDir);
   if (!fs.existsSync(paths.profilePath)) writeJson(paths.profilePath, defaultProfile(userId));
@@ -333,8 +335,20 @@ function deleteUserData(userId) {
     err.code = "INVALID_USER_DATA_PATH";
     throw err;
   }
-  if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+  if (fs.existsSync(target)) {
+    fs.rmSync(target, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100
+    });
+  }
   return true;
+}
+
+function getUserDataPath(userId) {
+  const safe = safeUserId(userId);
+  return safe ? getUserPaths(safe).userDir : "";
 }
 
 module.exports = {
@@ -352,5 +366,6 @@ module.exports = {
   saveCampusState,
   mirrorFromStorage,
   ensureGradesCacheFromStorage,
-  deleteUserData
+  deleteUserData,
+  getUserDataPath
 };

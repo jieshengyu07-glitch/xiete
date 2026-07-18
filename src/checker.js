@@ -11,6 +11,7 @@ const { queryXgScores } = require("./grade/xgScoreQuery");
 const { ensureXgScoreSession } = require("./grade/xgSession");
 const config = require("./config");
 const { recoverCampusSession } = require("./sync/campusSessionRecovery");
+const { assertUserDataWritable } = require("./services/userDataDeletion");
 
 const COOKIE_FILE = path.join(config.dataDir, "cookies.json");
 
@@ -102,6 +103,7 @@ function buildCookieHeader(cookies, domainPattern) {
 }
 
 function writeCookies(cookiesData, userId) {
+  if (userId) assertUserDataWritable(userId);
   const file = cookieFile(userId);
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
