@@ -23,7 +23,10 @@ const DEMO_GRADES = Object.freeze([
   { id: "demo-grade-3", courseName: "程序设计基础（示例）", score: "92", credit: "3.0", courseType: "必修", xnm: "2025", xqm: "12", term: "2025-2026学年第2学期", source: "review_demo" },
   { id: "demo-grade-4", courseName: "大学体育（示例）", score: "良好", credit: "1.0", courseType: "必修", xnm: "2025", xqm: "12", term: "2025-2026学年第2学期", source: "review_demo" },
   { id: "demo-grade-5", courseName: "线性代数（示例）", score: "85", credit: "2.5", courseType: "必修", xnm: "2025", xqm: "3", term: "2025-2026学年第1学期", source: "review_demo" },
-  { id: "demo-grade-6", courseName: "计算机基础（示例）", score: "90", credit: "2.0", courseType: "必修", xnm: "2025", xqm: "3", term: "2025-2026学年第1学期", source: "review_demo" }
+  { id: "demo-grade-6", courseName: "计算机基础（示例）", score: "90", credit: "2.0", courseType: "必修", xnm: "2025", xqm: "3", term: "2025-2026学年第1学期", source: "review_demo" },
+  { id: "demo-grade-7", courseName: "大学物理（示例）", score: "82", credit: "3.0", courseType: "必修", xnm: "2025", xqm: "3", term: "2025-2026学年第1学期", source: "review_demo" },
+  { id: "demo-grade-8", courseName: "数据库基础（示例）", score: "89", credit: "2.5", courseType: "专业课", xnm: "2024", xqm: "12", term: "2024-2025学年第2学期", source: "review_demo" },
+  { id: "demo-grade-9", courseName: "工程制图（示例）", score: "良好", credit: "2.0", courseType: "必修", xnm: "2024", xqm: "12", term: "2024-2025学年第2学期", source: "review_demo" }
 ]);
 
 function isEnabled() {
@@ -166,19 +169,39 @@ function demoDateInfo(dateValue) {
 }
 
 const DAY_COURSES = [
-  ["高等数学（示例）", 1, "综合楼A101", "示例教师"],
-  ["大学英语（示例）", 2, "教学楼B203", "示例教师"],
-  ["程序设计基础（示例）", 3, "实验楼C305", "示例教师"],
-  ["工程制图（示例）", 1, "教学楼B105", "示例教师"],
-  ["大学体育（示例）", 4, "体育场", "示例教师"],
-  ["创新实践（示例）", 2, "创新中心201", "示例教师"],
-  ["职业规划（示例）", 3, "综合楼A205", "示例教师"]
+  [
+    ["高等数学（示例）", 1, "综合楼A101", "示例教师"],
+    ["大学英语（示例）", 2, "教学楼B203", "示例教师"]
+  ],
+  [
+    ["程序设计基础（示例）", 1, "实验楼C305", "示例教师"],
+    ["大学物理（示例）", 3, "教学楼B301", "示例教师"]
+  ],
+  [
+    ["数据结构（示例）", 2, "实验楼C201", "示例教师"],
+    ["大学体育（示例）", 4, "体育场", "示例教师"]
+  ],
+  [
+    ["概率论（示例）", 1, "综合楼A205", "示例教师"],
+    ["数据库基础（示例）", 3, "实验楼C308", "示例教师"]
+  ],
+  [
+    ["工程制图（示例）", 2, "教学楼B105", "示例教师"],
+    ["创新实践（示例）", 4, "创新中心201", "示例教师"]
+  ],
+  [
+    ["职业规划（示例）", 1, "综合楼A205", "示例教师"],
+    ["计算机基础（示例）", 2, "实验楼C102", "示例教师"]
+  ],
+  [
+    ["阅读与表达（示例）", 2, "图书馆研讨室", "示例教师"],
+    ["心理健康（示例）", 3, "综合楼A302", "示例教师"]
+  ]
 ];
 
-function demoCourse(weekday) {
-  const source = DAY_COURSES[Math.max(1, Math.min(7, Number(weekday))) - 1];
+function demoCourse(source, weekday, index) {
   return {
-    id: "review-demo-course-" + weekday,
+    id: "review-demo-course-" + weekday + "-" + index,
     weekday: Number(weekday),
     section: source[1],
     courseName: source[0],
@@ -196,12 +219,17 @@ function demoCourse(weekday) {
   };
 }
 
+function demoCourses(weekday) {
+  const safeWeekday = Math.max(1, Math.min(7, Number(weekday)));
+  return DAY_COURSES[safeWeekday - 1].map((source, index) => demoCourse(source, safeWeekday, index + 1));
+}
+
 function demoSections(weekday) {
-  const course = demoCourse(weekday);
+  const courses = demoCourses(weekday);
   return [1, 2, 3, 4].map(section => ({
     section,
     title: "第" + section + "大节",
-    courses: section === course.section ? [course] : []
+    courses: courses.filter(course => course.section === section)
   }));
 }
 
@@ -211,7 +239,7 @@ function timetableConfig(dateValue) {
     success: true,
     reviewDemo: true,
     hasTimetable: true,
-    timetableCount: 7
+    timetableCount: DAY_COURSES.reduce((count, courses) => count + courses.length, 0)
   }, info);
 }
 

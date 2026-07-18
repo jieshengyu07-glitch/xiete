@@ -65,13 +65,13 @@
     <view wx:if="{{(!syncing || hasTimetable) && viewMode==='week'}}" class="week-list">
       <view wx:for="{{weekDays}}" wx:key="weekday" class="week-day-card">
         <view class="week-day-title">{{item.weekdayText}}</view>
-        <view wx:if="{{!item.hasCourses}}" class="no-class">无课</view>
-        <view wx:for="{{item.courseSections}}" wx:for-item="section" wx:key="section" class="week-section">
-          <view class="week-section-head">{{section.title}} · {{section.timeText}}</view>
-          <view wx:for="{{section.courses}}" wx:for-item="course" wx:key="id" class="course-block">
-            <view class="course-name">{{course.courseName}}</view>
-            <view class="course-row"><text class="course-label">教室</text><text>{{course.displayLocation || course.classroomRaw || course.displayRoom || "地点待定"}}</text></view>
-            <view wx:if="{{course.teacherName}}" class="course-row"><text class="course-label">老师</text><text>{{course.teacherName}}</text></view>
+        <view class="week-section-list">
+          <view wx:for="{{item.sections}}" wx:for-item="section" wx:key="section" class="week-section">
+            <view class="week-section-label">{{section.title}}</view>
+            <view class="week-section-content">
+              <view wx:if="{{section.courses.length === 0}}" class="week-no-class">无课</view>
+              <view wx:for="{{section.courses}}" wx:for-item="course" wx:key="id" class="week-course-name">{{course.courseName}}</view>
+            </view>
           </view>
         </view>
       </view>

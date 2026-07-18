@@ -164,7 +164,7 @@ async function main() {
     assert.strictEqual(grades.status, 200);
     assert.strictEqual(grades.data.reviewDemo, true);
     assert.strictEqual(grades.data.syncing, false);
-    assert(grades.data.grades.length >= 4);
+    assert.strictEqual(grades.data.grades.length, 9);
     assert(grades.data.grades.every(item => item.source === "review_demo"));
     assert.strictEqual(JSON.stringify(grades.data).includes(demoUsername), false);
     assert.strictEqual(JSON.stringify(grades.data).includes(demoPassword), false);
@@ -173,12 +173,15 @@ async function main() {
     assert.strictEqual(today.data.reviewDemo, true);
     assert.strictEqual(today.data.syncing, false);
     assert.strictEqual(today.data.sections.length, 4);
-    assert(today.data.sections.some(section => section.courses.length > 0));
+    assert(today.data.sections.reduce((count, section) => count + section.courses.length, 0) >= 2);
 
     const week = await request(port, "GET", "/timetable/week", demoToken);
     assert.strictEqual(week.data.reviewDemo, true);
     assert.strictEqual(week.data.days.length, 7);
-    assert(week.data.days.some(day => day.sections.some(section => section.courses.length > 0)));
+    assert(week.data.days.every(day => day.sections.length === 4));
+    assert(week.data.days.reduce((count, day) => {
+      return count + day.sections.reduce((dayCount, section) => dayCount + section.courses.length, 0);
+    }, 0) >= 14);
 
     const check = await request(port, "POST", "/check", demoToken, {});
     assert.strictEqual(check.data.reviewDemo, true);

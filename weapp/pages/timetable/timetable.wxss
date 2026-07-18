@@ -154,21 +154,64 @@
 }
 
 .week-day-title {
-  margin-bottom: 16rpx;
+  margin-bottom: 12rpx;
   color: #152338;
   font-size: 28rpx;
   font-weight: 800;
 }
 
-.week-section + .week-section {
-  margin-top: 18rpx;
+.week-section-list {
+  overflow: hidden;
+  border: 1rpx solid #e8eef8;
+  border-radius: 14rpx;
 }
 
-.week-section-head {
-  margin-bottom: 10rpx;
+.week-section {
+  display: flex;
+  align-items: stretch;
+  min-height: 72rpx;
+  background: #f8fbff;
+}
+
+.week-section + .week-section {
+  border-top: 1rpx solid #e8eef8;
+}
+
+.week-section-label {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 138rpx;
+  padding: 14rpx 16rpx;
+  border-right: 1rpx solid #e8eef8;
   color: #607089;
   font-size: 23rpx;
   font-weight: 700;
+}
+
+.week-section-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 12rpx 18rpx;
+}
+
+.week-course-name {
+  color: #17233c;
+  font-size: 25rpx;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.week-course-name + .week-course-name {
+  margin-top: 6rpx;
+}
+
+.week-no-class {
+  color: #98a2b3;
+  font-size: 24rpx;
 }
 
 .lesson-card {

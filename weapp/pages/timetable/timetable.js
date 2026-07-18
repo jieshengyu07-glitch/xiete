@@ -34,15 +34,19 @@ function normalizeWeekType(data) {
 }
 
 function normalizeSections(sections) {
-  const source = Array.isArray(sections) && sections.length ? sections : defaultSections();
-  return source.map(item => {
-    const section = Number(item.section);
+  const source = Array.isArray(sections) ? sections : [];
+  return defaultSections().map(fallback => {
+    const matches = source.filter(item => Number(item && item.section) === fallback.section);
+    const item = matches[0] || fallback;
+    const courses = matches.reduce((list, match) => {
+      return list.concat(Array.isArray(match.courses) ? match.courses : []);
+    }, []);
     return {
       ...item,
-      section,
-      title: item.title || ("第" + section + "大节"),
-      timeText: item.timeText || SECTION_TIMES[section] || "",
-      courses: Array.isArray(item.courses) ? item.courses : []
+      section: fallback.section,
+      title: item.title || fallback.title,
+      timeText: item.timeText || fallback.timeText,
+      courses
     };
   });
 }
@@ -165,7 +169,6 @@ Page({
         weekday: day.weekday,
         weekdayText: WEEKDAY_NAMES[day.weekday] || "",
         sections,
-        courseSections: sections.filter(section => section.courses.length > 0),
         hasCourses: sections.some(section => section.courses.length > 0)
       };
     });
