@@ -20,11 +20,12 @@ function staticReviewChecks() {
   const login = read("weapp/pages/login/index.wxml");
   const settings = read("weapp/pages/settings/settings.wxml");
   const profile = read("weapp/pages/profile/index.wxml");
-  const legacyHome = read("weapp/pages/index/index.wxml");
   const privacy = read("weapp/pages/privacy/index.wxml");
   const server = read("src/server.js");
 
   assert(appJson.pages.includes("pages/privacy/index"));
+  assert.strictEqual(appJson.pages[0], "pages/timetable/timetable");
+  assert.strictEqual(appJson.pages.includes("pages/index/index"), false);
   const ignoredFolders = (projectConfig.packOptions && projectConfig.packOptions.ignore || [])
     .filter(item => item.type === "folder")
     .map(item => item.value);
@@ -38,7 +39,6 @@ function staticReviewChecks() {
   assert.match(settings, /disabled="\{\{binding \|\| !privacyAccepted\}\}"/);
   assert.match(profile, /删除云端个人数据/);
   assert.match(profile, /本小程序为校园工具，不代表学校官方/);
-  assert.doesNotMatch(legacyHome, /Cookie|npm start|上传Cookie|调试配置/);
   assert.match(privacy, /微信登录临时凭证/);
   assert.match(privacy, /加密保存的校园账号密码/);
   assert.match(privacy, /不记录账号密码或登录凭据原文/);
