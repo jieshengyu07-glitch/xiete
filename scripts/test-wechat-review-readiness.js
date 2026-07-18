@@ -20,12 +20,17 @@ function staticReviewChecks() {
   const login = read("weapp/pages/login/index.wxml");
   const settings = read("weapp/pages/settings/settings.wxml");
   const profile = read("weapp/pages/profile/index.wxml");
+  const legacyEntry = read("weapp/pages/index/index.js");
+  const legacyEntryView = read("weapp/pages/index/index.wxml");
   const privacy = read("weapp/pages/privacy/index.wxml");
   const server = read("src/server.js");
 
   assert(appJson.pages.includes("pages/privacy/index"));
   assert.strictEqual(appJson.pages[0], "pages/timetable/timetable");
-  assert.strictEqual(appJson.pages.includes("pages/index/index"), false);
+  assert.strictEqual(appJson.pages.includes("pages/index/index"), true);
+  assert.match(legacyEntry, /switchTab/);
+  assert.match(legacyEntry, /pages\/timetable\/timetable/);
+  assert.doesNotMatch(legacyEntryView, /成绩监测中心|服务状态|最近成绩变化/);
   const ignoredFolders = (projectConfig.packOptions && projectConfig.packOptions.ignore || [])
     .filter(item => item.type === "folder")
     .map(item => item.value);
