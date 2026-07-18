@@ -20,6 +20,16 @@ function normalizeCode(value) {
   return String(value || "").toUpperCase();
 }
 
+function boundDisplay(status) {
+  return {
+    status: status || "BOUND",
+    tone: "ok",
+    title: "账号已绑定",
+    desc: "系统将自动同步课表和成绩，无需重复操作。",
+    bound: true
+  };
+}
+
 function deriveStatus(status) {
   const serverBound = status && typeof status.bound === "boolean" ? status.bound : null;
   const hasBoundJwxt = serverBound !== null ? serverBound : (Boolean(
@@ -54,33 +64,15 @@ function deriveStatus(status) {
   }
 
   if (campusLoginStatus === "RECOVERING" || jwxtStatus === "SYNCING") {
-    return {
-      status: "SYNCING",
-      tone: "warn",
-      title: "账号已绑定，正在自动恢复",
-      desc: "系统正在恢复教务登录状态，无需重复绑定；成绩和课表缓存仍可使用。",
-      bound: true
-    };
+    return boundDisplay();
   }
 
   if (campusLoginStatus === "VALID" || jwxtStatus === "OK" || jwxtStatus === "SYNC_OK" || cookieStatus === "COOKIE_VALID") {
-    return {
-      status: "SYNC_OK",
-      tone: "ok",
-      title: "校园账号可用",
-      desc: "账号已绑定，可正常使用课表和成绩查询。",
-      bound: true
-    };
+    return boundDisplay("SYNC_OK");
   }
 
   if (jwxtStatus === "UNAVAILABLE" || jwxtStatus === "JWXT_UNAVAILABLE" || jwxtStatus === "TIMEOUT" || cookieStatus === "JWXT_UNAVAILABLE" || cookieStatus === "JWXT_TIMEOUT") {
-    return {
-      status: "JWXT_UNAVAILABLE",
-      tone: "warn",
-      title: "教务系统暂时不可用",
-      desc: "学校教务系统可能正在维护，请稍后再试。",
-      bound: true
-    };
+    return boundDisplay();
   }
 
   if (
@@ -93,22 +85,10 @@ function deriveStatus(status) {
     cookieStatus === "COOKIE_EXPIRED" ||
     cookieStatus === "JWXT_SSO_FAILED"
   ) {
-    return {
-      status: "SYNC_FAILED",
-      tone: "err",
-      title: "自动同步失败，需要重新验证",
-      desc: "可能是密码变更、学校系统验证或教务系统维护导致，请重新绑定或稍后再试。",
-      bound: true
-    };
+    return boundDisplay();
   }
 
-  return {
-    status: "BOUND",
-    tone: "ok",
-    title: "已绑定教务账号",
-    desc: "系统会自动同步课表和成绩，无需重复登录。",
-    bound: true
-  };
+  return boundDisplay();
 }
 
 function isTimeoutError(err) {
@@ -136,13 +116,7 @@ function isTransientBindError(err) {
 }
 
 function recoveringDisplay() {
-  return {
-    status: "SYNCING",
-    tone: "warn",
-    title: "账号已绑定，正在自动恢复",
-    desc: "教务系统暂时不可用，系统会自动重试，无需重复绑定。",
-    bound: true
-  };
+  return boundDisplay();
 }
 
 Page({
@@ -237,9 +211,9 @@ Page({
     this.setData({ binding: true });
     this.setDisplayStatus({
       status: "SYNCING",
-      tone: "warn",
-      title: "正在同步教务数据",
-      desc: "正在连接教务系统，请稍候。",
+      tone: "muted",
+      title: "正在验证账号",
+      desc: "请稍候。",
       bound: true
     });
     try {
@@ -249,16 +223,11 @@ Page({
       if (data && data.success === true && data.bound === true) {
         wx.setStorageSync(BOUND_HINT_KEY, true);
         wx.removeStorageSync(OLD_BOUND_HINT_KEY);
-        const display = deriveStatus({
-          bound: true,
-          campusLoginStatus: data.campusLoginStatus,
-          jwxtStatus: data.verified === true || data.jwxtStatus === "OK" ? "SYNC_OK" : (data.jwxtStatus || "BOUND"),
-          portalAuthStatus: data.portalAuthStatus || "OK"
-        });
+        const display = boundDisplay(data.verified === true ? "SYNC_OK" : "BOUND");
         this.setDisplayStatus(display, { lastSyncText: data.verified === true ? formatTime(new Date().toISOString()) : "" });
         wx.showToast({
-          title: data.campusLoginStatus === "recovering" ? "账号已绑定，正在恢复" : "绑定成功",
-          icon: data.campusLoginStatus === "recovering" ? "none" : "success"
+          title: "绑定成功",
+          icon: "success"
         });
         return;
       }
@@ -297,11 +266,7 @@ Page({
 
     if (wasBound && isTransientBindError(err)) {
       this.setDisplayStatus(recoveringDisplay());
-      wx.showModal({
-        title: "账号仍已绑定",
-        content: "教务系统暂时不可用，系统会在后台自动恢复，无需重复绑定。",
-        showCancel: false
-      });
+      wx.showToast({ title: "账号已绑定", icon: "success" });
       return;
     }
 

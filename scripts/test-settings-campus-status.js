@@ -52,10 +52,10 @@ async function main() {
   const recoveringPage = createPage();
   recoveringPage.refreshStatus();
   await flush();
-  assert.strictEqual(recoveringPage.data.status, "SYNCING");
+  assert.strictEqual(recoveringPage.data.status, "BOUND");
   assert.strictEqual(recoveringPage.data.hasBoundJwxt, true);
   assert.strictEqual(recoveringPage.data.showRebindActions, false);
-  assert.match(recoveringPage.data.statusTitle, /自动恢复/);
+  assert.strictEqual(recoveringPage.data.statusTitle, "账号已绑定");
   console.log("recoveringStatusOverridesLegacyJwxtFailureTest=passed");
 
   statusResponse = {
@@ -86,10 +86,10 @@ async function main() {
   latestModal = null;
   const transientPage = createPage({ hasBoundJwxt: true });
   transientPage.handleBindFailure({ error: "JWXT_UNAVAILABLE", message: "temporary" });
-  assert.strictEqual(transientPage.data.status, "SYNCING");
+  assert.strictEqual(transientPage.data.status, "BOUND");
   assert.strictEqual(transientPage.data.showRebindActions, false);
-  assert.strictEqual(latestModal.title, "账号仍已绑定");
-  assert.doesNotMatch(latestModal.title, /绑定失败/);
+  assert.strictEqual(transientPage.data.statusTitle, "账号已绑定");
+  assert.strictEqual(latestModal, null);
   console.log("transientRebindFailureKeepsBoundRecoveryStateTest=passed");
 
   boundHint = false;
