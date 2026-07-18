@@ -115,6 +115,22 @@ function isTransientBindError(err) {
   ].includes(code);
 }
 
+function isCaptchaRequired(err) {
+  return [
+    "PORTAL_VERIFICATION_REQUIRED",
+    "JWXT_CAPTCHA_REQUIRED",
+    "CAPTCHA_REQUIRED"
+  ].includes(errorCode(err));
+}
+
+function isCaptchaRetryError(err) {
+  return [
+    "JWXT_CAPTCHA_INVALID",
+    "CAPTCHA_SESSION_EXPIRED",
+    "JWXT_CAPTCHA_SESSION_EXPIRED"
+  ].includes(errorCode(err));
+}
+
 function recoveringDisplay() {
   return boundDisplay();
 }
@@ -125,6 +141,12 @@ Page({
     password: "",
     binding: false,
     unbinding: false,
+    showCaptcha: false,
+    captchaLoading: false,
+    captchaSubmitting: false,
+    captchaSessionId: "",
+    captchaImage: "",
+    captchaValue: "",
     status: "UNBOUND",
     statusTitle: "未绑定教务账号",
     statusDesc: "绑定后可自动同步课表、成绩和教务状态。",
@@ -139,6 +161,12 @@ Page({
   onShow() {
     this.setData({ privacyAccepted: Boolean(wx.getStorageSync(PRIVACY_ACCEPTED_KEY)) });
     this.refreshStatus();
+  },
+
+  onUnload() {
+    if (this.captchaRefreshTimer) clearTimeout(this.captchaRefreshTimer);
+    this.captchaRefreshTimer = null;
+    this.setData({ password: "", captchaValue: "", captchaSessionId: "", captchaImage: "" });
   },
 
   onPrivacyChange(e) {
@@ -195,6 +223,10 @@ Page({
     this.setData({ password: e.detail.value });
   },
 
+  onCaptchaInput(e) {
+    this.setData({ captchaValue: String((e && e.detail && e.detail.value) || "").trim() });
+  },
+
   async bindAccount() {
     const studentId = String(this.data.studentId || "").trim();
     const password = String(this.data.password || "");
@@ -208,13 +240,24 @@ Page({
       return;
     }
 
-    this.setData({ binding: true });
+    if (this.captchaRefreshTimer) clearTimeout(this.captchaRefreshTimer);
+    this.captchaRefreshTimer = null;
+    const wasBound = Boolean(this.data.hasBoundJwxt);
+    this.setData({
+      binding: true,
+      showCaptcha: false,
+      captchaLoading: false,
+      captchaSubmitting: false,
+      captchaSessionId: "",
+      captchaImage: "",
+      captchaValue: ""
+    });
     this.setDisplayStatus({
       status: "SYNCING",
       tone: "muted",
       title: "正在验证账号",
       desc: "请稍候。",
-      bound: true
+      bound: wasBound
     });
     try {
       const data = await api.post("/bind-account", { studentId, password }, { timeout: 120000 });
@@ -235,8 +278,163 @@ Page({
       this.handleBindFailure(data);
     } catch (err) {
       this.setData({ binding: false });
+      if (isCaptchaRequired(err)) {
+        this.startCaptchaChallenge(err);
+        return;
+      }
       this.handleBindFailure(err);
     }
+  },
+
+  async startCaptchaChallenge(err) {
+    const wasBound = Boolean(
+      this.data.hasBoundJwxt ||
+      wx.getStorageSync(BOUND_HINT_KEY) ||
+      (err && err.data && err.data.bound)
+    );
+    this.setDisplayStatus({
+      status: "VERIFYING",
+      tone: "muted",
+      title: wasBound ? "账号已绑定" : "请完成安全验证",
+      desc: "请输入图片验证码，验证成功后将自动完成绑定。",
+      bound: wasBound
+    });
+    this.setData({
+      showCaptcha: true,
+      captchaValue: "",
+      captchaSessionId: "",
+      captchaImage: ""
+    });
+    await this.loadCaptcha();
+  },
+
+  async loadCaptcha() {
+    if (this.data.captchaLoading || this.data.captchaSubmitting) return;
+    const elapsed = Date.now() - Number(this.captchaRequestedAt || 0);
+    if (elapsed < 8200) {
+      wx.showToast({ title: "请稍候再刷新验证码", icon: "none" });
+      return;
+    }
+
+    this.captchaRequestedAt = Date.now();
+    this.setData({ captchaLoading: true, captchaImage: "", captchaSessionId: "", captchaValue: "" });
+    try {
+      const studentId = String(this.data.studentId || "").trim();
+      const data = await api.request(
+        "/jwxt/captcha-session?studentId=" + encodeURIComponent(studentId),
+        { timeout: 30000 }
+      );
+      if (!data || !data.success || !data.sessionId || !data.captchaImage) {
+        throw new Error("CAPTCHA_SESSION_FAILED");
+      }
+      this.setData({
+        captchaLoading: false,
+        captchaSessionId: data.sessionId,
+        captchaImage: data.captchaImage
+      });
+    } catch (err) {
+      this.setData({ captchaLoading: false });
+      wx.showToast({
+        title: errorCode(err) === "RATE_LIMITED" ? "操作较快，请稍后刷新" : "验证码获取失败，请重试",
+        icon: "none"
+      });
+    }
+  },
+
+  refreshCaptcha() {
+    this.loadCaptcha();
+  },
+
+  scheduleCaptchaRefresh() {
+    if (this.captchaRefreshTimer) clearTimeout(this.captchaRefreshTimer);
+    const delay = Math.max(0, 8200 - (Date.now() - Number(this.captchaRequestedAt || 0)));
+    this.setData({ captchaLoading: true, captchaImage: "", captchaSessionId: "", captchaValue: "" });
+    this.captchaRefreshTimer = setTimeout(() => {
+      this.captchaRefreshTimer = null;
+      this.setData({ captchaLoading: false });
+      this.loadCaptcha();
+    }, delay);
+  },
+
+  async submitCaptcha() {
+    const studentId = String(this.data.studentId || "").trim();
+    const password = String(this.data.password || "");
+    const captcha = String(this.data.captchaValue || "").trim();
+    const sessionId = String(this.data.captchaSessionId || "");
+    if (!sessionId || !this.data.captchaImage) {
+      wx.showToast({ title: "请先获取验证码", icon: "none" });
+      return;
+    }
+    if (!captcha) {
+      wx.showToast({ title: "请输入图片验证码", icon: "none" });
+      return;
+    }
+    if (!studentId || !password) {
+      wx.showToast({ title: "请重新填写学号和教务密码", icon: "none" });
+      return;
+    }
+
+    this.setData({ captchaSubmitting: true });
+    try {
+      const data = await api.post("/jwxt/login-with-captcha", {
+        sessionId,
+        studentId,
+        password,
+        captcha
+      }, { timeout: 120000 });
+      if (!data || data.success !== true) throw data || new Error("CAPTCHA_LOGIN_FAILED");
+
+      if (this.captchaRefreshTimer) clearTimeout(this.captchaRefreshTimer);
+      this.captchaRefreshTimer = null;
+      wx.setStorageSync(BOUND_HINT_KEY, true);
+      wx.removeStorageSync(OLD_BOUND_HINT_KEY);
+      this.setData({
+        captchaSubmitting: false,
+        showCaptcha: false,
+        captchaLoading: false,
+        captchaSessionId: "",
+        captchaImage: "",
+        captchaValue: "",
+        password: ""
+      });
+      this.setDisplayStatus(boundDisplay("SYNC_OK"), {
+        lastSyncText: formatTime(new Date().toISOString())
+      });
+      wx.showToast({ title: "绑定成功", icon: "success" });
+    } catch (err) {
+      this.setData({ captchaSubmitting: false });
+      if (isCaptchaRetryError(err)) {
+        wx.showToast({ title: "验证码不正确，请重新输入", icon: "none" });
+        this.scheduleCaptchaRefresh();
+        return;
+      }
+      if (isInvalidCredentials(err)) {
+        this.cancelCaptcha(true, false);
+        this.handleBindFailure(err);
+        return;
+      }
+      wx.showToast({ title: formatJwxtErrorMessage(err, "验证失败，请稍后重试"), icon: "none" });
+    }
+  },
+
+  cancelCaptcha(clearPassword, refreshStatus) {
+    if (this.captchaRefreshTimer) clearTimeout(this.captchaRefreshTimer);
+    this.captchaRefreshTimer = null;
+    this.captchaRequestedAt = 0;
+    this.setData({
+      showCaptcha: false,
+      captchaLoading: false,
+      captchaSubmitting: false,
+      captchaSessionId: "",
+      captchaImage: "",
+      captchaValue: "",
+      password: clearPassword === false ? this.data.password : ""
+    });
+    if (refreshStatus !== false) this.refreshStatus();
+  },
+
+  cancelCaptchaByUser() {
+    this.cancelCaptcha(true);
   },
 
   handleBindFailure(err) {
@@ -245,6 +443,22 @@ Page({
       wx.getStorageSync(BOUND_HINT_KEY) ||
       (err && err.data && err.data.bound)
     );
+
+    if (errorCode(err) === "REVIEW_DEMO_UNAVAILABLE") {
+      this.setDisplayStatus({
+        status: "UNBOUND",
+        tone: "muted",
+        title: "未绑定教务账号",
+        desc: "绑定后可自动同步课表、成绩和教务状态。",
+        bound: false
+      });
+      wx.showModal({
+        title: "审核账号未启用",
+        content: "当前服务器尚未启用审核体验账号，请联系小程序管理员。",
+        showCancel: false
+      });
+      return;
+    }
 
     if (isInvalidCredentials(err)) {
       this.setDisplayStatus(wasBound ? {

@@ -31,9 +31,11 @@ const {
 } = require("./services/dataDirectoryDiagnostic");
 const { userIdHash } = require("./utils/userIdHash");
 const userDataDeletion = require("./services/userDataDeletion");
+const reviewDemo = require("./services/reviewDemo");
 
 assertJwtConfig();
 assertWechatConfig();
+reviewDemo.assertReviewDemoConfig();
 if (process.env.NODE_ENV === "production") assertTermConfig();
 config.logDataPath();
 
@@ -609,7 +611,7 @@ app.post("/auth/wechat-login", async (req, res) => {
         nickname: ""
       }
     });
-    scheduleCampusSessionBootstrap(userId);
+    if (!reviewDemo.isReviewDemoUser(userId)) scheduleCampusSessionBootstrap(userId);
   } catch (err) {
     if (err && err.code === "WECHAT_CONFIG_MISSING") {
       return res.status(500).json({
@@ -895,6 +897,11 @@ function publicXgSessionStatus(accountMeta, hasXg) {
 app.get("/status", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /status");
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    userPersistence.touchLogin(req.userId);
+    res.setHeader("Cache-Control", "no-store");
+    return res.json(reviewDemo.getStatus(req.userId));
+  }
   const activeStorage = requestStorage(req);
   if (req.userId) {
     userPersistence.initUserData(req.userId);
@@ -1053,6 +1060,28 @@ function compactGrade(g) {
 app.get("/grades", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /grades");
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    const grades = reviewDemo.getGrades().map(compactGrade);
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({
+      success: true,
+      reviewDemo: true,
+      fromCache: true,
+      syncScheduled: false,
+      syncing: false,
+      syncStatus: "success",
+      errorCode: null,
+      warning: false,
+      warningCode: null,
+      message: "审核演示数据",
+      hasGrades: true,
+      lastSuccessfulSyncAt: reviewDemo.getStatus(req.userId).lastSuccessfulSyncAt,
+      lastFailedSyncAt: null,
+      count: grades.length,
+      grades,
+      groupedGrades: buildGroupedGrades(grades)
+    });
+  }
   // Strictly user-scoped: never fall back to the process-wide legacy store.
   const activeStorage = storage.createStorageForUser(req.userId);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
@@ -1095,6 +1124,10 @@ app.get("/grades", auth, (req, res) => {
 app.get("/grade-changes", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /grade-changes");
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ count: 0, changes: [], reviewDemo: true });
+  }
   const activeStorage = requestStorage(req);
   const changes = activeStorage.getGradeChanges(20);
   res.json({ count: changes.length, changes });
@@ -1104,6 +1137,22 @@ app.get("/grade-changes", auth, (req, res) => {
 app.post("/check", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "POST /check");
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    return res.json({
+      success: true,
+      reviewDemo: true,
+      checked: true,
+      syncing: false,
+      syncStatus: "success",
+      fromCache: true,
+      hasCache: true,
+      gradesCount: reviewDemo.getGrades().length,
+      added: [],
+      changed: [],
+      changeCount: 0,
+      message: "审核演示数据已是最新"
+    });
+  }
   console.log("[grade-check] step=start userScope=" + (req.userId ? "user" : "legacy"));
   const activeStorage = requestStorage(req);
   const cachedGrades = activeStorage.getGrades();
@@ -1206,8 +1255,11 @@ function apiErrorStatus(code) {
 // GET /jwxt/captcha-session
 app.get("/jwxt/captcha-session", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
+  }
   try {
-    const result = await createCaptchaSession(req.userId);
+    const result = await createCaptchaSession(req.userId, req.query && req.query.studentId);
     res.json(result);
   } catch (err) {
     const code = err && err.code ? err.code : "CAPTCHA_SESSION_FAILED";
@@ -1222,6 +1274,9 @@ app.get("/jwxt/captcha-session", auth, async (req, res) => {
 // POST /jwxt/login-with-captcha
 app.post("/jwxt/login-with-captcha", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
+  }
   try {
     const result = await loginWithCaptcha(req.userId, req.body || {});
     res.json(result);
@@ -1342,6 +1397,10 @@ function sendTermConfigError(res, err) {
 // GET /timetable/config
 app.get("/timetable/config", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.json(reviewDemo.getTimetableConfig());
+  }
   try {
     const info = currentTermInfo();
     const activeStorage = requestStorage(req);
@@ -1371,6 +1430,10 @@ app.get("/timetable/today", auth, (req, res) => {
   const requestedDate = dateParam(req);
   if (requestedDate === false) {
     return res.status(400).json({ success: false, error: "INVALID_DATE", message: "date must be YYYY-MM-DD" });
+  }
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.json(reviewDemo.getTodayTimetable(requestedDate || undefined));
   }
   let info;
   try {
@@ -1419,6 +1482,10 @@ app.get("/timetable/week", auth, (req, res) => {
   if (requestedDate === false) {
     return res.status(400).json({ success: false, error: "INVALID_DATE", message: "date must be YYYY-MM-DD" });
   }
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.json(reviewDemo.getWeekTimetable(requestedDate || undefined));
+  }
   let info;
   try {
     info = currentTermInfo(requestedDate || undefined);
@@ -1465,6 +1532,19 @@ app.get("/timetable/week", auth, (req, res) => {
 // POST /timetable/sync
 app.post("/timetable/sync", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    return res.json({
+      success: true,
+      reviewDemo: true,
+      accepted: false,
+      syncing: false,
+      syncStatus: "success",
+      fromCache: true,
+      hasCache: true,
+      count: 7,
+      message: "审核演示数据已是最新"
+    });
+  }
   const activeStorage = requestStorage(req);
   let configuredTerm;
   try {
@@ -1567,6 +1647,59 @@ app.post("/bind-account", auth, async (req, res) => {
     });
   }
 
+  const reviewCredentialStatus = reviewDemo.classifyCredentials(studentId, password);
+  if (reviewCredentialStatus === "unavailable") {
+    return res.status(503).json({
+      success: false,
+      bound: false,
+      error: "REVIEW_DEMO_UNAVAILABLE",
+      message: "审核体验账号尚未启用，请联系小程序管理员"
+    });
+  }
+  if (reviewCredentialStatus === "invalid") {
+    return res.status(400).json({
+      success: false,
+      bound: reviewDemo.isReviewDemoUser(req.userId),
+      error: "INVALID_CREDENTIALS",
+      message: "账号或密码不正确"
+    });
+  }
+  if (reviewCredentialStatus === "match") {
+    const alreadyDemo = reviewDemo.isReviewDemoUser(req.userId);
+    const existingStorage = alreadyDemo ? null : requestStorage(req);
+    const existingCookies = alreadyDemo ? [] : loadCookies(req.userId);
+    const hasExistingCampusData = !alreadyDemo && Boolean(
+      credentialStore.readBoundAccountMeta(req.userId) ||
+      (Array.isArray(existingCookies) && existingCookies.length) ||
+      existingStorage.getGrades().length ||
+      (existingStorage.data && Array.isArray(existingStorage.data.timetable) && existingStorage.data.timetable.length) ||
+      (typeof existingStorage.hasXgSession === "function" && existingStorage.hasXgSession())
+    );
+    if (hasExistingCampusData) {
+      return res.status(409).json({
+        success: false,
+        bound: true,
+        error: "REVIEW_DEMO_ACCOUNT_CONFLICT",
+        message: "请先解除当前校园账号绑定"
+      });
+    }
+    reviewDemo.activate(req.userId);
+    console.log("[review-demo] activated userIdHash=" + userIdHash(req.userId));
+    return res.json({
+      success: true,
+      reviewDemo: true,
+      warning: false,
+      code: 0,
+      bound: true,
+      verified: true,
+      syncing: false,
+      campusLoginStatus: "valid",
+      portalAuthStatus: "OK",
+      jwxtStatus: "DEMO",
+      message: "账号绑定成功"
+    });
+  }
+
   let portal;
   try {
     console.log("[bind] verifying portal credentials");
@@ -1665,6 +1798,10 @@ app.post("/unbind-account", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "POST /unbind-account");
   try {
+    if (reviewDemo.isReviewDemoUser(req.userId)) {
+      reviewDemo.deactivate(req.userId);
+      return res.json({ success: true, unbound: true, reviewDemo: true });
+    }
     credentialStore.deleteBoundAccount(req.userId);
     deleteCookies(req.userId);
     clearCaptchaSessionsForUser(req.userId);
@@ -1725,6 +1862,9 @@ app.post("/account/delete-data", auth, deleteAccountData);
 // POST /upload-cookies
 app.post("/upload-cookies", requireAdminMode, auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
+  }
   try {
     const data = req.body;
     if (!Array.isArray(data)) {
@@ -1753,6 +1893,9 @@ app.post("/upload-cookies", requireAdminMode, auth, (req, res) => {
 // POST /upload-xg-session
 app.post("/upload-xg-session", requireAdminMode, auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
+  }
   try {
     const scoreUrl = String((req.body && req.body.xgScoreUrl) || "").trim();
     const cookies = String((req.body && req.body.xgCookies) || "").trim();
@@ -1802,6 +1945,9 @@ app.post("/upload-xg-session", requireAdminMode, auth, (req, res) => {
 // POST /grades/import
 app.post("/grades/import", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
+  if (reviewDemo.isReviewDemoUser(req.userId)) {
+    return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
+  }
   try {
     var d = req.body;
     if (!d || !d.grades) return res.status(400).json({success:false,message:"Missing grades field"});

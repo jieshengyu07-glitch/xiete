@@ -64,6 +64,7 @@ Page({
     viewMode: "today",
     loading: true,
     syncing: false,
+    authRequired: false,
     error: "",
     notice: "",
     dateText: "",
@@ -91,7 +92,8 @@ Page({
     this.setData({
       loading: false,
       syncing: false,
-      error: "请先登录后查看课表",
+      authRequired: true,
+      error: "",
       notice: "",
       dateText: "",
       weekdayText: "",
@@ -102,6 +104,10 @@ Page({
       sections: defaultSections(),
       weekDays: []
     });
+  },
+
+  goLogin() {
+    wx.navigateTo({ url: "/pages/login/index" });
   },
 
   onHide() {
@@ -143,10 +149,11 @@ Page({
       weekTypeText: normalizeWeekType(data),
       hasTimetable: Boolean(data.hasTimetable),
       hasTodayCourses,
+      authRequired: false,
       syncing: Boolean(data.syncing),
-      notice: data.syncing ? "正在同步课表..." : (data.isTeachingPeriod === false
+      notice: data.reviewDemo ? "当前为审核演示课表，不包含真实个人信息" : (data.syncing ? "正在同步课表..." : (data.isTeachingPeriod === false
         ? (data.message || data.academicStatusText || "当前为非教学周")
-        : (data.warning ? (data.message || "教务系统暂时不可用，当前显示上次同步课表") : "")),
+        : (data.warning ? (data.message || "教务系统暂时不可用，当前显示上次同步课表") : ""))),
       sections
     });
   },
@@ -171,10 +178,11 @@ Page({
       weekTypeText: normalizeWeekType(data),
       hasTimetable: Boolean(data.hasTimetable),
       hasTodayCourses: weekDays.some(day => day.hasCourses),
+      authRequired: false,
       syncing: Boolean(data.syncing),
-      notice: data.syncing ? "正在同步课表..." : (data.isTeachingPeriod === false
+      notice: data.reviewDemo ? "当前为审核演示课表，不包含真实个人信息" : (data.syncing ? "正在同步课表..." : (data.isTeachingPeriod === false
         ? (data.message || data.academicStatusText || "当前为非教学周")
-        : (data.warning ? (data.message || "教务系统暂时不可用，当前显示上次同步课表") : "")),
+        : (data.warning ? (data.message || "教务系统暂时不可用，当前显示上次同步课表") : ""))),
       weekDays
     });
   },
@@ -215,6 +223,10 @@ Page({
       else this.stopSyncPolling();
     } catch (err) {
       this.stopSyncPolling();
+      if (err && (err.code === "AUTH_REQUIRED" || err.message === "MANUAL_LOGOUT" || err.message === "UNAUTHORIZED")) {
+        this.resetLoggedOutState();
+        return;
+      }
       this.setData({
         loading: false,
         syncing: false,
@@ -237,6 +249,10 @@ Page({
       else this.stopSyncPolling();
     } catch (err) {
       this.stopSyncPolling();
+      if (err && (err.code === "AUTH_REQUIRED" || err.message === "MANUAL_LOGOUT" || err.message === "UNAUTHORIZED")) {
+        this.resetLoggedOutState();
+        return;
+      }
       this.setData({
         loading: false,
         syncing: false,
@@ -246,6 +262,10 @@ Page({
   },
 
   async syncTimetable() {
+    if (this.data.authRequired) {
+      this.goLogin();
+      return;
+    }
     this.setData({ syncing: true, error: "", notice: "" });
     try {
       const result = await api.post("/timetable/sync", {}, { timeout: 120000 });

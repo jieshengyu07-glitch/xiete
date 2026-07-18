@@ -30,7 +30,7 @@ function normalizeGrade(grade, index) {
     courseType: pick(grade, ["kclb", "KCLB", "courseType", "type", "课程类型"], "-"),
     termName,
     source,
-    sourceText: source === "xg" || source === "jwxt" ? "校内成绩系统" : "校内成绩系统",
+    sourceText: source === "review_demo" ? "审核演示数据" : "校内成绩系统",
     raw: grade
   };
 }
@@ -157,7 +157,8 @@ Page({
         activeTermIndex: 0,
         count: data.count || grades.length,
         syncing,
-        notice: data.warning ? (data.message || "教务系统暂时不可用，当前显示上次查询成绩") : "",
+        notice: data.reviewDemo ? "当前为审核演示数据，不包含真实个人信息" :
+          (data.warning ? (data.message || "教务系统暂时不可用，当前显示上次查询成绩") : ""),
         error: grades.length ? null : (data.message || "暂无成绩数据，请先完成登录或刷新成绩"),
         loading: false
       });

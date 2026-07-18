@@ -20,7 +20,8 @@ function getUserPaths(userId) {
       profilePath: path.join(config.dataDir, "users", "profile.json"),
       gradesPath: path.join(config.dataDir, "users", "grades.json"),
       timetablePath: path.join(config.dataDir, "users", "timetable.json"),
-      syncPath: path.join(config.dataDir, "users", "sync.json")
+      syncPath: path.join(config.dataDir, "users", "sync.json"),
+      reviewDemoPath: path.join(config.dataDir, "users", "review-demo.json")
     };
   }
 
@@ -34,7 +35,8 @@ function getUserPaths(userId) {
     profilePath: path.join(userDir, "profile.json"),
     gradesPath: path.join(userDir, "grades.json"),
     timetablePath: path.join(userDir, "timetable.json"),
-    syncPath: path.join(userDir, "sync.json")
+    syncPath: path.join(userDir, "sync.json"),
+    reviewDemoPath: path.join(userDir, "review-demo.json")
   };
 }
 

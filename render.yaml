@@ -24,6 +24,12 @@ services:
         sync: false
       - key: WECHAT_SECRET
         sync: false
+      - key: REVIEW_DEMO_ENABLED
+        sync: false
+      - key: REVIEW_DEMO_USERNAME
+        sync: false
+      - key: REVIEW_DEMO_PASSWORD
+        sync: false
       - key: TIMETABLE_TERM_YEAR
         value: "2025"
       - key: TIMETABLE_TERM_SEMESTER

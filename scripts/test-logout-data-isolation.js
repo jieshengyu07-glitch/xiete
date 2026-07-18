@@ -14,6 +14,7 @@ function manualLogoutGuardsTest() {
   const profile = read("weapp/pages/profile/index.js");
   const grades = read("weapp/pages/grades/grades.js");
   const timetable = read("weapp/pages/timetable/timetable.js");
+  const timetableView = read("weapp/pages/timetable/timetable.wxml");
 
   assert.match(profile, /setStorageSync\(MANUAL_LOGOUT_KEY, true\)/);
   assert.match(api, /getStorageSync\(MANUAL_LOGOUT_KEY\)/);
@@ -24,7 +25,11 @@ function manualLogoutGuardsTest() {
   assert.match(grades, /if \(!wx\.getStorageSync\("token"\)\)/);
   assert.match(grades, /navigateTo\(\{ url: "\/pages\/login\/index" \}\)/);
   assert.match(timetable, /resetLoggedOutState/);
+  assert.match(timetable, /authRequired: true/);
   assert.match(timetable, /sections: defaultSections\(\)/);
+  assert.match(timetable, /navigateTo\(\{ url: "\/pages\/login\/index" \}\)/);
+  assert.match(timetableView, /wx:elif="\{\{authRequired\}\}"/);
+  assert.match(timetableView, /登录后查看课表/);
   console.log("manualLogoutClearsPageDataTest=passed");
 }
 

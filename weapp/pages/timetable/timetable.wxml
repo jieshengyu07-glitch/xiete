@@ -3,6 +3,13 @@
     <view class="loading">加载中...</view>
   </view>
 
+  <view wx:elif="{{authRequired}}" class="card auth-card">
+    <view class="auth-icon">课</view>
+    <view class="auth-title">登录后查看课表</view>
+    <view class="auth-desc">登录校园助手并绑定教务账号后，即可同步今日和本周课程。</view>
+    <button class="auth-button" bindtap="goLogin">立即登录</button>
+  </view>
+
   <block wx:else>
     <view class="timetable-hero">
       <view class="hero-main">

@@ -5,15 +5,18 @@ const settingsPath = path.resolve(__dirname, "../weapp/pages/settings/settings.j
 const apiPath = path.resolve(__dirname, "../weapp/utils/api.js");
 let boundHint = true;
 let statusResponse = {};
+let captchaResponse = {};
+let postHandler = async () => ({});
 let pageDefinition;
 let latestModal;
+let latestToast;
 
 global.getApp = () => ({ globalData: { apiBase: "https://example.invalid" } });
 global.wx = {
   getStorageSync: key => key === "jwxtBound" ? boundHint : "",
   setStorageSync: () => {},
   removeStorageSync: () => {},
-  showToast: () => {},
+  showToast: options => { latestToast = options; },
   showModal: options => { latestModal = options; }
 };
 global.Page = definition => { pageDefinition = definition; };
@@ -23,8 +26,8 @@ require.cache[apiPath] = {
   filename: apiPath,
   loaded: true,
   exports: {
-    request: async () => statusResponse,
-    post: async () => ({})
+    request: async path => path.startsWith("/jwxt/captcha-session?") ? captchaResponse : statusResponse,
+    post: (path, data, options) => postHandler(path, data, options)
   }
 };
 
@@ -99,6 +102,68 @@ async function main() {
   await flush();
   assert.strictEqual(unboundPage.data.status, "UNBOUND");
   console.log("authoritativeUnboundStatusIgnoresStaleUiStateTest=passed");
+
+  latestModal = null;
+  latestToast = null;
+  captchaResponse = {
+    success: true,
+    sessionId: "captcha-session-test",
+    captchaImage: "data:image/png;base64,dGVzdA=="
+  };
+  postHandler = async path => {
+    if (path === "/bind-account") {
+      throw {
+        statusCode: 400,
+        error: "PORTAL_VERIFICATION_REQUIRED",
+        message: "captcha required"
+      };
+    }
+    return {};
+  };
+  const captchaPage = createPage({
+    studentId: "review-student",
+    password: "temporary-password",
+    privacyAccepted: true,
+    hasBoundJwxt: false
+  });
+  await captchaPage.bindAccount();
+  await flush();
+  assert.strictEqual(captchaPage.data.showCaptcha, true);
+  assert.strictEqual(captchaPage.data.captchaSessionId, "captcha-session-test");
+  assert.strictEqual(captchaPage.data.captchaImage, captchaResponse.captchaImage);
+  assert.strictEqual(latestModal, null);
+  console.log("captchaRequiredOpensInlineChallengeTest=passed");
+
+  let captchaLoginPayload;
+  postHandler = async (path, data) => {
+    assert.strictEqual(path, "/jwxt/login-with-captcha");
+    captchaLoginPayload = data;
+    return { success: true };
+  };
+  captchaPage.setData({ captchaValue: "A7K9" });
+  await captchaPage.submitCaptcha();
+  assert.deepStrictEqual(captchaLoginPayload, {
+    sessionId: "captcha-session-test",
+    studentId: "review-student",
+    password: "temporary-password",
+    captcha: "A7K9"
+  });
+  assert.strictEqual(captchaPage.data.showCaptcha, false);
+  assert.strictEqual(captchaPage.data.password, "");
+  assert.strictEqual(captchaPage.data.hasBoundJwxt, true);
+  assert.strictEqual(latestToast.title, "绑定成功");
+  console.log("captchaSuccessCompletesBindingAndClearsSecretTest=passed");
+
+  latestModal = null;
+  const unavailableReviewPage = createPage({ hasBoundJwxt: false });
+  unavailableReviewPage.handleBindFailure({
+    error: "REVIEW_DEMO_UNAVAILABLE",
+    message: "review demo disabled"
+  });
+  assert.strictEqual(unavailableReviewPage.data.showCaptcha, false);
+  assert.strictEqual(unavailableReviewPage.data.status, "UNBOUND");
+  assert.strictEqual(latestModal.title, "审核账号未启用");
+  console.log("disabledReviewAccountDoesNotEnterCaptchaFlowTest=passed");
 }
 
 main().catch(err => {

@@ -74,7 +74,49 @@ function parseHiddenInputs(html) {
   return fields;
 }
 
-async function createCaptchaSession(userId) {
+function decodeHtmlAttribute(value) {
+  return String(value || "")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function resolveExecution(html, hiddenFields) {
+  return parseHiddenValue(html, "execution") ||
+    decodeHtmlAttribute(hiddenFields && hiddenFields.execution) ||
+    parseHiddenValue(html, "login-page-flowkey");
+}
+
+function isExplicitCaptchaError(html) {
+  const text = String(html || "");
+  return [
+    "验证码错误",
+    "验证码不正确",
+    "验证码有误",
+    "验证码已失效",
+    "验证码失效",
+    "invalid captcha",
+    "incorrect captcha"
+  ].some(item => text.toLowerCase().includes(item.toLowerCase()));
+}
+
+async function prepareCaptchaForStudent(cookieJar, studentId) {
+  const expectedStudentId = String(studentId || "").trim();
+  if (!expectedStudentId) return;
+  const url = CAS_ORIGIN + "/api/protected/user/findCaptchaCount/" + encodeURIComponent(expectedStudentId);
+  await requestNoRedirect(cookieJar, "GET", url, {
+    headers: {
+      "User-Agent": userAgent(),
+      "Accept": "application/json, text/plain, */*",
+      "Referer": LOGIN_URL
+    },
+    timeout: 15000
+  });
+}
+
+async function createCaptchaSession(userId, studentId) {
   cleanupExpiredSessions();
   checkRateLimit(userId, "captcha-session");
 
@@ -87,17 +129,19 @@ async function createCaptchaSession(userId) {
   });
 
   const html = String(loginPage.data || "");
-  const execution = parseHiddenValue(html, "login-page-flowkey");
+  const expectedStudentId = String(studentId || "").trim();
+  const parsedHiddenFields = parseHiddenInputs(html);
+  const execution = resolveExecution(html, parsedHiddenFields);
   const loginCroypto = parseHiddenValue(html, "login-croypto");
-  const hiddenFields = Object.assign({}, parseHiddenInputs(html), {
-    execution,
-    croypto: loginCroypto
-  });
   if (!execution || !loginCroypto) {
     const err = new Error("教务登录页缺少必要字段，请稍后重试");
     err.code = "JWXT_LOGIN_PAGE_INVALID";
     throw err;
   }
+
+  // Mirror the browser login sequence so the generated image and the
+  // username risk-control check belong to the same CAS cookie session.
+  await prepareCaptchaForStudent(cookieJar, expectedStudentId).catch(() => null);
 
   const captchaUrl = CAS_ORIGIN + CAPTCHA_PATH + "?_=" + now();
   const captchaResp = await requestNoRedirect(cookieJar, "GET", captchaUrl, {
@@ -123,7 +167,7 @@ async function createCaptchaSession(userId) {
     loginPageHtml: html,
     execution,
     loginCroypto,
-    hiddenFields,
+    studentId: expectedStudentId,
     captchaUrl,
     createdAt: new Date().toISOString(),
     expiresAt: now() + SESSION_TTL_MS
@@ -170,6 +214,11 @@ async function loginWithCaptcha(userId, payload) {
     err.code = "INVALID_CAPTCHA_LOGIN_INPUT";
     throw err;
   }
+  if (session.studentId && session.studentId !== studentId) {
+    const err = new Error("验证码会话与当前学号不匹配，请重新获取验证码");
+    err.code = "JWXT_CAPTCHA_SESSION_EXPIRED";
+    throw err;
+  }
 
   const encryptedPassword = encryptPassword(session.loginCroypto, password);
   if (!encryptedPassword) {
@@ -178,21 +227,16 @@ async function loginWithCaptcha(userId, payload) {
     throw err;
   }
 
-  const form = new URLSearchParams(Object.assign({}, session.hiddenFields || {}, {
+  const form = new URLSearchParams({
     username: studentId,
     password: encryptedPassword,
     type: "UsernamePassword",
     _eventId: "submit",
     geolocation: "",
     execution: session.execution,
-    captcha,
     captcha_code: captcha,
-    verifyCode: captcha,
-    validateCode: captcha,
-    yzm: captcha,
-    code: captcha,
     croypto: session.loginCroypto
-  })).toString();
+  }).toString();
 
   const loginResponse = await requestNoRedirect(session.cookieJar, "POST", LOGIN_POST_URL, {
     data: form,
@@ -212,6 +256,11 @@ async function loginWithCaptcha(userId, payload) {
   }
 
   const body = String((portal.response && portal.response.data) || "");
+  if (isExplicitCaptchaError(body)) {
+    const err = new Error("验证码错误，请重新输入或刷新验证码");
+    err.code = "JWXT_CAPTCHA_INVALID";
+    throw err;
+  }
   if (isInvalidCredentialPage(body)) {
     const err = new Error("账号或密码错误");
     err.message = "学号或教务密码错误，请检查后重试";
@@ -220,9 +269,8 @@ async function loginWithCaptcha(userId, payload) {
   }
 
   if (!portal.finalUrl || !portal.finalUrl.includes(PORTAL_ORIGIN)) {
-    const err = new Error("验证码或登录信息错误，请重新获取验证码");
-    err.message = "验证码错误，请重新输入或刷新验证码";
-    err.code = "JWXT_CAPTCHA_INVALID";
+    const err = new Error("统一认证未接受本次验证，请刷新验证码后重试");
+    err.code = "CAPTCHA_LOGIN_FAILED";
     throw err;
   }
 

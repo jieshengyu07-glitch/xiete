@@ -7,18 +7,31 @@
     <view wx:if="{{syncMetaText}}" class="status-meta">{{syncMetaText}}</view>
   </view>
 
-  <view wx:if="{{!hasBoundJwxt || status === 'SYNC_FAILED'}}" class="card bind-card">
+  <view wx:if="{{!hasBoundJwxt || status === 'SYNC_FAILED' || binding || showCaptcha}}" class="card bind-card">
     <view class="card-title">{{status === 'SYNC_FAILED' ? '重新绑定教务账号' : '绑定教务账号'}}</view>
     <view class="hint">教务账号仅用于课表、成绩和教务状态同步。绑定后系统会自动同步，无需重复登录教务系统。</view>
-    <input class="input" placeholder="请输入学号" value="{{studentId}}" bindinput="onStudentIdInput" />
-    <input class="input" placeholder="请输入教务密码" password value="{{password}}" bindinput="onPasswordInput" />
+    <input class="input" placeholder="请输入学号" value="{{studentId}}" disabled="{{showCaptcha}}" bindinput="onStudentIdInput" />
+    <input class="input" placeholder="请输入教务密码" password value="{{password}}" disabled="{{showCaptcha}}" bindinput="onPasswordInput" />
+    <view wx:if="{{showCaptcha}}" class="captcha-panel">
+      <view class="captcha-title">安全验证</view>
+      <view class="captcha-desc">学校系统本次要求图片验证码，完成后即可继续使用。</view>
+      <view wx:if="{{captchaLoading}}" class="captcha-placeholder">正在获取验证码...</view>
+      <image wx:elif="{{captchaImage}}" class="captcha-image" src="{{captchaImage}}" mode="aspectFit" />
+      <view wx:else class="captcha-placeholder">验证码加载失败，请点击刷新</view>
+      <input class="input captcha-input" placeholder="请输入图片中的验证码" value="{{captchaValue}}" maxlength="8" bindinput="onCaptchaInput" />
+      <view class="captcha-actions">
+        <button class="captcha-btn" disabled="{{captchaLoading || captchaSubmitting}}" bindtap="refreshCaptcha">换一张</button>
+        <button class="captcha-btn captcha-submit" loading="{{captchaSubmitting}}" disabled="{{captchaLoading || captchaSubmitting || !captchaImage}}" bindtap="submitCaptcha">完成验证</button>
+      </view>
+      <button class="captcha-cancel" disabled="{{captchaSubmitting}}" bindtap="cancelCaptchaByUser">取消</button>
+    </view>
     <view class="privacy-consent">
       <checkbox-group bindchange="onPrivacyChange">
         <label class="privacy-label"><checkbox value="accepted" checked="{{privacyAccepted}}" color="#1677ff" />我已阅读并同意</label>
       </checkbox-group>
       <text class="privacy-link" bindtap="openPrivacy">《用户隐私保护指引》</text>
     </view>
-    <button class="bind-btn" loading="{{binding}}" disabled="{{binding || !privacyAccepted}}" bindtap="bindAccount">绑定教务账号</button>
+    <button wx:if="{{!showCaptcha}}" class="bind-btn" loading="{{binding}}" disabled="{{binding || !privacyAccepted}}" bindtap="bindAccount">绑定教务账号</button>
     <view wx:if="{{showRebindActions}}" class="action-row">
       <button class="light-btn" bindtap="retryLater">稍后再试</button>
     </view>
