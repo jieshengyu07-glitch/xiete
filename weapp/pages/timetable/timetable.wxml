@@ -1,23 +1,49 @@
 <view class="container timetable-page">
-  <view wx:if="{{loading}}" class="card">
+  <view wx:if="{{isInitialLoading && !hasTimetable}}" class="card">
     <view class="loading">加载中...</view>
   </view>
 
   <view wx:elif="{{authRequired}}" class="card auth-card">
-    <view class="auth-icon">课</view>
     <view class="auth-title">登录后查看课表</view>
-    <view class="auth-desc">登录校园助手并绑定教务账号后，即可同步今日和本周课程。</view>
+    <view class="auth-desc">先完成微信登录，再验证校园账号，即可同步今日和本周课程。</view>
     <button class="auth-button" bindtap="goLogin">立即登录</button>
   </view>
 
   <block wx:else>
-    <view class="timetable-hero">
+    <view class="timetable-hero hero-{{viewMode==='week' ? 'WEEK' : timelineState}}">
       <view class="hero-main">
-        <view class="page-title">课表</view>
-        <view class="date-line">{{dateText}} {{weekdayText}}</view>
-        <view class="week-line">{{weekText}} · {{weekTypeText}}</view>
+        <view class="date-line">{{dateText}}<text wx:if="{{weekdayText}}"> · {{weekdayText}}</text></view>
+        <view wx:if="{{academicIdle}}" class="week-line">{{timelineTitle}}</view>
+        <view wx:else class="week-line">{{weekText}} · {{weekTypeText}}</view>
       </view>
-      <button class="refresh-btn" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">刷新课表</button>
+      <button wx:if="{{accountState!=='UNBOUND'}}" class="refresh-btn" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">{{refreshButtonText}}</button>
+    </view>
+
+    <view wx:if="{{lastSuccessAtText}}" class="sync-meta">{{lastSuccessAtText}}</view>
+
+    <view wx:if="{{viewMode==='today' && (timelineState==='IN_CLASS' || timelineState==='BEFORE_FIRST_CLASS' || (timelineState==='BETWEEN_CLASSES' && focusCourse))}}" class="timeline-card timeline-{{timelineState}}">
+      <view class="timeline-label">{{timelineTitle}}</view>
+      <block wx:if="{{focusCourse}}">
+        <view class="timeline-course-name">{{focusCourse.courseName}}</view>
+        <view class="timeline-course-meta">{{focusCourse.timeText}}</view>
+        <view class="timeline-course-meta">{{focusCourse.locationText}}</view>
+        <view wx:if="{{focusCourse.teacherName}}" class="timeline-teacher">{{focusCourse.teacherName}}</view>
+      </block>
+      <view wx:if="{{timelineDescription}}" class="timeline-description">{{timelineDescription}}</view>
+      <view wx:if="{{!academicIdle && todayCourseCount>0}}" class="timeline-count">今天 {{todayCourseCount}} 门课<text wx:if="{{remainingCourseCount>0}}"> · 还有 {{remainingCourseCount}} 门</text></view>
+    </view>
+
+    <view wx:if="{{accountNotice}}" class="account-notice">
+      <view class="account-notice-copy">
+        <view class="account-notice-title">{{accountNoticeTitle}}</view>
+        <view wx:if="{{accountNoticeDescription}}" class="account-notice-description">{{accountNoticeDescription}}</view>
+      </view>
+      <text wx:if="{{accountActionText}}" class="notice-action" bindtap="manageCampusAccount">{{accountActionText}}</text>
+    </view>
+
+    <view wx:if="{{notice && accountState!=='UNBOUND'}}" class="notice-card">
+      <view>{{notice}}</view>
+      <view wx:if="{{syncing && refreshStage}}" class="notice-stage">{{refreshStage}}</view>
     </view>
 
     <view class="view-switch">
@@ -25,56 +51,58 @@
       <view class="switch-item {{viewMode==='week' ? 'active' : ''}}" data-mode="week" bindtap="switchView">本周</view>
     </view>
 
-    <view wx:if="{{notice}}" class="notice-card">{{notice}}</view>
-
-    <view wx:if="{{error && hasTimetable}}" class="card error-card">
+    <view wx:if="{{error && accountState!=='UNBOUND'}}" class="card error-card">
       <view class="error-text">{{error}}</view>
     </view>
 
-    <view wx:if="{{(!syncing || hasTimetable) && viewMode==='today'}}" class="section-list">
-      <view wx:for="{{sections}}" wx:key="section" class="lesson-card">
-        <view class="lesson-head">
-          <view class="lesson-title">{{item.title}}</view>
-          <view wx:if="{{item.timeText}}" class="lesson-time">{{item.timeText}}</view>
+    <view wx:if="{{!academicIdle && (!syncing || hasTimetable) && viewMode==='today' && todayCourses.length>0}}" class="section-list">
+      <view class="list-heading">今日课程</view>
+      <view wx:for="{{todayCourses}}" wx:key="id" class="lesson-card course-{{item.timelineRole}}">
+        <view class="lesson-time-column">
+          <view class="lesson-start">{{item.startLabel}}</view>
+          <view wx:if="{{item.endTime}}" class="lesson-end">{{item.endTime}}</view>
         </view>
-
-        <view wx:if="{{item.courses.length === 0}}" class="no-class">无课</view>
-
-        <view wx:for="{{item.courses}}" wx:for-item="course" wx:key="id" class="course-block">
-          <view class="course-name">{{course.courseName}}</view>
-          <view class="course-row">
-            <text class="course-label">时间</text>
-            <text>{{item.timeText || "待定"}}</text>
+        <view class="lesson-content">
+          <view class="lesson-name-line">
+            <view class="course-name">{{item.courseName}}</view>
+            <view wx:if="{{item.timelineRole==='current'}}" class="course-state">进行中</view>
+            <view wx:elif="{{item.timelineRole==='past'}}" class="course-state past">已结束</view>
           </view>
-          <view class="course-row">
-            <text class="course-label">教室</text>
-            <text>{{course.displayLocation || course.classroomRaw || course.displayRoom || "地点待定"}}</text>
-          </view>
-          <view wx:if="{{course.teacherName}}" class="course-row">
-            <text class="course-label">老师</text>
-            <text>{{course.teacherName}}</text>
-          </view>
-          <view wx:if="{{course.weeksRaw}}" class="course-row">
-            <text class="course-label">周次</text>
-            <text>{{course.weeksRaw}}</text>
-          </view>
+          <view class="course-location">{{item.locationText}}</view>
+          <view wx:if="{{item.teacherName}}" class="course-teacher">{{item.teacherName}}</view>
         </view>
       </view>
     </view>
 
-    <view wx:if="{{(!syncing || hasTimetable) && viewMode==='week'}}" class="week-list">
-      <view wx:for="{{weekDays}}" wx:key="weekday" class="week-day-card">
-        <view class="week-day-title">{{item.weekdayText}}</view>
+    <view wx:if="{{(!syncing || hasTimetable) && viewMode==='today' && todayCourses.length===0}}" class="content-empty">
+      <view class="content-empty-title">{{todayEmptyTitle}}</view>
+      <view class="content-empty-description">{{todayEmptyDescription}}</view>
+    </view>
+
+    <view wx:if="{{!academicIdle && (!syncing || hasTimetable) && viewMode==='week' && hasWeekCourses}}" class="week-list">
+      <view wx:for="{{weekDays}}" wx:key="weekday" class="week-day-card {{item.isToday ? 'today' : ''}}">
+        <view class="week-day-title">{{item.weekdayText}}<text wx:if="{{item.isToday}}" class="today-badge">今天</text></view>
+        <view wx:if="{{!item.hasCourses}}" class="week-day-empty">无课</view>
         <view class="week-section-list">
-          <view wx:for="{{item.sections}}" wx:for-item="section" wx:key="section" class="week-section">
-            <view class="week-section-label">{{section.title}}</view>
-            <view class="week-section-content">
-              <view wx:if="{{section.courses.length === 0}}" class="week-no-class">无课</view>
-              <view wx:for="{{section.courses}}" wx:for-item="course" wx:key="id" class="week-course-name">{{course.courseName}}</view>
+          <block wx:for="{{item.sections}}" wx:for-item="section" wx:key="section">
+            <view wx:if="{{section.courses.length>0}}" class="week-section">
+              <view class="week-section-label">{{section.title}}</view>
+              <view class="week-section-content">
+                <view wx:for="{{section.courses}}" wx:for-item="course" wx:key="id" class="week-course">
+                  <view class="week-course-name">{{course.courseName}}</view>
+                  <view class="week-course-meta">{{course.locationText}}</view>
+                  <view wx:if="{{course.teacherName}}" class="week-course-teacher">{{course.teacherName}}</view>
+                </view>
+              </view>
             </view>
-          </view>
+          </block>
         </view>
       </view>
+    </view>
+
+    <view wx:if="{{(!syncing || hasTimetable) && viewMode==='week' && !hasWeekCourses}}" class="content-empty">
+      <view class="content-empty-title">本周暂无课程</view>
+      <view class="content-empty-description">{{academicIdle ? '当前为非教学期，暂无课程安排。' : '本周课程同步后会显示在这里。'}}</view>
     </view>
   </block>
 </view>

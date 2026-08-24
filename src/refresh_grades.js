@@ -2,6 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const config = require("./config");
+const campusSessionStore = require("./services/campusSessionStore");
 
 const DATA_DIR = config.dataDir;
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -15,7 +16,11 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     console.log("\u274c \u672a\u627e\u5230 cookies\uff0c\u8bf7\u5148\u8fd0\u884c npm run auto-login");
     return;
   }
-  const cookiesData = JSON.parse(fs.readFileSync(cookieFile, "utf8"));
+  const cookiesData = campusSessionStore.loadCookies();
+  if (!Array.isArray(cookiesData)) {
+    console.log("\u274c cookies 无法安全读取，请重新登录");
+    return;
+  }
 
   // 2. \u542f\u52a8\u6d4f\u89c8\u5668
   const browser = await chromium.launch({ channel: "msedge", headless: true });

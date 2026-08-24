@@ -45,7 +45,8 @@ function nonBlockingUxSourceTest() {
   assert.doesNotMatch(grades, /showLoading\(\{ title: "刷新成绩/);
   assert.doesNotMatch(timetable, /showLoading\(\{ title: "刷新课表/);
   assert.doesNotMatch(settings, /showLoading\(\{ title: "绑定中/);
-  assert.match(app, /if \(this\.globalData\.loginPromise\) return this\.globalData\.loginPromise/);
+  assert.match(app, /loginPromiseEpoch === requestEpoch/);
+  assert.match(app, /return this\.globalData\.loginPromise/);
   assert.match(gradesView, /wx:if="\{\{grades\.length>0\}\}"/);
   assert.match(timetableView, /\(!syncing \|\| hasTimetable\)/);
   console.log("nonBlockingRefreshAndBindUxTest=passed");

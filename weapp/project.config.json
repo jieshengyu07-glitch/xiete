@@ -19,12 +19,30 @@
   "simulatorPluginLibVersion": {},
   "packOptions": {
     "ignore": [
-      { "type": "folder", "value": "pages/calendar" },
-      { "type": "folder", "value": "pages/course" },
-      { "type": "folder", "value": "pages/food" },
-      { "type": "folder", "value": "pages/rank" },
-      { "type": "folder", "value": "pages/rating" },
-      { "type": "folder", "value": "pages/tools" }
+      {
+        "type": "folder",
+        "value": "pages/calendar"
+      },
+      {
+        "type": "folder",
+        "value": "pages/course"
+      },
+      {
+        "type": "folder",
+        "value": "pages/food"
+      },
+      {
+        "type": "folder",
+        "value": "pages/rank"
+      },
+      {
+        "type": "folder",
+        "value": "pages/rating"
+      },
+      {
+        "type": "folder",
+        "value": "pages/tools"
+      }
     ],
     "include": []
   },

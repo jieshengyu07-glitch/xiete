@@ -13,6 +13,10 @@ const env = Object.assign({}, process.env, {
   NODE_ENV: "development",
   DATA_DIR: dataDir,
   CREDENTIAL_SECRET: "test-credential-secret-0123456789-abcdef",
+  SESSION_ENCRYPTION_KEY: "test-session-encryption-key-0123456789-abcdef",
+  TERM_CONFIG_MODE: "manual",
+  TIMETABLE_TERM_YEAR: "2025",
+  TIMETABLE_TERM_SEMESTER: "12",
   TEACHING_WEEK_START_DATE: "2026-03-09",
   TEACHING_WEEK_END_DATE: "2026-07-12",
   MAX_TEACHING_WEEKS: "18"

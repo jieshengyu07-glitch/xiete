@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const config = require("./config");
+const campusSessionStore = require("./services/campusSessionStore");
 
 const dataDir = config.dataDir;
 const cookieFile = path.join(dataDir, "cookies.json");
@@ -123,7 +124,7 @@ function printState(state) {
       return;
     }
 
-    fs.writeFileSync(cookieFile, JSON.stringify(state.newjwcCookies, null, 2), "utf8");
+    campusSessionStore.writeCookies(state.newjwcCookies);
     console.log("\nCookies saved: " + cookieFile);
     console.log("Run: npm start");
   } catch (err) {

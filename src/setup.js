@@ -5,6 +5,7 @@ const http = require("http");
 const https = require("https");
 const readline = require("readline");
 const config = require("./config");
+const campusSessionStore = require("./services/campusSessionStore");
 
 const DATA_DIR = config.dataDir;
 const COOKIE_FILE = path.join(DATA_DIR, "cookies.json");
@@ -90,7 +91,7 @@ function validateCookieFile() {
 
   let cookies;
   try {
-    cookies = JSON.parse(fs.readFileSync(COOKIE_FILE, "utf8"));
+    cookies = campusSessionStore.loadCookies();
   } catch (err) {
     return { ok: false, error: "cookies.json is not valid JSON: " + err.message };
   }
@@ -134,7 +135,9 @@ function requestJson(method, url, body) {
       method,
       headers: body ? {
         "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(data)
+        "Content-Length": Buffer.byteLength(data),
+        "Authorization": "Bearer " + String(process.env.ADMIN_JWT_TOKEN || ""),
+        "x-admin-diagnostic-key": String(process.env.ADMIN_DIAGNOSTIC_SECRET || "")
       } : {}
     }, res => {
       let raw = "";
@@ -202,7 +205,7 @@ function requestJson(method, url, body) {
       return;
     }
 
-    fs.writeFileSync(COOKIE_FILE, JSON.stringify(state.newjwcCookies, null, 2), "utf8");
+    campusSessionStore.writeCookies(state.newjwcCookies);
     console.log("\nStep 2/4: Cookies saved: " + COOKIE_FILE);
     await browser.close();
     browser = null;
@@ -215,6 +218,10 @@ function requestJson(method, url, body) {
     }
 
     console.log("\nStep 4/4: Uploading cookies to " + renderUrl + "/upload-cookies");
+    if (!process.env.ADMIN_JWT_TOKEN || !process.env.ADMIN_DIAGNOSTIC_SECRET) {
+      console.log("ERROR: ADMIN_JWT_TOKEN and ADMIN_DIAGNOSTIC_SECRET are required for the admin-only legacy upload route.");
+      return;
+    }
     const uploadRes = await requestJson("POST", renderUrl + "/upload-cookies", checked.cookies);
     console.log("Upload HTTP status: " + uploadRes.status);
     console.log("Upload result: " + JSON.stringify(uploadRes.data));

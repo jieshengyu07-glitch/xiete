@@ -23,6 +23,8 @@ const { scheduleUserTimetableSync, isUserTimetableSyncRunning } = require("./syn
 const { scheduleCampusSessionBootstrap, isCampusSessionBootstrapRunning } = require("./sync/campusSessionBootstrap");
 const { currentTermInfo, loadConfiguredTerm, assertTermConfig } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
+const { publicClassTimeConfig } = require("./timetable/classPeriods");
+const { resolveGradeQueryTerms, publicTerm } = require("./grade/termDiscovery");
 const { createCaptchaSession, loginWithCaptcha, clearCaptchaSessionsForUser } = require("./login/captchaSession");
 const {
   ADMIN_HEADER,
@@ -32,10 +34,13 @@ const {
 const { userIdHash } = require("./utils/userIdHash");
 const userDataDeletion = require("./services/userDataDeletion");
 const reviewDemo = require("./services/reviewDemo");
+const { assertSessionEncryptionConfig } = require("./services/sessionCrypto");
+const { rateLimit } = require("./middleware/rateLimit");
 
 assertJwtConfig();
 assertWechatConfig();
 reviewDemo.assertReviewDemoConfig();
+assertSessionEncryptionConfig();
 if (process.env.NODE_ENV === "production") assertTermConfig();
 config.logDataPath();
 
@@ -43,10 +48,15 @@ const app = express();
 const PORT = process.env.PORT || 3456;
 const SCHOOL_DATA_PATH = path.join(config.dataDir, "school.json");
 
+const wechatLoginLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 10, keyType: "ip" });
+const bindAccountLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 8, keyType: "user+ip" });
+const captchaSessionLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 12, keyType: "user+ip" });
+const captchaLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyType: "user+ip" });
+
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Diagnostic-Key");
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return;
@@ -96,6 +106,20 @@ function adminDebugRoutesEnabled() {
 function requireAdminMode(req, res, next) {
   if (adminDebugRoutesEnabled()) return next();
   return res.status(404).json({ success: false, error: "NOT_FOUND" });
+}
+
+function requireLegacyAdminAccess(req, res, next) {
+  if (!adminDebugRoutesEnabled()) {
+    return res.status(404).json({ success: false, error: "NOT_FOUND" });
+  }
+  const access = isDiagnosticAdminAuthorized(req.get(ADMIN_HEADER));
+  if (!access.enabled) {
+    return res.status(404).json({ success: false, error: "NOT_FOUND" });
+  }
+  if (!access.authorized) {
+    return res.status(403).json({ success: false, error: "ADMIN_ONLY" });
+  }
+  return next();
 }
 
 function logUserScope(req, label) {
@@ -590,7 +614,7 @@ function scheduleBindCompletion(userId, portal) {
 }
 
 // POST /auth/wechat-login
-app.post("/auth/wechat-login", async (req, res) => {
+app.post("/auth/wechat-login", wechatLoginLimiter, async (req, res) => {
   try {
     const code = req.body && req.body.code;
     const userId = await resolveWechatOpenid(code);
@@ -894,13 +918,67 @@ function publicXgSessionStatus(accountMeta, hasXg) {
   return hasXg ? "unknown" : "missing";
 }
 
+function productAccountState(bound, campusLoginStatus, accountMeta, campusSync) {
+  if (!bound) return "UNBOUND";
+  if (campusLoginStatus === "relogin_required") return "RELOGIN_REQUIRED";
+  if (campusLoginStatus === "valid") return "BOUND";
+  const code = normalizeJwxtApiCode(
+    (accountMeta && accountMeta.lastJwxtError) ||
+    (campusSync && (campusSync.errorCode || campusSync.lastError))
+  );
+  if (["CAPTCHA_REQUIRED", "JWXT_CAPTCHA_REQUIRED", "PORTAL_VERIFICATION_REQUIRED"].includes(code)) {
+    return "CAPTCHA_REQUIRED";
+  }
+  if (["ACCOUNT_RELOGIN_REQUIRED", "RELOGIN_REQUIRED", "SESSION_DECRYPT_FAILED", "COOKIE_EXPIRED"].includes(code)) {
+    return "RELOGIN_REQUIRED";
+  }
+  if (campusLoginStatus === "recovering") return "RECOVERING";
+  if ([
+    "ACCOUNT_RELOGIN_REQUIRED", "RELOGIN_REQUIRED", "SESSION_DECRYPT_FAILED",
+    "COOKIE_EXPIRED", "LOGIN_FAILED", "JWXT_LOGIN_FAILED", "JWXT_SSO_FAILED"
+  ].includes(code)) return "RELOGIN_REQUIRED";
+  if (["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "PORTAL_UNAVAILABLE", "ETIMEDOUT", "ECONNRESET"].includes(code)) {
+    return "SCHOOL_UNAVAILABLE";
+  }
+  return "BOUND";
+}
+
+function productDataState(hasData, syncStatus, termStatus) {
+  const academicState = String(termStatus || "").toUpperCase();
+  if (["PRE_TERM", "VACATION", "BETWEEN_TERMS"].includes(academicState)) return academicState;
+  const status = String(syncStatus || "").toLowerCase();
+  if (["running", "recovering"].includes(status)) return "SYNCING";
+  if (status === "failed") return hasData ? "SYNC_FAILED_WITH_CACHE" : "SYNC_FAILED_NO_CACHE";
+  if (!hasData) return "NO_DATA";
+  return status === "success" || status === "ok" ? "READY" : "CACHED";
+}
+
 app.get("/status", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /status");
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     userPersistence.touchLogin(req.userId);
     res.setHeader("Cache-Control", "no-store");
-    return res.json(reviewDemo.getStatus(req.userId));
+    const demoStatus = reviewDemo.getStatus(req.userId);
+    let demoTerm = { termStatus: "" };
+    try { demoTerm = currentTermInfo(); } catch (err) {}
+    demoStatus.productStatus = {
+      version: 1,
+      wechat: { state: "SIGNED_IN" },
+      account: { state: demoStatus.bound ? "BOUND" : "UNBOUND", bound: Boolean(demoStatus.bound) },
+      timetable: {
+        state: productDataState(Boolean(demoStatus.hasTimetable), demoStatus.timetableSyncStatus, demoTerm.termStatus),
+        hasData: Boolean(demoStatus.hasTimetable),
+        termStatus: demoTerm.termStatus,
+        updatedAt: demoStatus.lastSuccessfulSyncAt || null
+      },
+      grades: {
+        state: productDataState(Number(demoStatus.totalGrades || 0) > 0, demoStatus.gradeQueryStatus === "ready" ? "success" : demoStatus.gradeQueryStatus),
+        hasData: Number(demoStatus.totalGrades || 0) > 0,
+        updatedAt: demoStatus.lastSuccessfulSyncAt || null
+      }
+    };
+    return res.json(demoStatus);
   }
   const activeStorage = requestStorage(req);
   if (req.userId) {
@@ -953,9 +1031,10 @@ app.get("/status", auth, (req, res) => {
   const effectiveJwxtStatus = jwxtStatus;
   const gradeQueryStatus = publicGradeQueryStatus(activeStorage, campusLoginStatus, gradeSync);
   let hasTimetable = false;
+  let termInfo = null;
   try {
-    const info = currentTermInfo();
-    hasTimetable = activeStorage.getTimetable(info.termYear, info.termSemester).length > 0;
+    termInfo = currentTermInfo();
+    hasTimetable = activeStorage.getTimetable(termInfo.termYear, termInfo.termSemester).length > 0;
   } catch (err) {}
   const timetableSyncStatus = publicTimetableSyncStatus(
     hasTimetable,
@@ -963,9 +1042,19 @@ app.get("/status", auth, (req, res) => {
     isUserTimetableSyncRunning(req.userId)
   );
   const gradesCache = req.userId ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage) : null;
+  const totalGrades = gradesCache ? gradesCache.grades.length : activeStorage.getGrades().length;
+  const gradeMeta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
+  const timetableMeta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("timetable") : {};
+  const accountState = productAccountState(bound, campusLoginStatus, accountMeta, campusSync);
+  const termStatus = termInfo && termInfo.termStatus || "";
+  const studentId = accountMeta && accountMeta.studentId ? String(accountMeta.studentId) : "";
+  const maskedStudentId = studentId.length > 8
+    ? studentId.slice(0, 4) + "****" + studentId.slice(-4)
+    : (studentId ? studentId.slice(0, 2) + "****" : "");
   res.json({
     status: "running",
     bound,
+    maskedStudentId,
     campusLoginStatus,
     gradeQueryStatus,
     timetableSyncStatus,
@@ -978,7 +1067,7 @@ app.get("/status", auth, (req, res) => {
     xgSessionStatus: publicXgSessionStatus(accountMeta, hasXg),
     xgCookieValid: accountMeta && accountMeta.xgStatus === "OK" ? true : null,
     gradeSource,
-    totalGrades: gradesCache ? gradesCache.grades.length : activeStorage.getGrades().length,
+    totalGrades,
     hasTimetable,
     unevaluatedCount: unevaluatedCourses.length,
     unevaluatedCourses,
@@ -987,6 +1076,22 @@ app.get("/status", auth, (req, res) => {
     lastFailedSyncAt: accountMeta && accountMeta.lastFailedSyncAt || null,
     lastJwxtError: accountMeta && accountMeta.lastJwxtError || null,
     lastJwxtErrorMessage: accountMeta && accountMeta.lastJwxtErrorMessage || null,
+    productStatus: {
+      version: 1,
+      wechat: { state: "SIGNED_IN" },
+      account: { state: accountState, bound },
+      timetable: {
+        state: productDataState(hasTimetable, timetableSyncStatus, termStatus),
+        hasData: hasTimetable,
+        termStatus,
+        updatedAt: timetableMeta.lastSuccessfulSyncAt || activeStorage.data?.timetableLastSyncAt || null
+      },
+      grades: {
+        state: productDataState(totalGrades > 0, gradeSync && gradeSync.status),
+        hasData: totalGrades > 0,
+        updatedAt: gradesCache && gradesCache.updatedAt || gradeMeta.lastSuccessfulSyncAt || activeStorage.data?.lastRunAt || null
+      }
+    },
     version: "1.0.0",
   });
 });
@@ -1057,11 +1162,24 @@ function compactGrade(g) {
   };
 }
 
+function availableGradeTerms(activeStorage, grades) {
+  const stored = activeStorage && activeStorage.getGradeAvailableTerms
+    ? activeStorage.getGradeAvailableTerms()
+    : null;
+  const storedTerms = stored && Array.isArray(stored.terms) ? stored.terms : [];
+  const fallback = resolveGradeQueryTerms("", grades || []).terms.map(publicTerm);
+  return {
+    source: storedTerms.length ? (stored.source || "SCHOOL") : "FALLBACK",
+    terms: storedTerms.length ? storedTerms : fallback
+  };
+}
+
 app.get("/grades", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /grades");
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     const grades = reviewDemo.getGrades().map(compactGrade);
+    const termAvailability = availableGradeTerms(null, grades);
     res.setHeader("Cache-Control", "no-store");
     return res.json({
       success: true,
@@ -1078,6 +1196,8 @@ app.get("/grades", auth, (req, res) => {
       lastSuccessfulSyncAt: reviewDemo.getStatus(req.userId).lastSuccessfulSyncAt,
       lastFailedSyncAt: null,
       count: grades.length,
+      availableTerms: termAvailability.terms,
+      termSource: termAvailability.source,
       grades,
       groupedGrades: buildGroupedGrades(grades)
     });
@@ -1093,6 +1213,7 @@ app.get("/grades", auth, (req, res) => {
   const syncStatus = syncing ? "running" : (syncState.status || (gradesCache.grades.length ? "success" : "idle"));
   const syncErrorCode = syncStatus === "failed" ? String(syncState.errorCode || syncState.lastError || "SYNC_FAILED") : "";
   const grades = gradesCache.grades.map(compactGrade);
+  const termAvailability = availableGradeTerms(activeStorage, grades);
   console.log("[grades] userIdHash=" + userIdHash(req.userId) + " source=" + (syncing ? "sync" : "file"));
   console.log("[grades] count=" + grades.length);
   if (syncing) console.log("[grades] syncing=true");
@@ -1115,6 +1236,8 @@ app.get("/grades", auth, (req, res) => {
     lastSuccessfulSyncAt: gradesCache.updatedAt || meta.lastSuccessfulSyncAt || activeStorage.data?.lastRunAt || null,
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
     count: grades.length,
+    availableTerms: termAvailability.terms,
+    termSource: termAvailability.source,
     grades,
     groupedGrades: buildGroupedGrades(grades)
   });
@@ -1253,7 +1376,7 @@ function apiErrorStatus(code) {
 }
 
 // GET /jwxt/captcha-session
-app.get("/jwxt/captcha-session", auth, async (req, res) => {
+app.get("/jwxt/captcha-session", auth, captchaSessionLimiter, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
@@ -1272,7 +1395,7 @@ app.get("/jwxt/captcha-session", auth, async (req, res) => {
 });
 
 // POST /jwxt/login-with-captcha
-app.post("/jwxt/login-with-captcha", auth, async (req, res) => {
+app.post("/jwxt/login-with-captcha", auth, captchaLoginLimiter, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
@@ -1399,25 +1522,31 @@ app.get("/timetable/config", auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     res.setHeader("Cache-Control", "no-store");
-    return res.json(reviewDemo.getTimetableConfig());
+    return res.json(Object.assign(reviewDemo.getTimetableConfig(), publicClassTimeConfig()));
   }
   try {
     const info = currentTermInfo();
     const activeStorage = requestStorage(req);
     const cachedRows = activeStorage.getTimetable(info.termYear, info.termSemester);
-    res.json({
+    res.json(Object.assign({
       success: true,
+      academicYear: info.academicYear,
+      semester: info.semester,
       termYear: info.termYear,
       termSemester: info.termSemester,
+      termStatus: info.termStatus,
+      termConfigSource: info.termConfigSource,
       date: info.date,
       weekday: info.weekday,
       teachingWeekStartDate: info.teachingWeekStartDate,
+      teachingWeekEndDate: info.teachingWeekEndDate,
+      currentWeek: info.currentWeek,
       weekNumber: info.weekNumber,
       weekType: info.weekType,
       weekTypeText: info.weekTypeText,
       hasTimetable: cachedRows.length > 0,
       timetableCount: cachedRows.length
-    });
+    }, publicClassTimeConfig()));
   } catch (err) {
     if (sendTermConfigError(res, err)) return;
     res.status(500).json({ success: false, error: "TIMETABLE_CONFIG_FAILED", message: err.message });
@@ -1433,7 +1562,7 @@ app.get("/timetable/today", auth, (req, res) => {
   }
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     res.setHeader("Cache-Control", "no-store");
-    return res.json(reviewDemo.getTodayTimetable(requestedDate || undefined));
+    return res.json(Object.assign(reviewDemo.getTodayTimetable(requestedDate || undefined), publicClassTimeConfig()));
   }
   let info;
   try {
@@ -1457,7 +1586,7 @@ app.get("/timetable/today", auth, (req, res) => {
     .filter(item => timetableAppliesToWeek(item, info.weekNumber))
     .sort((a, b) => Number(a.section) - Number(b.section)) : [];
 
-  res.json({
+  res.json(Object.assign({
     success: true,
     fromCache: true,
     warning,
@@ -1472,7 +1601,7 @@ app.get("/timetable/today", auth, (req, res) => {
     debug: timetableDebug(info, rows.length, todayRows.length),
     timetable: syncing && !rows.length ? [] : todayRows,
     sections: syncing && !rows.length ? [] : fillDaySections(todayRows)
-  });
+  }, publicClassTimeConfig()));
 });
 
 // GET /timetable/week
@@ -1484,7 +1613,7 @@ app.get("/timetable/week", auth, (req, res) => {
   }
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     res.setHeader("Cache-Control", "no-store");
-    return res.json(reviewDemo.getWeekTimetable(requestedDate || undefined));
+    return res.json(Object.assign(reviewDemo.getWeekTimetable(requestedDate || undefined), publicClassTimeConfig()));
   }
   let info;
   try {
@@ -1512,7 +1641,7 @@ app.get("/timetable/week", auth, (req, res) => {
     sections: fillDaySections(filtered.filter(item => Number(item.weekday) === weekday))
   }));
 
-  res.json({
+  res.json(Object.assign({
     success: true,
     fromCache: true,
     warning,
@@ -1526,7 +1655,7 @@ app.get("/timetable/week", auth, (req, res) => {
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
     debug: timetableDebug(info, rows.length, filtered.length),
     days: syncing && !rows.length ? [] : days
-  });
+  }, publicClassTimeConfig()));
 });
 
 // POST /timetable/sync
@@ -1632,7 +1761,7 @@ app.post("/timetable/sync", auth, async (req, res) => {
 });
 
 // POST /bind-account
-app.post("/bind-account", auth, async (req, res) => {
+app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   console.log("[bind] start scope=" + (req.userId ? "user" : "legacy"));
   logUserScope(req, "POST /bind-account");
@@ -1804,6 +1933,7 @@ app.post("/unbind-account", auth, (req, res) => {
     }
     credentialStore.deleteBoundAccount(req.userId);
     deleteCookies(req.userId);
+    requestStorage(req).clearXgSession();
     clearCaptchaSessionsForUser(req.userId);
     console.log("[api] JWXT account unbound; credentials and cookies removed; cached grades/timetable kept");
     res.json({ success: true, unbound: true });
@@ -1860,7 +1990,7 @@ app.delete("/account/data", auth, deleteAccountData);
 app.post("/account/delete-data", auth, deleteAccountData);
 
 // POST /upload-cookies
-app.post("/upload-cookies", requireAdminMode, auth, (req, res) => {
+app.post("/upload-cookies", requireLegacyAdminAccess, auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
@@ -1891,7 +2021,7 @@ app.post("/upload-cookies", requireAdminMode, auth, (req, res) => {
 
 
 // POST /upload-xg-session
-app.post("/upload-xg-session", requireAdminMode, auth, (req, res) => {
+app.post("/upload-xg-session", requireLegacyAdminAccess, auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });
@@ -1943,7 +2073,7 @@ app.post("/upload-xg-session", requireAdminMode, auth, (req, res) => {
 
 
 // POST /grades/import
-app.post("/grades/import", auth, (req, res) => {
+app.post("/grades/import", requireLegacyAdminAccess, auth, (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     return res.status(403).json({ success: false, error: "REVIEW_DEMO_ISOLATED" });

@@ -1,3 +1,5 @@
+const { semesterToXqm, xqmToSemester } = require("../timetable/calendar");
+
 function cleanText(value) {
   return String(value === undefined || value === null ? "" : value)
     .replace(/\u3000/g, " ")
@@ -36,10 +38,8 @@ function termFromXnmXqm(xnm, xqm) {
   const year = cleanText(xnm);
   const semester = cleanText(xqm);
   if (!/^\d{4}$/.test(year)) return "";
-  let termNo = "";
-  if (semester === "3" || semester === "1") termNo = "1";
-  else if (semester === "12" || semester === "2") termNo = "2";
-  else if (semester) termNo = semester;
+  const mappedSemester = xqmToSemester(semester);
+  const termNo = mappedSemester === null ? semester : String(mappedSemester);
   if (!termNo) return "";
   return year + "-" + (Number(year) + 1) + "-" + termNo;
 }
@@ -72,7 +72,7 @@ function xnmFromTerm(term) {
 function xqmFromTerm(term) {
   const match = cleanText(term).match(/^\d{4}-\d{4}-([12])$/);
   if (!match) return "";
-  return match[1] === "1" ? "3" : "12";
+  return semesterToXqm(Number(match[1]));
 }
 
 function normalizeSources(grade, source) {

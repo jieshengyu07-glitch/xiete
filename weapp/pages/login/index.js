@@ -8,6 +8,13 @@ Page({
     error: ""
   },
 
+  onLoad(options) {
+    const storedIntent = wx.getStorageSync("loginRedirectIntent");
+    const intent = String((options && options.redirect) || storedIntent || "").toLowerCase();
+    wx.removeStorageSync("loginRedirectIntent");
+    this._redirectAfterLogin = ["timetable", "grades", "profile"].includes(intent) ? intent : "timetable";
+  },
+
   onShow() {
     this.setData({ privacyAccepted: Boolean(wx.getStorageSync(PRIVACY_ACCEPTED_KEY)) });
   },
@@ -15,8 +22,6 @@ Page({
   onPrivacyChange(e) {
     const accepted = Boolean(e && e.detail && e.detail.value && e.detail.value.length);
     this.setData({ privacyAccepted: accepted });
-    if (accepted) wx.setStorageSync(PRIVACY_ACCEPTED_KEY, true);
-    else wx.removeStorageSync(PRIVACY_ACCEPTED_KEY);
   },
 
   openPrivacy() {
@@ -32,7 +37,7 @@ Page({
   login() {
     if (this.data.loggingIn) return;
     if (!this.data.privacyAccepted) {
-      wx.showToast({ title: "请先阅读并同意隐私保护指引", icon: "none" });
+      wx.showToast({ title: "请先阅读并同意用户协议和隐私政策", icon: "none" });
       return;
     }
     if (!app || typeof app.loginWithWechat !== "function") {
@@ -49,7 +54,13 @@ Page({
       this.setData({ loggingIn: false });
       wx.showToast({ title: "登录成功", icon: "success" });
       setTimeout(() => {
-        wx.switchTab({ url: "/pages/timetable/timetable" });
+        const target = this._redirectAfterLogin || "timetable";
+        const routes = {
+          timetable: "/pages/timetable/timetable",
+          grades: "/pages/grades/grades",
+          profile: "/pages/profile/index"
+        };
+        wx.switchTab({ url: routes[target] || routes.timetable });
       }, 500);
     }).catch(() => {
       this.setData({

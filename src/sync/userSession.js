@@ -3,6 +3,7 @@ const { getUserPaths } = require("../services/userPaths");
 const credentialStore = require("../services/credentialStore");
 const { createStorageForUser } = require("../db/storage");
 const userPersistence = require("../services/userPersistence");
+const campusSessionStore = require("../services/campusSessionStore");
 
 function readJson(file, fallback) {
   try {
@@ -24,7 +25,7 @@ function hasJwxtCookie(cookies) {
 function ensureUserSession(userId) {
   const paths = userPersistence.initUserData(userId);
   const storage = createStorageForUser(userId);
-  const cookies = readJson(paths.cookiesPath, []);
+  const cookies = campusSessionStore.loadCookies(userId) || [];
   const xgSession = storage.getXgSession();
   const credentials = credentialStore.getJwxtCredentials(userId);
   const result = {

@@ -1,5 +1,7 @@
 const PRIVACY_ACCEPTED_KEY = "privacyAccepted";
 
+const api = require("../../utils/api");
+
 Page({
   data: {
     accepted: false
@@ -27,7 +29,10 @@ Page({
       success: result => {
         if (!result.confirm) return;
         wx.removeStorageSync(PRIVACY_ACCEPTED_KEY);
+        if (api && typeof api.clearPendingAuthRequests === "function") api.clearPendingAuthRequests();
         wx.removeStorageSync("token");
+        const app = getApp();
+        if (app && typeof app.bumpAuthEpoch === "function") app.bumpAuthEpoch();
         wx.setStorageSync("manualLogout", true);
         wx.removeStorageSync("userInfo");
         wx.removeStorageSync("jwxtBound");

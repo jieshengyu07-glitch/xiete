@@ -1,6 +1,5 @@
 <view class="landing-page">
   <view class="brand-card">
-    <view class="brand-icon">科</view>
     <view class="brand-name">校园助手</view>
     <view class="brand-desc">面向校内用户的课表与成绩查询工具</view>
   </view>

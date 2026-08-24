@@ -21,6 +21,29 @@ function authError(message) {
   return err;
 }
 
+function currentAuthEpoch() {
+  return Number(app && app.globalData && app.globalData.authEpoch || 0);
+}
+
+function staleAuthError() {
+  const err = new Error("STALE_AUTH_REQUEST");
+  err.code = "STALE_AUTH_REQUEST";
+  return err;
+}
+
+function assertCurrentEpoch(epoch) {
+  if (currentAuthEpoch() !== epoch) throw staleAuthError();
+}
+
+function invalidateAuthIfCurrent(epoch) {
+  if (currentAuthEpoch() !== epoch) return;
+  if (app && typeof app.invalidateAuth === "function") app.invalidateAuth();
+  else {
+    wx.removeStorageSync("token");
+    if (app && app.globalData) app.globalData.authEpoch = epoch + 1;
+  }
+}
+
 function goLoginPage() {
   if (loginNavigationPending) return;
   loginNavigationPending = true;
@@ -74,11 +97,14 @@ function ensureLogin(force) {
 }
 
 function normalizeError(res) {
+  const rateLimited = res && res.statusCode === 429;
   return {
     statusCode: res.statusCode,
     data: res.data,
     error: res.data && res.data.error,
-    message: (res.data && (res.data.message || res.data.error)) || ("HTTP " + res.statusCode)
+    message: rateLimited
+      ? "操作太频繁，请稍后再试"
+      : ((res.data && (res.data.message || res.data.error)) || ("HTTP " + res.statusCode))
   };
 }
 
@@ -89,8 +115,11 @@ function normalizeFailError(err) {
   };
 }
 
-function send(path, method, data, options, retried) {
-  return ensureLogin(false).then(() => new Promise((resolve, reject) => {
+function send(path, method, data, options, retried, requestEpoch) {
+  const epoch = requestEpoch === undefined ? currentAuthEpoch() : requestEpoch;
+  return ensureLogin(false).then(() => {
+    assertCurrentEpoch(epoch);
+    return new Promise((resolve, reject) => {
     wx.request({
       url: app.globalData.apiBase + path,
       method,
@@ -100,17 +129,24 @@ function send(path, method, data, options, retried) {
       data: data || {},
       timeout: options && options.timeout ? options.timeout : 30000,
       success: res => {
+        if (currentAuthEpoch() !== epoch) {
+          reject(staleAuthError());
+          return;
+        }
         if (res.statusCode === 401 && !retried) {
           wx.removeStorageSync("token");
           ensureLogin(true)
-            .then(() => send(path, method, data, options, true))
+            .then(() => send(path, method, data, options, true, currentAuthEpoch()))
             .then(resolve)
-            .catch(reject);
+            .catch(err => {
+              invalidateAuthIfCurrent(epoch);
+              reject(err);
+            });
           return;
         }
 
         if (res.statusCode === 401) {
-          wx.removeStorageSync("token");
+          invalidateAuthIfCurrent(epoch);
           goLoginPage();
           reject(authError("UNAUTHORIZED"));
           return;
@@ -123,9 +159,13 @@ function send(path, method, data, options, retried) {
 
         resolve(res.data);
       },
-      fail: err => reject(normalizeFailError(err))
+      fail: err => {
+        if (currentAuthEpoch() !== epoch) reject(staleAuthError());
+        else reject(normalizeFailError(err));
+      }
     });
-  }));
+    });
+  });
 }
 
 function sendPublic(path, method, data, options) {
@@ -151,9 +191,10 @@ function sendPublic(path, method, data, options) {
 }
 
 function request(path, options) {
-  const key = String(path || "");
+  const epoch = currentAuthEpoch();
+  const key = epoch + ":GET:" + String(path || "");
   if (pendingGets.has(key)) return pendingGets.get(key);
-  const task = send(path, "GET", null, options, false);
+  const task = send(path, "GET", null, options, false, epoch);
   const cleanup = () => {
     if (pendingGets.get(key) === task) pendingGets.delete(key);
   };
@@ -174,6 +215,10 @@ function publicRequest(path, options) {
   return sendPublic(path, "GET", null, options);
 }
 
+function clearPendingAuthRequests() {
+  pendingGets.clear();
+}
+
 module.exports = {
   request,
   get: request,
@@ -181,5 +226,6 @@ module.exports = {
   publicGet: publicRequest,
   post,
   del,
-  ensureLogin
+  ensureLogin,
+  clearPendingAuthRequests
 };

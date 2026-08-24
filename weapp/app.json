@@ -21,9 +21,24 @@
     "backgroundColor": "#ffffff",
     "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/timetable/timetable", "text": "课表" },
-      { "pagePath": "pages/grades/grades", "text": "成绩" },
-      { "pagePath": "pages/profile/index", "text": "我的" }
+      {
+        "pagePath": "pages/timetable/timetable",
+        "text": "课表",
+        "iconPath": "assets/tab/timetable.png",
+        "selectedIconPath": "assets/tab/timetable-active.png"
+      },
+      {
+        "pagePath": "pages/grades/grades",
+        "text": "成绩",
+        "iconPath": "assets/tab/grades.png",
+        "selectedIconPath": "assets/tab/grades-active.png"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "我的",
+        "iconPath": "assets/tab/profile.png",
+        "selectedIconPath": "assets/tab/profile-active.png"
+      }
     ]
   },
   "networkTimeout": {

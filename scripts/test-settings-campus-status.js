@@ -55,10 +55,10 @@ async function main() {
   const recoveringPage = createPage();
   recoveringPage.refreshStatus();
   await flush();
-  assert.strictEqual(recoveringPage.data.status, "BOUND");
+  assert.strictEqual(recoveringPage.data.status, "RECOVERING");
   assert.strictEqual(recoveringPage.data.hasBoundJwxt, true);
   assert.strictEqual(recoveringPage.data.showRebindActions, false);
-  assert.strictEqual(recoveringPage.data.statusTitle, "账号已绑定");
+  assert.strictEqual(recoveringPage.data.statusTitle, "正在恢复校园账号");
   console.log("recoveringStatusOverridesLegacyJwxtFailureTest=passed");
 
   statusResponse = {
@@ -70,7 +70,7 @@ async function main() {
   const validPage = createPage();
   validPage.refreshStatus();
   await flush();
-  assert.strictEqual(validPage.data.status, "SYNC_OK");
+  assert.strictEqual(validPage.data.status, "BOUND");
   assert.strictEqual(validPage.data.showRebindActions, false);
   console.log("validCampusStatusOverridesStaleCookieErrorTest=passed");
 
@@ -82,16 +82,16 @@ async function main() {
   const reloginPage = createPage();
   reloginPage.refreshStatus();
   await flush();
-  assert.strictEqual(reloginPage.data.status, "SYNC_FAILED");
+  assert.strictEqual(reloginPage.data.status, "RELOGIN_REQUIRED");
   assert.strictEqual(reloginPage.data.showRebindActions, true);
   console.log("explicitReloginRequiredShowsRebindTest=passed");
 
   latestModal = null;
   const transientPage = createPage({ hasBoundJwxt: true });
   transientPage.handleBindFailure({ error: "JWXT_UNAVAILABLE", message: "temporary" });
-  assert.strictEqual(transientPage.data.status, "BOUND");
+  assert.strictEqual(transientPage.data.status, "SCHOOL_UNAVAILABLE");
   assert.strictEqual(transientPage.data.showRebindActions, false);
-  assert.strictEqual(transientPage.data.statusTitle, "账号已绑定");
+  assert.strictEqual(transientPage.data.statusTitle, "学校系统暂时无法访问");
   assert.strictEqual(latestModal, null);
   console.log("transientRebindFailureKeepsBoundRecoveryStateTest=passed");
 

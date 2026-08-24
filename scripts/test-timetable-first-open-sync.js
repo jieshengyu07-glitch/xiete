@@ -56,7 +56,8 @@ async function testFrontendPolling() {
     assert.strictEqual(page.data.weekDays[0].sections[3].courses.length, 0);
     const weekTemplate = require("fs").readFileSync(require.resolve("../weapp/pages/timetable/timetable.wxml"), "utf8");
     assert.strictEqual(weekTemplate.includes("item.courseSections"), false);
-    assert.strictEqual(weekTemplate.includes("section.courses.length === 0"), true);
+    assert.strictEqual(weekTemplate.includes("section.courses.length>0"), true);
+    assert.strictEqual(weekTemplate.includes("course.locationText"), true);
     console.log("weeklyViewKeepsFourLessonSlotsTest=passed");
   } finally {
     api.request = originalRequest;

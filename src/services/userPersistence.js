@@ -3,6 +3,7 @@ const path = require("path");
 const { getUserPaths, safeUserId } = require("./userPaths");
 const credentialStore = require("./credentialStore");
 const { assertUserDataWritable } = require("./userDataDeletion");
+const campusSessionStore = require("./campusSessionStore");
 
 function nowIso() {
   return new Date().toISOString();
@@ -35,8 +36,8 @@ function writeJson(file, data) {
   }
 }
 
-function readCookiesFile(paths) {
-  const cookies = readJson(paths.cookiesPath, []);
+function readCookiesFile(paths, userId) {
+  const cookies = campusSessionStore.loadCookies(userId);
   return Array.isArray(cookies) ? cookies : [];
 }
 
@@ -266,7 +267,7 @@ function campusStateFromStorage(userId, activeStorage) {
   const session = activeStorage && typeof activeStorage.getXgSession === "function"
     ? activeStorage.getXgSession()
     : {};
-  const cookies = readCookiesFile(paths);
+  const cookies = readCookiesFile(paths, userId);
   return Object.assign(defaultCampusState(userId), {
     studentId: meta.studentId || "",
     jwxtCookies: compactCookieMeta(cookies),

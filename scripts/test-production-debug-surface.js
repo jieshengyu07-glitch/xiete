@@ -97,7 +97,7 @@ async function main() {
   const token = jwt.sign({ userId: "debug-route-test-user" }, jwtSecret, { expiresIn: "5m" });
   const diagnosticSecret = "debug-route-admin-diagnostic-secret-0123456789";
   await withServer({ nodeEnv: "production", adminDiagnosticSecret: diagnosticSecret, port: 3471 }, async port => {
-    for (const pathname of ["/upload-cookies", "/upload-xg-session"]) {
+    for (const pathname of ["/upload-cookies", "/upload-xg-session", "/grades/import"]) {
       const response = await request(port, "POST", pathname, token, {});
       assert.strictEqual(response.status, 404);
     }
@@ -109,8 +109,10 @@ async function main() {
   });
 
   await withServer({ nodeEnv: "production", adminMode: "true", adminDiagnosticSecret: diagnosticSecret, port: 3472 }, async port => {
-    for (const pathname of ["/upload-cookies", "/upload-xg-session"]) {
-      const response = await request(port, "POST", pathname, token, {});
+    for (const pathname of ["/upload-cookies", "/upload-xg-session", "/grades/import"]) {
+      const response = await request(port, "POST", pathname, token, {}, {
+        "x-admin-diagnostic-key": diagnosticSecret
+      });
       assert.strictEqual(response.status, 400);
     }
     const diagnostic = await request(port, "GET", "/admin/diagnose-data", null, undefined, {
@@ -120,9 +122,11 @@ async function main() {
     console.log("productionAdminModeDebugRoutesEnabledTest=passed");
   });
 
-  await withServer({ nodeEnv: "development", port: 3473 }, async port => {
-    for (const pathname of ["/upload-cookies", "/upload-xg-session"]) {
-      const response = await request(port, "POST", pathname, token, {});
+  await withServer({ nodeEnv: "development", adminDiagnosticSecret: diagnosticSecret, port: 3473 }, async port => {
+    for (const pathname of ["/upload-cookies", "/upload-xg-session", "/grades/import"]) {
+      const response = await request(port, "POST", pathname, token, {}, {
+        "x-admin-diagnostic-key": diagnosticSecret
+      });
       assert.strictEqual(response.status, 400);
     }
     console.log("developmentDebugRoutesEnabledTest=passed");
