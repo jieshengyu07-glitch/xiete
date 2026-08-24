@@ -105,6 +105,13 @@ async function main() {
     PORT: String(port)
   });
 
+  const conflictDir = path.join(dataDir, "users", conflictUserId);
+  fs.mkdirSync(conflictDir, { recursive: true });
+  fs.writeFileSync(path.join(conflictDir, "campus.json"), JSON.stringify({
+    grades: [{ courseName: "Existing private grade", score: "99" }],
+    timetable: []
+  }, null, 2), "utf8");
+
   const child = spawn(process.execPath, ["src/index.js"], {
     cwd: root,
     env,
@@ -124,10 +131,6 @@ async function main() {
     assert.strictEqual(fs.existsSync(path.join(dataDir, "users", wrongPasswordUserId, "review-demo.json")), false);
     console.log("reviewDemoWrongPasswordRejectedTest=passed");
 
-    const imported = await request(port, "POST", "/grades/import", conflictToken, {
-      grades: [{ courseName: "Existing private grade", score: "99" }]
-    });
-    assert.strictEqual(imported.status, 200);
     const conflict = await request(port, "POST", "/bind-account", conflictToken, {
       studentId: demoUsername,
       password: demoPassword
@@ -192,8 +195,8 @@ async function main() {
     assert.strictEqual(sync.data.syncing, false);
 
     const forbidden = await request(port, "POST", "/grades/import", demoToken, { grades: [{ courseName: "private" }] });
-    assert.strictEqual(forbidden.status, 403);
-    assert.strictEqual(forbidden.data.error, "REVIEW_DEMO_ISOLATED");
+    assert.strictEqual(forbidden.status, 404);
+    assert.strictEqual(forbidden.data.error, "NOT_FOUND");
     console.log("reviewDemoNeverCallsRealCampusStorageTest=passed");
 
     const normalGrades = await request(port, "GET", "/grades", normalToken);

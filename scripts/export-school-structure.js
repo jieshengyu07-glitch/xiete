@@ -517,13 +517,6 @@ async function probeJwxt(cookies, collector, counters) {
   await probeUrls("jwxt-candidate", Array.from(candidates).slice(0, 80), headers, collector, counters);
 }
 
-function readXgSession(campus) {
-  if (campus && campus.xgSession && campus.xgSession.scoreUrl && campus.xgSession.cookies) {
-    return campus.xgSession;
-  }
-  return null;
-}
-
 async function probeXg(session, collector, counters) {
   if (!session || !session.scoreUrl || !session.cookies) {
     console.log("[school-export] xg=skipped reason=no-session");
@@ -586,9 +579,11 @@ function shouldUseDiscovered(stats) {
 async function main() {
   const userId = userIdFromArgs();
   const paths = userPaths(userId);
-  const cookies = readJson(paths.cookiesPath, []);
-  const campus = readJson(paths.campusPath, {});
-  const xgSession = readXgSession(campus);
+  const sessionStore = require("../src/services/campusSessionStore");
+  const storageModule = require("../src/db/storage");
+  const cookies = sessionStore.loadCookies(userId) || [];
+  const activeStorage = userId ? storageModule.createStorageForUser(userId) : storageModule;
+  const xgSession = activeStorage.getXgSession();
   const collector = new SchoolCollector();
   const counters = {};
 

@@ -1,29 +1,37 @@
 <view class="profile-page">
-  <view class="profile-card">
+  <view class="wechat-summary">
     <image wx:if="{{avatarUrl}}" class="avatar-img" src="{{avatarUrl}}" mode="aspectFill" />
-    <view wx:else class="avatar">{{avatarLetter}}</view>
-    <view class="profile-main">
-      <view class="profile-title">{{displayName}}</view>
-      <view class="profile-desc">{{profileDesc}}</view>
-      <view class="bind-pill {{bindStatusClass}}">{{bindStatusText}}</view>
+    <view class="wechat-copy">
+      <view class="summary-label">微信账号</view>
+      <view class="summary-value">{{wechatStatusText}}</view>
     </view>
   </view>
 
-  <view class="status-card">
-    <view class="section-title">成绩状态</view>
-    <view class="status-row">
-      <text class="status-label">成绩同步</text>
-      <text class="status-value {{gradeStatusClass}}">{{gradeQueryStatusText}}</text>
-    </view>
-    <view class="status-row">
-      <text class="status-label">最近同步</text>
-      <text class="status-time">{{lastCheckAtText}}</text>
-    </view>
+  <view class="campus-card">
+    <view class="section-title">校园账号</view>
+    <view class="campus-status {{campusStatusClass}}">{{campusStatusText}}</view>
+    <view class="campus-description">{{campusDescriptionText}}</view>
+    <button class="campus-action {{isWxLoggedIn ? 'primary' : 'secondary-action'}}" bindtap="manageJwxt">{{bindButtonText}}</button>
   </view>
 
-  <view class="action-card">
-    <button class="action-btn primary" loading="{{loadingStatus}}" disabled="{{loadingStatus}}" bindtap="refreshStatus">刷新状态</button>
-    <button class="action-btn secondary-action" bindtap="manageJwxt">{{bindButtonText}}</button>
+  <view class="data-section">
+    <view class="section-title">数据状态</view>
+    <view class="data-grid">
+      <view class="data-item">
+        <view class="data-label">课表</view>
+        <view wx:if="{{!isWxLoggedIn}}" class="data-value">登录后查看</view>
+        <view wx:elif="{{!isCampusBound}}" class="data-value muted-text">尚未同步</view>
+        <view wx:elif="{{timetableSyncTimeText}}" class="data-value">{{timetableSyncTimeText}}</view>
+        <view wx:else class="data-value">{{timetableStatusText}}</view>
+      </view>
+      <view class="data-item">
+        <view class="data-label">成绩</view>
+        <view wx:if="{{!isWxLoggedIn}}" class="data-value">登录后查看</view>
+        <view wx:elif="{{!isCampusBound}}" class="data-value muted-text">尚未同步</view>
+        <view wx:elif="{{gradesSyncTimeText}}" class="data-value">{{gradesSyncTimeText}}</view>
+        <view wx:else class="data-value">{{gradeQueryStatusText}}</view>
+      </view>
+    </view>
   </view>
 
   <view class="privacy-card">
@@ -33,5 +41,5 @@
     <button wx:if="{{isWxLoggedIn}}" class="privacy-action danger" loading="{{deletingData}}" disabled="{{deletingData}}" bindtap="deleteCloudData">删除云端个人数据</button>
   </view>
 
-  <view class="disclaimer">本小程序为校园工具，不代表学校官方。成绩与课表以学校系统最终数据为准。</view>
+  <view class="disclaimer">本小程序为校园工具，不代表学校官方 · 数据以学校系统为准</view>
 </view>

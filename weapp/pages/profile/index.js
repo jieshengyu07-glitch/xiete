@@ -1,37 +1,12 @@
 const app = getApp();
 const api = require("../../utils/api");
+const { wechatPresentation, campusPresentation, timetablePresentation, gradesPresentation } = require("../../utils/statusPresenter");
 
 const TOKEN_KEY = "token";
 const USER_INFO_KEY = "userInfo";
 const JWXT_BOUND_KEY = "jwxtBound";
 const OLD_JWXT_BOUND_HINT_KEY = "jwxtBoundHint";
 const MANUAL_LOGOUT_KEY = "manualLogout";
-
-function friendlyTime(value) {
-  if (!value) return "暂无同步记录";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-
-  const diff = Date.now() - date.getTime();
-  if (diff >= 0 && diff < 60 * 1000) return "刚刚同步";
-  if (diff >= 0 && diff < 60 * 60 * 1000) return Math.floor(diff / (60 * 1000)) + "分钟前同步";
-  if (diff >= 0 && diff < 24 * 60 * 60 * 1000) return Math.floor(diff / (60 * 60 * 1000)) + "小时前同步";
-
-  return date.getFullYear() + "-" +
-    String(date.getMonth() + 1).padStart(2, "0") + "-" +
-    String(date.getDate()).padStart(2, "0") + " " +
-    String(date.getHours()).padStart(2, "0") + ":" +
-    String(date.getMinutes()).padStart(2, "0");
-}
-
-function gradeStatusInfo(value) {
-  if (value === "ready") return { text: "可查询", className: "ok" };
-  if (value === "not_bound") return { text: "未绑定校园账号", className: "muted" };
-  if (value === "recovering") return { text: "正在恢复登录状态", className: "muted" };
-  if (value === "login_required") return { text: "需要重新登录", className: "warn" };
-  if (value === "unavailable") return { text: "暂不可用", className: "muted" };
-  return { text: "暂无状态", className: "muted" };
-}
 
 function displayName(userInfo) {
   return (userInfo && (userInfo.nickName || userInfo.studentId || userInfo.name)) || "校园助手用户";
@@ -52,9 +27,19 @@ Page({
     profileDesc: "登录后可查看校园数据",
     bindStatusText: "未绑定",
     bindStatusClass: "muted",
-    bindButtonText: "校园账号登录",
+    bindButtonText: "微信快捷登录",
+    wechatStatusText: "未登录",
+    wechatStatusClass: "muted",
+    campusStatusText: "还没有绑定校园账号",
+    campusStatusClass: "muted",
+    campusDescriptionText: "绑定后即可同步课表和成绩。",
+    isCampusBound: false,
+    timetableStatusText: "还没有同步课表",
+    timetableStatusClass: "muted",
+    timetableSyncTimeText: "",
     gradeQueryStatusText: "暂无状态",
     gradeStatusClass: "muted",
+    gradesSyncTimeText: "",
     lastCheckAtText: "暂无同步记录",
     loadingStatus: false,
     deletingData: false
@@ -82,6 +67,7 @@ Page({
     const name = displayName(userInfo);
 
     if (!token) {
+      const wechatInfo = wechatPresentation({ token: "" });
       this.setData({
         isWxLoggedIn: false,
         userInfo: null,
@@ -92,9 +78,19 @@ Page({
         profileDesc: "登录后可查看成绩和课表",
         bindStatusText: "未绑定",
         bindStatusClass: "muted",
-        bindButtonText: "校园账号登录",
+        bindButtonText: "微信快捷登录",
+        wechatStatusText: wechatInfo.title,
+        wechatStatusClass: wechatInfo.level,
+        campusStatusText: "登录后可绑定校园账号",
+        campusStatusClass: "muted",
+        campusDescriptionText: "先完成微信登录，再绑定校园账号。",
+        isCampusBound: false,
+        timetableStatusText: "登录后可同步课表",
+        timetableStatusClass: "muted",
+        timetableSyncTimeText: "",
         gradeQueryStatusText: "暂无状态",
         gradeStatusClass: "muted",
+        gradesSyncTimeText: "",
         lastCheckAtText: "暂无同步记录",
         loadingStatus: false
       });
@@ -141,11 +137,24 @@ Page({
       return;
     }
 
-    this.setData({ loadingStatus: true });
+    const manual = Boolean(options && options.manual);
+    if (manual) this.setData({ loadingStatus: true });
     try {
       const status = await this.requestWithToken("/status");
       const bound = status.bound === true;
-      const gradeInfo = gradeStatusInfo(status.gradeQueryStatus);
+      const product = status.productStatus || {};
+      const wechatInfo = wechatPresentation(product.wechat || { token });
+      const accountInfo = campusPresentation(Object.assign({}, status, { account: product.account }));
+      const timetableInfo = timetablePresentation(Object.assign({}, status, {
+        timetable: product.timetable,
+        termStatus: product.timetable && product.timetable.termStatus,
+        updatedAt: product.timetable && product.timetable.updatedAt
+      }));
+      const gradeInfo = gradesPresentation(Object.assign({}, status, {
+        grades: product.grades,
+        hasGrades: Number(status.totalGrades || 0) > 0,
+        updatedAt: product.grades && product.grades.updatedAt
+      }));
 
       if (bound) {
         wx.setStorageSync(JWXT_BOUND_KEY, true);
@@ -158,12 +167,22 @@ Page({
         status,
         isWxLoggedIn: true,
         profileDesc: "已登录校园助手",
-        bindStatusText: bound ? "已绑定" : "未绑定",
-        bindStatusClass: bound ? "ok" : "muted",
-        bindButtonText: bound ? "管理校园账号" : "校园账号登录",
-        gradeQueryStatusText: gradeInfo.text,
-        gradeStatusClass: gradeInfo.className,
-        lastCheckAtText: friendlyTime(status.lastCheckAt || status.lastSuccessfulSyncAt),
+        bindStatusText: accountInfo.title,
+        bindStatusClass: accountInfo.level,
+        bindButtonText: accountInfo.actionText || "管理校园账号",
+        wechatStatusText: wechatInfo.title,
+        wechatStatusClass: wechatInfo.level,
+        campusStatusText: accountInfo.title,
+        campusStatusClass: accountInfo.level,
+        campusDescriptionText: accountInfo.state === "UNBOUND" ? "绑定后即可同步课表和成绩。" : accountInfo.description,
+        isCampusBound: bound,
+        timetableStatusText: timetableInfo.title,
+        timetableStatusClass: timetableInfo.level,
+        timetableSyncTimeText: timetableInfo.updatedAtText,
+        gradeQueryStatusText: gradeInfo.title,
+        gradeStatusClass: gradeInfo.level,
+        gradesSyncTimeText: gradeInfo.updatedAtText,
+        lastCheckAtText: gradeInfo.updatedAtText || timetableInfo.updatedAtText || "暂无同步记录",
         loadingStatus: false
       });
       if (status.sessionRecoveryPending || status.gradeQueryStatus === "recovering") {
@@ -174,13 +193,21 @@ Page({
     } catch (err) {
       this.stopStatusPolling();
       this.setData({
-        gradeQueryStatusText: "暂不可用",
-        gradeStatusClass: "muted",
+        campusStatusText: "状态暂时无法刷新",
+        campusStatusClass: "warn",
+        timetableStatusText: "状态暂时无法刷新",
+        timetableStatusClass: "warn",
+        gradeQueryStatusText: "状态暂时无法刷新",
+        gradeStatusClass: "warn",
         lastCheckAtText: "暂无同步记录",
         loadingStatus: false
       });
       wx.showToast({ title: "状态刷新失败", icon: "none" });
     }
+  },
+
+  verifyAccountStatus() {
+    this.refreshStatus({ manual: true });
   },
 
   relogin() {
@@ -201,7 +228,7 @@ Page({
 
   manageJwxt() {
     if (!this.data.isWxLoggedIn) {
-      this.relogin();
+      this.openLogin();
       return;
     }
     wx.navigateTo({ url: "/pages/settings/settings" });
@@ -254,12 +281,16 @@ Page({
   },
 
   clearLocalAuthState(showToast) {
+    if (api && typeof api.clearPendingAuthRequests === "function") api.clearPendingAuthRequests();
     wx.setStorageSync(MANUAL_LOGOUT_KEY, true);
-    wx.removeStorageSync(TOKEN_KEY);
+    if (app && typeof app.invalidateAuth === "function") app.invalidateAuth();
+    else wx.removeStorageSync(TOKEN_KEY);
     wx.removeStorageSync(USER_INFO_KEY);
     wx.removeStorageSync(JWXT_BOUND_KEY);
     wx.removeStorageSync(OLD_JWXT_BOUND_HINT_KEY);
-    if (app && app.globalData) app.globalData.authEpoch = Number(app.globalData.authEpoch || 0) + 1;
+    if (app && app.globalData && typeof app.invalidateAuth !== "function") {
+      app.globalData.authEpoch = Number(app.globalData.authEpoch || 0) + 1;
+    }
     this.setData({
       isWxLoggedIn: false,
       userInfo: null,
@@ -271,8 +302,18 @@ Page({
       bindStatusText: "未绑定",
       bindStatusClass: "muted",
       bindButtonText: "校园账号登录",
+      wechatStatusText: "未登录",
+      wechatStatusClass: "muted",
+      campusStatusText: "登录后可绑定校园账号",
+      campusStatusClass: "muted",
+      campusDescriptionText: "先完成微信登录，再绑定校园账号。",
+      isCampusBound: false,
+      timetableStatusText: "登录后可同步课表",
+      timetableStatusClass: "muted",
+      timetableSyncTimeText: "",
       gradeQueryStatusText: "暂无状态",
       gradeStatusClass: "muted",
+      gradesSyncTimeText: "",
       lastCheckAtText: "暂无同步记录",
       loadingStatus: false
     });

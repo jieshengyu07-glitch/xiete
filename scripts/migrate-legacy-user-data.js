@@ -5,6 +5,9 @@ const CryptoJS = require("crypto-js");
 const projectRoot = path.resolve(__dirname, "..");
 const dataDir = path.resolve(String(process.env.DATA_DIR || path.join(projectRoot, "data")));
 process.env.DATA_DIR = dataDir;
+const { encryptPayload } = require("../src/services/sessionCrypto");
+const { JWXT_PURPOSE } = require("../src/services/campusSessionStore");
+const { XG_SESSION_PURPOSE } = require("../src/db/storage");
 
 function readJson(file) {
   if (!fs.existsSync(file)) return null;
@@ -204,6 +207,10 @@ function migrateLegacyUserData() {
     const parts = accountParts(record);
     const studentId = parts ? parts.studentId : "";
     const userCampus = campusPayload(record, campus, users.size);
+    userCampus.xgSession = encryptPayload(
+      userCampus.xgSession || { scoreUrl: "", cookies: "", updatedAt: null },
+      XG_SESSION_PURPOSE
+    );
     const selectedGrades = selectUserValue(legacyGrades, userId, studentId, users.size, "grades") ||
       (Array.isArray(userCampus.grades) ? userCampus.grades : null);
     const selectedCookies = selectUserValue(legacyCookies, userId, studentId, users.size, "cookies");
@@ -214,7 +221,10 @@ function migrateLegacyUserData() {
       path.join(userDir, "grades.json"),
       normalizeGrades(selectedGrades, userCampus.lastRunAt)
     );
-    const cookiesResult = writeNewJson(path.join(userDir, "cookies.json"), selectedCookies);
+    const cookiesResult = writeNewJson(
+      path.join(userDir, "cookies.json"),
+      Array.isArray(selectedCookies) ? encryptPayload(selectedCookies, JWXT_PURPOSE) : null
+    );
 
     console.log(
       "[migrate] user=" + publicUserId(userId) +

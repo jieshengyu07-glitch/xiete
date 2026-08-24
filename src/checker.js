@@ -1,23 +1,15 @@
 ﻿const fs = require("fs");
-const path = require("path");
 const axios = require("axios");
 const storage = require("./db/storage");
 const { createStorageForUser } = require("./db/storage");
 const { httpJwxtLogin } = require("./login/httpJwxtLogin");
 const credentialStore = require("./services/credentialStore");
-const { getUserPaths } = require("./services/userPaths");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 const { queryXgScores } = require("./grade/xgScoreQuery");
 const { ensureXgScoreSession } = require("./grade/xgSession");
-const config = require("./config");
+const { resolveGradeQueryTerms, publicTerm } = require("./grade/termDiscovery");
 const { recoverCampusSession } = require("./sync/campusSessionRecovery");
-const { assertUserDataWritable } = require("./services/userDataDeletion");
-
-const COOKIE_FILE = path.join(config.dataDir, "cookies.json");
-
-// Ensure data dir exists
-const DATA_DIR = path.dirname(COOKIE_FILE);
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const campusSessionStore = require("./services/campusSessionStore");
 
 function legacyEnvCookiesAllowed() {
   return process.env.NODE_ENV === "development" ||
@@ -29,8 +21,8 @@ function legacyEnvCookiesAllowed() {
 if (process.env.COOKIES_JSON && legacyEnvCookiesAllowed()) {
   try {
     const parsed = JSON.parse(process.env.COOKIES_JSON);
-    if (Array.isArray(parsed) && parsed.length > 0 && !fs.existsSync(COOKIE_FILE)) {
-      fs.writeFileSync(COOKIE_FILE, JSON.stringify(parsed, null, 2));
+    if (Array.isArray(parsed) && parsed.length > 0 && !fs.existsSync(campusSessionStore.cookieFile())) {
+      campusSessionStore.writeCookies(parsed);
       console.log("[checker] Init cookies from COOKIES_JSON env var (" + parsed.length + " entries)");
     }
   } catch (e) {
@@ -38,34 +30,9 @@ if (process.env.COOKIES_JSON && legacyEnvCookiesAllowed()) {
   }
 }
 
-function cookieFile(userId) {
-  return userId ? getUserPaths(userId).cookiesPath : COOKIE_FILE;
-}
-
-function scopeLabel(userId) {
-  return userId ? "user" : "legacy";
-}
-
-function writeJsonAtomic(file, data) {
-  const temporary = file + ".tmp-" + process.pid + "-" + Date.now();
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(data, null, 2), "utf8");
-    fs.renameSync(temporary, file);
-  } catch (err) {
-    try {
-      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
-    } catch (cleanupErr) {}
-    throw err;
-  }
-}
-
 function loadCookies(userId) {
-  const file = cookieFile(userId);
-  console.log("[user-scope] loadCookies scope=" + scopeLabel(userId));
-  // Try file first
-  if (fs.existsSync(file)) {
-    try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { console.error("[checker] Failed to parse cookies.json"); }
-  }
+  const stored = campusSessionStore.loadCookies(userId);
+  if (stored) return stored;
   // Only the legacy, non-user scope may read COOKIES_JSON, and only when
   // explicitly running in development or legacy single-user mode.
   if (!userId && process.env.COOKIES_JSON && legacyEnvCookiesAllowed()) {
@@ -103,26 +70,13 @@ function buildCookieHeader(cookies, domainPattern) {
 }
 
 function writeCookies(cookiesData, userId) {
-  if (userId) assertUserDataWritable(userId);
-  const file = cookieFile(userId);
-  const dir = path.dirname(file);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  writeJsonAtomic(file, cookiesData);
-  console.log("[user-scope] writeCookies scope=" + scopeLabel(userId) + " count=" + (Array.isArray(cookiesData) ? cookiesData.length : 0));
+  return campusSessionStore.writeCookies(cookiesData, userId);
 }
 
 function deleteCookies(userId) {
-  const file = cookieFile(userId);
-  if (fs.existsSync(file)) fs.unlinkSync(file);
-  console.log("[user-scope] deleteCookies scope=" + scopeLabel(userId));
+  return campusSessionStore.deleteCookies(userId);
 }
 
-
-const ALL_TERMS = [
-  {xnm:"2023",xqm:"3"},{xnm:"2023",xqm:"12"},
-  {xnm:"2024",xqm:"3"},{xnm:"2024",xqm:"12"},
-  {xnm:"2025",xqm:"3"},{xnm:"2025",xqm:"12"},
-];
 
 function gradeQueryConcurrency() {
   const configured = Number(process.env.GRADE_QUERY_CONCURRENCY || 3);
@@ -397,7 +351,13 @@ async function executeCheck(cookies, activeStorage) {
     var initClass = initResp._error ? { status: "jwxt_unavailable", message: initResp._error } : classifyResponse(initResp);
     if (initClass) return fail(initClass.status, initClass.message, { httpStatus: initResp.status });
     var allGrades=[];
-    var termResults = await mapWithConcurrency(ALL_TERMS, gradeQueryConcurrency(), async function(t) {
+    var termResolution = resolveGradeQueryTerms(initResp.data, activeStorage.getGrades());
+    var queryTerms = termResolution.terms;
+    console.log("[grade-check] termSource=" + termResolution.source + " queryTermCount=" + queryTerms.length);
+    if (activeStorage.setGradeAvailableTerms) {
+      activeStorage.setGradeAvailableTerms(queryTerms.map(publicTerm), termResolution.source);
+    }
+    var termResults = await mapWithConcurrency(queryTerms, gradeQueryConcurrency(), async function(t) {
       console.log("[checker] querying grades xnm=" + t.xnm + " xqm=" + t.xqm);
       try{
         var resp=await axios.post(
@@ -424,7 +384,7 @@ async function executeCheck(cookies, activeStorage) {
       if (termResults[i].errorResult) return termResults[i].errorResult;
       allGrades = allGrades.concat(termResults[i].grades || []);
     }
-    if(!allGrades.length)return{success:true,cookieStatus:"cookie_valid",gradesCount:0,added:[],changed:[],changeCount:0,grades:[]};
+    if(!allGrades.length)return{success:true,cookieStatus:"cookie_valid",gradesCount:0,added:[],changed:[],changeCount:0,grades:[],termSource:termResolution.source,queryTermCount:queryTerms.length};
     var diff=activeStorage.diffGrades(allGrades);
     console.log("[diff] checker added array=" + Array.isArray(diff.added) + " changed array=" + Array.isArray(diff.changed));
     console.log("[diff] checker added=" + (diff.added || []).length + " changed=" + (diff.changed || []).length);
@@ -441,7 +401,7 @@ async function executeCheck(cookies, activeStorage) {
     console.log("[changes] checker records=" + changeRecords.length);
     activeStorage.addGradeChanges(changeRecords);
     activeStorage.updateLastRun();
-    return{success:true,cookieStatus:"cookie_valid",gradesCount:allGrades.length,added:diff.added.map(function(g){return{kcmc:g.KCMC||g.kcmc,cj:g.CJ||g.cj,xnm:g.XNM||g.xnm,xqm:g.XQM||g.xqm};}),changed:diff.changed,changeCount:changeRecords.length,grades:[]};
+    return{success:true,cookieStatus:"cookie_valid",gradesCount:allGrades.length,added:diff.added.map(function(g){return{kcmc:g.KCMC||g.kcmc,cj:g.CJ||g.cj,xnm:g.XNM||g.xnm,xqm:g.XQM||g.xqm};}),changed:diff.changed,changeCount:changeRecords.length,grades:[],termSource:termResolution.source,queryTermCount:queryTerms.length};
   }catch(err){
     return fail("query_error", err.message);
   }

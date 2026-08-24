@@ -1,12 +1,12 @@
 <view class="login-page">
   <view class="login-card">
-    <view class="login-icon">科</view>
-    <view class="login-title">登录校园助手</view>
-    <view class="login-desc">仅限太原科技大学在校学生及持有学校有效统一身份认证账号的校内用户登录使用。</view>
+    <view class="login-eyebrow">校园助手</view>
+    <view class="login-title">微信快捷登录</view>
+    <view class="login-desc">登录后可保存课表、成绩和同步状态。仅限太原科技大学在校学生及持有学校有效统一身份认证账号的校内用户使用。</view>
 
     <view class="login-scope">
       <view class="login-scope-title">登录与账号鉴权说明</view>
-      <view class="login-scope-text">微信登录仅用于识别小程序用户和隔离个人数据，不获取手机号。</view>
+      <view class="login-scope-text">微信身份登录（不获取手机号）仅用于识别小程序用户和隔离个人数据。</view>
       <view class="login-scope-text">使用课表和成绩前，还需绑定本人校园账号，并由学校统一身份认证系统核验。</view>
     </view>
 
@@ -17,10 +17,11 @@
           <text>我已阅读并同意</text>
         </label>
       </checkbox-group>
-      <text class="privacy-link" bindtap="openPrivacy">《用户隐私保护指引》</text>
+      <text class="privacy-link" bindtap="openPrivacy">《用户隐私保护指引（用户协议和隐私政策）》</text>
     </view>
 
-    <button class="primary-btn" loading="{{loggingIn}}" disabled="{{loggingIn || !privacyAccepted}}" bindtap="login">微信身份登录（不获取手机号）</button>
+    <view wx:if="{{!privacyAccepted}}" class="error-text">请先阅读并同意用户协议和隐私政策</view>
+    <button class="primary-btn" loading="{{loggingIn}}" disabled="{{loggingIn || !privacyAccepted}}" bindtap="login">微信快捷登录</button>
 
     <view wx:if="{{error}}" class="error-text">{{error}}</view>
 

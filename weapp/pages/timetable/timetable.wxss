@@ -8,21 +8,6 @@
   text-align: center;
 }
 
-.auth-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 104rpx;
-  height: 104rpx;
-  margin: 0 auto 28rpx;
-  border-radius: 28rpx;
-  background: linear-gradient(135deg, #1677ff 0%, #44a3ff 100%);
-  color: #ffffff;
-  font-size: 46rpx;
-  font-weight: 850;
-  box-shadow: 0 14rpx 30rpx rgba(22, 119, 255, 0.2);
-}
-
 .auth-title {
   color: #152338;
   font-size: 34rpx;
@@ -67,15 +52,8 @@
   min-width: 0;
 }
 
-.page-title {
-  font-size: 34rpx;
-  font-weight: 850;
-  line-height: 1.25;
-}
-
 .date-line {
-  margin-top: 8rpx;
-  font-size: 25rpx;
+  font-size: 30rpx;
   font-weight: 700;
   line-height: 1.3;
 }
@@ -108,6 +86,46 @@
   font-size: 25rpx;
   line-height: 1.5;
 }
+.sync-meta { margin: -8rpx 4rpx 18rpx; color: #77849a; font-size: 23rpx; }
+.notice-stage { margin-top: 6rpx; color: #60789b; font-size: 23rpx; }
+
+.timeline-card {
+  margin-bottom: 18rpx;
+  padding: 30rpx;
+  border: 1rpx solid #dce9fb;
+  border-radius: 22rpx;
+  background: #ffffff;
+  box-shadow: 0 12rpx 30rpx rgba(38, 84, 153, 0.08);
+}
+
+.timeline-IN_CLASS { border-color: #9dc5ff; background: #f5f9ff; }
+.timeline-PRE_TERM, .timeline-VACATION, .timeline-BETWEEN_TERMS { background: #f8fbff; }
+.timeline-label { color: #1677ff; font-size: 24rpx; font-weight: 800; }
+.timeline-course-name { margin-top: 12rpx; color: #152338; font-size: 38rpx; font-weight: 850; line-height: 1.35; word-break: break-all; }
+.timeline-course-meta { margin-top: 8rpx; color: #41546f; font-size: 27rpx; line-height: 1.45; }
+.timeline-teacher { margin-top: 8rpx; color: #7b8799; font-size: 24rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeline-description { margin-top: 14rpx; color: #65758b; font-size: 24rpx; line-height: 1.5; }
+.timeline-count { margin-top: 16rpx; color: #8490a3; font-size: 22rpx; }
+
+.account-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin-bottom: 16rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 14rpx;
+  background: #fff8e8;
+  color: #7a5b16;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.account-notice-copy { flex: 1; min-width: 0; }
+.account-notice-title { color: #27344a; font-size: 24rpx; font-weight: 650; }
+.account-notice-description { margin-top: 4rpx; color: #6f6041; font-size: 22rpx; line-height: 1.45; }
+
+.notice-action { flex-shrink: 0; color: #1677ff; font-weight: 800; }
 
 .view-switch {
   display: flex;
@@ -153,12 +171,17 @@
   background: #ffffff;
 }
 
+.week-day-card.today { border-color: #9dc5ff; box-shadow: 0 8rpx 22rpx rgba(22, 119, 255, 0.09); }
+
 .week-day-title {
   margin-bottom: 12rpx;
   color: #152338;
   font-size: 28rpx;
   font-weight: 800;
 }
+
+.today-badge { margin-left: 12rpx; padding: 4rpx 10rpx; border-radius: 999rpx; background: #eaf2ff; color: #1677ff; font-size: 20rpx; }
+.week-day-empty { padding: 8rpx 0 2rpx; color: #98a2b3; font-size: 24rpx; }
 
 .week-section-list {
   overflow: hidden;
@@ -205,18 +228,15 @@
   line-height: 1.45;
 }
 
-.week-course-name + .week-course-name {
-  margin-top: 6rpx;
-}
-
-.week-no-class {
-  color: #98a2b3;
-  font-size: 24rpx;
-}
+.week-course + .week-course { margin-top: 14rpx; padding-top: 14rpx; border-top: 1rpx solid #e8eef8; }
+.week-course-meta { margin-top: 4rpx; color: #607089; font-size: 22rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.week-course-teacher { margin-top: 3rpx; color: #8a94a6; font-size: 21rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .lesson-card {
+  display: flex;
+  gap: 24rpx;
   box-sizing: border-box;
-  min-height: 146rpx;
+  min-height: 132rpx;
   padding: 24rpx;
   border: 1rpx solid #e8eef8;
   border-radius: 20rpx;
@@ -224,49 +244,19 @@
   box-shadow: 0 10rpx 28rpx rgba(38, 84, 153, 0.07);
 }
 
-.lesson-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20rpx;
-  margin-bottom: 16rpx;
-}
-
-.lesson-title {
-  color: #152338;
-  font-size: 27rpx;
-  font-weight: 800;
-}
-
-.lesson-time {
-  flex-shrink: 0;
-  margin-top: 0;
-  color: #8a94a6;
-  font-size: 23rpx;
-}
-
-.no-class {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 78rpx;
-  padding: 10rpx 0;
-  border-radius: 16rpx;
-  background: #f6f9ff;
-  color: #98a2b3;
-  font-size: 26rpx;
-  text-align: center;
-}
-
-.course-block {
-  padding: 22rpx;
-  border-radius: 16rpx;
-  background: #f4f8ff;
-}
-
-.course-block + .course-block {
-  margin-top: 16rpx;
-}
+.list-heading { margin: 4rpx 2rpx 0; color: #152338; font-size: 28rpx; font-weight: 850; }
+.lesson-time-column { flex-shrink: 0; width: 118rpx; padding-top: 2rpx; }
+.lesson-start { color: #1677ff; font-size: 25rpx; font-weight: 850; line-height: 1.35; }
+.lesson-end { margin-top: 4rpx; color: #8a94a6; font-size: 21rpx; }
+.lesson-content { flex: 1; min-width: 0; }
+.lesson-name-line { display: flex; align-items: flex-start; gap: 12rpx; }
+.lesson-name-line .course-name { flex: 1; min-width: 0; margin-bottom: 0; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.course-state { flex-shrink: 0; padding: 4rpx 10rpx; border-radius: 999rpx; background: #e8f2ff; color: #1677ff; font-size: 19rpx; font-weight: 800; }
+.course-state.past { background: #f0f2f5; color: #8a94a6; }
+.course-location { margin-top: 10rpx; color: #506078; font-size: 24rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.course-teacher { margin-top: 6rpx; color: #8a94a6; font-size: 22rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.course-past { opacity: 0.68; box-shadow: none; }
+.course-current { border-color: #8dbdff; background: #f8fbff; }
 
 .course-name {
   margin-bottom: 10rpx;
@@ -274,25 +264,6 @@
   font-size: 28rpx;
   font-weight: 800;
   line-height: 1.45;
-}
-
-.course-row {
-  display: flex;
-  gap: 16rpx;
-  color: #506078;
-  font-size: 24rpx;
-  line-height: 1.55;
-}
-
-.course-row + .course-row {
-  margin-top: 6rpx;
-}
-
-.course-label {
-  flex-shrink: 0;
-  width: 60rpx;
-  color: #1677ff;
-  font-weight: 750;
 }
 
 .error-card {
@@ -306,3 +277,64 @@
   line-height: 1.6;
   word-break: break-all;
 }
+
+.content-empty {
+  padding: 52rpx 24rpx;
+  border: 1rpx solid #e8edf4;
+  border-radius: 16rpx;
+  background: #ffffff;
+  text-align: center;
+}
+
+.content-empty-title { color: #27344a; font-size: 28rpx; font-weight: 650; }
+.content-empty-description { margin-top: 10rpx; color: #7a8596; font-size: 24rpx; line-height: 1.5; }
+
+/* Phase 7 visual normalization */
+.auth-card { padding: 48rpx 32rpx; }
+.auth-title { color: #172033; font-weight: 700; }
+.auth-desc { color: #596579; }
+.auth-button { min-height: 84rpx; border-radius: 14rpx; font-weight: 650; }
+.timetable-hero { border-radius: 20rpx; background: #1677ff; box-shadow: 0 10rpx 24rpx rgba(22,119,255,.16); }
+.date-line { font-weight: 600; }
+.hero-PRE_TERM,
+.hero-VACATION,
+.hero-BETWEEN_TERMS,
+.hero-NO_CLASS_TODAY,
+.hero-AFTER_LAST_CLASS,
+.hero-WEEK {
+  border: 1rpx solid #dce9fb;
+  background: #f3f8ff;
+  color: #27344a;
+  box-shadow: none;
+}
+.hero-PRE_TERM .week-line,
+.hero-VACATION .week-line,
+.hero-BETWEEN_TERMS .week-line,
+.hero-NO_CLASS_TODAY .week-line,
+.hero-AFTER_LAST_CLASS .week-line,
+.hero-WEEK .week-line { color: #596579; opacity: 1; }
+.hero-PRE_TERM .refresh-btn,
+.hero-VACATION .refresh-btn,
+.hero-BETWEEN_TERMS .refresh-btn,
+.hero-NO_CLASS_TODAY .refresh-btn,
+.hero-AFTER_LAST_CLASS .refresh-btn,
+.hero-WEEK .refresh-btn { background: #e3efff; color: #1677ff; }
+.refresh-btn { border-radius: 12rpx; font-size: 23rpx; }
+.notice-card { border-color: #d8e8fb; border-radius: 14rpx; background: #f3f8ff; color: #315d8d; font-size: 23rpx; }
+.sync-meta { color: #8a94a6; font-size: 22rpx; }
+.notice-stage { color: #596579; font-size: 22rpx; }
+.timeline-card { border-radius: 20rpx; box-shadow: none; }
+.timeline-label { font-size: 23rpx; font-weight: 650; }
+.timeline-course-name { color: #172033; font-size: 36rpx; font-weight: 700; }
+.notice-action { font-weight: 650; }
+.view-switch { background: #e9eef5; }
+.switch-item { font-weight: 600; }
+.switch-item.active { box-shadow: 0 2rpx 8rpx rgba(38,52,74,.08); }
+.section-list, .week-list { gap: 14rpx; }
+.week-day-card, .lesson-card { border-radius: 16rpx; box-shadow: none; }
+.week-day-card.today { box-shadow: none; }
+.list-heading { color: #172033; font-weight: 650; }
+.lesson-start { font-weight: 700; }
+.course-state { font-weight: 650; }
+.course-past { opacity: .72; }
+.course-name { font-weight: 650; }

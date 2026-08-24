@@ -1,8 +1,10 @@
 {
+  "mode": "auto",
   "termYear": "2025",
   "termSemester": "12",
   "semesterStartDate": "2026-02-24",
   "teachingWeekStartDate": "2026-03-09",
   "teachingWeekEndDate": "2026-07-12",
-  "maxTeachingWeeks": 18
+  "maxTeachingWeeks": 18,
+  "note": "最近已知校历，仅在自动推断到相同学期时作为日期 fallback；正常跨学期无需修改。"
 }

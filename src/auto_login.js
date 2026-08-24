@@ -2,6 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const config = require("./config");
+const campusSessionStore = require("./services/campusSessionStore");
 
 const DATA_DIR = config.dataDir;
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -64,7 +65,7 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   const cookies = await page.context().cookies();
   const jSession = cookies.find(c => c.name === "JSESSIONID" && c.domain.includes("newjwc"));
   if (jSession) {
-    fs.writeFileSync(path.join(DATA_DIR, "cookies.json"), JSON.stringify(cookies, null, 2));
+    campusSessionStore.writeCookies(cookies);
     console.log("\n\\u2705 JSESSIONID: present (value hidden)");
     console.log("\u2705 Cookies \u5df2\u4fdd\u5b58\u5230 data/cookies.json");
     console.log("\n\u73b0\u5728\u53ef\u4ee5\u8fd0\u884c\u4ee5\u4e0b\u547d\u4ee4\u542f\u52a8\u670d\u52a1\u5668: npm start");

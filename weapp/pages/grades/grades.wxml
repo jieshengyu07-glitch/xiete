@@ -1,78 +1,81 @@
 <view class="container grades-page">
-  <view wx:if="{{loading}}" class="card">
-    <view class="loading">加载中...</view>
-  </view>
+  <view wx:if="{{isInitialLoading && grades.length===0}}" class="card"><view class="loading">加载中...</view></view>
 
   <view wx:elif="{{authRequired}}" class="card auth-card">
-    <view class="auth-icon">绩</view>
     <view class="auth-title">登录后查看成绩</view>
-    <view class="auth-desc">本服务仅面向持有学校有效统一身份认证账号的校内用户。</view>
+    <view class="auth-desc">先完成微信登录，再验证校园账号，即可同步成绩。</view>
     <button class="auth-button" bindtap="goLogin">前往登录</button>
   </view>
 
   <block wx:else>
-    <view class="summary-card">
-      <view class="summary-main">
-        <view class="summary-title">成绩查询</view>
-        <view class="summary-meta">{{count}} 条成绩 · {{groupedGrades.length}} 个学期</view>
-      </view>
-      <button class="refresh-btn" loading="{{refreshing}}" disabled="{{refreshing}}" bindtap="refreshGrades">刷新成绩</button>
+    <view wx:if="{{accountState==='UNBOUND'}}" class="onboarding-card">
+      <view class="onboarding-title">绑定校园账号后即可查询成绩</view>
+      <view class="onboarding-description">绑定后可以查看各学期课程成绩，同步后的历史成绩仍会保留。</view>
+      <button class="btn onboarding-action" bindtap="manageCampusAccount">绑定校园账号</button>
     </view>
 
-    <view wx:if="{{notice && !syncing}}" class="notice-card">{{notice}}</view>
-
-    <view wx:if="{{syncing}}" class="notice-card">{{notice || "正在同步成绩..."}}</view>
-
-    <view wx:if="{{!syncing && grades.length===0}}" class="card empty-card">
-      <view class="empty-title">暂无成绩数据，请先完成登录或刷新成绩</view>
-      <view class="tips">成绩由后端统一处理后返回，前端不会解析学工系统 HTML。</view>
-      <button class="btn" loading="{{refreshing}}" disabled="{{refreshing}}" bindtap="refreshGrades">刷新成绩</button>
-    </view>
-
-    <block wx:if="{{grades.length>0}}">
-      <view wx:if="{{error}}" class="card">
-        <view class="tips">{{error}}</view>
+    <block wx:else>
+      <view wx:if="{{groupedGrades.length}}" class="term-toolbar">
+        <picker class="term-picker" mode="selector" range="{{termLabels}}" value="{{activeTermIndex}}" bindchange="selectTerm">
+          <view class="selector-label">当前学期</view>
+          <view class="selector-value">
+            <view class="selector-copy">
+              <text>{{currentGroup.termName}}</text>
+              <text class="selector-count">{{currentGrades.length}} 门课程<text wx:if="{{lastSuccessAtText}}"> · {{lastSuccessAtText}}</text></text>
+            </view>
+            <text class="selector-arrow">⌄</text>
+          </view>
+        </picker>
+        <button class="refresh-btn" loading="{{refreshing}}" disabled="{{refreshing}}" bindtap="refreshGrades">{{refreshButtonText}}</button>
       </view>
 
-      <scroll-view scroll-x class="term-tabs" show-scrollbar="{{false}}">
-        <view class="term-tabs-inner">
-          <view
-            wx:for="{{groupedGrades}}"
-            wx:for-item="group"
-            wx:for-index="index"
-            wx:key="key"
-            class="term-tab {{activeTermIndex===index?'active':''}}"
-            data-index="{{index}}"
-            bindtap="selectTerm"
-          >
-            {{group.shortName}}
-          </view>
+      <view wx:if="{{accountNotice}}" class="account-notice">
+        <text>{{accountNotice}}</text>
+        <text wx:if="{{accountActionText}}" class="notice-action" bindtap="manageCampusAccount">{{accountActionText}}</text>
+      </view>
+      <view wx:if="{{syncing}}" class="notice-card">
+        <view>{{notice || "正在更新成绩"}}</view>
+        <view wx:if="{{syncing && refreshStage}}" class="notice-stage">{{refreshStage}}</view>
+      </view>
+      <view wx:elif="{{notice}}" class="notice-card">{{notice}}</view>
+      <view wx:if="{{refreshError}}" class="notice-card error-notice">{{refreshError}}</view>
+
+      <block wx:if="{{!syncing && grades.length===0}}">
+        <view wx:if="{{emptyState==='NO_DATA'}}" class="card empty-card">
+          <view class="empty-title">还没有同步到成绩</view>
+          <view class="tips">完成同步后，各学期成绩会显示在这里。</view>
+          <button class="btn" loading="{{refreshing}}" disabled="{{refreshing}}" bindtap="refreshGrades">同步成绩</button>
         </view>
-      </scroll-view>
+      </block>
 
-      <view class="term-header">
-        <view class="term-title">{{currentGroup.termName}}</view>
-        <view class="term-count">{{currentGrades.length}} 门课程</view>
+      <view wx:elif="{{emptyState==='EMPTY_TERM'}}" class="card empty-card compact-empty">
+        <view class="empty-title">本学期暂无成绩</view>
+        <view class="tips">可以切换到其他学期查看历史成绩。</view>
       </view>
 
-      <view wx:for="{{currentGrades}}" wx:for-item="grade" wx:key="id" class="grade-card">
-        <view class="course-name">{{grade.courseName}}</view>
-        <view class="grade-info">
-          <view class="score-block">
-            <text class="info-label">成绩</text>
-            <text class="score">{{grade.score}}</text>
+      <block wx:if="{{grades.length>0}}">
+        <block wx:if="{{emptyState==='HAS_DATA' && currentGroup}}">
+          <view class="grade-list">
+            <view wx:for="{{currentGrades}}" wx:for-item="grade" wx:key="id" class="grade-card">
+              <view class="course-name">{{grade.courseName}}</view>
+              <view class="grade-info">
+                <view class="score-block">
+                  <text class="info-label">成绩</text>
+                  <text class="score">{{grade.score}}</text>
+                </view>
+                <view wx:if="{{grade.raw.credit || grade.raw.xf || grade.raw.XF}}" class="info-item">
+                  <text class="info-label">学分</text>
+                  <text class="info-value">{{grade.raw.credit || grade.raw.xf || grade.raw.XF}}</text>
+                </view>
+                <view wx:if="{{grade.raw.courseType || grade.raw.kcxz || grade.raw.KCXZ}}" class="info-item">
+                  <text class="info-label">类型</text>
+                  <text class="info-value">{{grade.raw.courseType || grade.raw.kcxz || grade.raw.KCXZ}}</text>
+                </view>
+              </view>
+            </view>
           </view>
-          <view class="info-item">
-            <text class="info-label">学分</text>
-            <text class="info-value">{{grade.credit}}</text>
-          </view>
-          <view class="info-item">
-            <text class="info-label">类型</text>
-            <text class="info-value">{{grade.courseType}}</text>
-          </view>
-        </view>
-        <view class="term-line">学期：{{grade.termName}} · 来源：{{grade.sourceText}}</view>
-      </view>
+        </block>
+      </block>
     </block>
   </block>
 </view>

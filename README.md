@@ -20,7 +20,7 @@ npm run login
 GET /status -> 系统状态
 GET /grades -> 所有成绩
 POST /check -> 手动检查
-POST /upload-cookies -> 上传 cookies
+POST /upload-cookies -> 仅 ADMIN_MODE + 管理密钥 + JWT 可用的旧诊断入口
 
 ## 部署到 Render
 

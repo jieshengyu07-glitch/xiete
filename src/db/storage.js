@@ -5,6 +5,9 @@ const { getUserPaths } = require('../services/userPaths');
 const { buildGradeFallbackKey, buildGradeKey, normalizeGrade } = require('../grade/gradeNormalizer');
 const { mergeGrades: mergeGradeCollections } = require('../grade/gradeMerger');
 const { assertUserDataWritable } = require('../services/userDataDeletion');
+const { isEncryptedEnvelope, encryptPayload, decryptPayload } = require('../services/sessionCrypto');
+
+const XG_SESSION_PURPOSE = 'xg-score-session';
 
 class JsonStorage {
   constructor(filePath, userId) {
@@ -28,6 +31,7 @@ class JsonStorage {
       if (fs.existsSync(this.filePath)) {
         const raw = fs.readFileSync(this.filePath, 'utf-8');
         this.data = JSON.parse(raw);
+        this._loadProtectedXgSession();
       } else {
         this.data = this._getDefaultData();
         this._save();
@@ -41,10 +45,21 @@ class JsonStorage {
 
   _save() {
     if (this.userId) assertUserDataWritable(this.userId);
+    if (this._xgSessionDecryptionFailed) {
+      const err = new Error('Encrypted XG session cannot be safely overwritten');
+      err.code = 'SESSION_DECRYPT_FAILED';
+      throw err;
+    }
     const temporary = this.filePath + '.tmp-' + process.pid + '-' + Date.now();
     try {
-      fs.writeFileSync(temporary, JSON.stringify(this.data, null, 2), 'utf-8');
+      const persisted = Object.assign({}, this.data, {
+        xgSession: encryptPayload(this.data && this.data.xgSession
+          ? this.data.xgSession
+          : { scoreUrl: "", cookies: "", updatedAt: null }, XG_SESSION_PURPOSE)
+      });
+      fs.writeFileSync(temporary, JSON.stringify(persisted, null, 2), { encoding: 'utf-8', mode: 0o600 });
       fs.renameSync(temporary, this.filePath);
+      try { fs.chmodSync(this.filePath, 0o600); } catch (chmodErr) {}
     } catch (err) {
       console.error('[存储] 保存数据文件失败:', err.message);
       try {
@@ -55,9 +70,36 @@ class JsonStorage {
     }
   }
 
+  _loadProtectedXgSession() {
+    const stored = this.data && this.data.xgSession;
+    if (isEncryptedEnvelope(stored)) {
+      try {
+        const decrypted = decryptPayload(stored, XG_SESSION_PURPOSE);
+        this.data.xgSession = decrypted && typeof decrypted === 'object'
+          ? decrypted
+          : { scoreUrl: "", cookies: "", updatedAt: null };
+      } catch (err) {
+        console.error('[security] XG encrypted session rejected code=' + (err.code || 'SESSION_DECRYPT_FAILED'));
+        this._xgSessionDecryptionFailed = true;
+        this.data.xgSession = { scoreUrl: "", cookies: "", updatedAt: null };
+      }
+      return;
+    }
+
+    if (stored && typeof stored === 'object' && (stored.scoreUrl || stored.cookies)) {
+      try {
+        this._save();
+        console.log('[security] XG legacy plaintext session migrated to encrypted format');
+      } catch (err) {
+        console.error('[security] XG session migration failed code=SESSION_MIGRATION_FAILED');
+      }
+    }
+  }
+
   _getDefaultData() {
     return {
       grades: [],         // 已出成绩
+      gradeAvailableTerms: { source: "", updatedAt: null, terms: [] },
       gradeChanges: [],   // 成绩变化记录
       timetable: [],      // 课表缓存
       evaluation: {       // 评教状态
@@ -81,6 +123,10 @@ class JsonStorage {
   _ensureShape() {
     if (!this.data) this.data = this._getDefaultData();
     if (!Array.isArray(this.data.grades)) this.data.grades = [];
+    if (!this.data.gradeAvailableTerms || typeof this.data.gradeAvailableTerms !== 'object') {
+      this.data.gradeAvailableTerms = { source: "", updatedAt: null, terms: [] };
+    }
+    if (!Array.isArray(this.data.gradeAvailableTerms.terms)) this.data.gradeAvailableTerms.terms = [];
     if (!Array.isArray(this.data.gradeChanges)) this.data.gradeChanges = [];
     if (!Array.isArray(this.data.timetable)) this.data.timetable = [];
     if (!this.data.syncMeta || typeof this.data.syncMeta !== 'object') this.data.syncMeta = {};
@@ -141,6 +187,7 @@ class JsonStorage {
   saveXgSession(scoreUrl, cookies) {
     this._load();
     this._ensureShape();
+    this._xgSessionDecryptionFailed = false;
     this.data.xgSession = {
       scoreUrl: String(scoreUrl || "").trim(),
       cookies: String(cookies || "").trim(),
@@ -158,6 +205,14 @@ class JsonStorage {
   hasXgSession() {
     const session = this.getXgSession();
     return Boolean(session.scoreUrl && session.cookies);
+  }
+
+  clearXgSession() {
+    this._load();
+    this._ensureShape();
+    this._xgSessionDecryptionFailed = false;
+    this.data.xgSession = { scoreUrl: "", cookies: "", updatedAt: null };
+    this._save();
   }
 
   getXgUnmatchedCandidates() {
@@ -181,6 +236,23 @@ class JsonStorage {
     this._load();
     this._ensureShape();
     return this.data.grades;
+  }
+
+  getGradeAvailableTerms() {
+    this._load();
+    this._ensureShape();
+    return this.data.gradeAvailableTerms;
+  }
+
+  setGradeAvailableTerms(terms, source) {
+    this._load();
+    this._ensureShape();
+    this.data.gradeAvailableTerms = {
+      source: String(source || "").trim().toUpperCase(),
+      updatedAt: new Date().toISOString(),
+      terms: (Array.isArray(terms) ? terms : []).filter(term => term && term.xnm && term.xqm)
+    };
+    this._save();
   }
 
   // 获取指定学期的成绩
@@ -474,3 +546,4 @@ const defaultStorage = new JsonStorage();
 module.exports = defaultStorage;
 module.exports.JsonStorage = JsonStorage;
 module.exports.createStorageForUser = createStorageForUser;
+module.exports.XG_SESSION_PURPOSE = XG_SESSION_PURPOSE;
