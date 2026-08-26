@@ -1,5 +1,5 @@
 const ERROR_MESSAGES = {
-  JWXT_INVALID_CREDENTIALS: "学号或教务密码错误，请检查后重试",
+  JWXT_INVALID_CREDENTIALS: "学号或密码错误，请重新输入",
   JWXT_CAPTCHA_INVALID: "验证码错误，请重新输入或刷新验证码",
   JWXT_CAPTCHA_REQUIRED: "教务系统需要验证码，请输入验证码完成验证",
   JWXT_CAPTCHA_SESSION_EXPIRED: "验证码已过期，请重新获取",
@@ -85,11 +85,15 @@ function normalizeJwxtLoginError(rawText, context) {
     includesAny(lower, [
       "invalid credentials",
       "invalid password",
+      "incorrect password",
       "password error",
-      "user not found"
+      "user not found",
+      "unknown user"
     ]) ||
     includesAny(text, [
       "密码错误",
+      "密码不正确",
+      "密码有误",
       "用户名或密码错误",
       "用户名或密码",
       "账号或密码错误",
@@ -97,8 +101,8 @@ function normalizeJwxtLoginError(rawText, context) {
       "学号或密码错误",
       "用户名不存在",
       "账号不存在",
-      "认证失败",
-      "登录失败",
+      "账户不存在",
+      "学号不存在",
       "登录失败，用户名或密码",
       "学号或教务密码错误"
     ])
@@ -210,13 +214,8 @@ function normalizeJwxtLoginError(rawText, context) {
     return normalizeJwxtError("JWXT_UNAVAILABLE");
   }
 
-  // A reachable CAS/portal response that stays on the login page usually means
-  // the credentials were rejected even when the page does not expose a JSON error.
-  if (context && (context.portalLoginPageReturned || context.stillOnLoginPage)) {
-    return normalizeJwxtError("JWXT_INVALID_CREDENTIALS");
-  }
-
-  // 7. Known but nonspecific login failure, or final fallback.
+  // 7. A returned login page or generic failure without explicit credential
+  // evidence is not enough to claim that the account/password is wrong.
   if (originalCode === "JWXT_LOGIN_FAILED" || codeLower === "jwxt_login_failed") {
     return normalizeJwxtError("JWXT_LOGIN_FAILED");
   }
