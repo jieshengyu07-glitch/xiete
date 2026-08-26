@@ -1,5 +1,6 @@
 const axios = require("axios");
 const CryptoJS = require("crypto-js");
+const { normalizeJwxtLoginError } = require("../services/jwxtLoginError");
 
 const CAS_ORIGIN = "https://sso1.tyust.edu.cn";
 const PORTAL_ORIGIN = "https://ronghemenhu.tyust.edu.cn";
@@ -35,17 +36,16 @@ function parseHiddenValue(html, id) {
 }
 
 function isInvalidCredentialPage(html) {
-  const text = String(html || "");
-  return text.includes("用户名或密码") ||
-    text.includes("账号或密码") ||
-    text.includes("账户或密码") ||
-    text.includes("密码错误") ||
-    text.includes("用户名或密码") ||
-    text.includes("账号或密码") ||
-    text.includes("用户名不存在") ||
-    text.includes("登录失败") ||
-    text.includes("认证失败") ||
-    text.toLowerCase().includes("invalid credentials");
+  return normalizeJwxtLoginError(String(html || "")).error === "JWXT_INVALID_CREDENTIALS";
+}
+
+function isExplicitCaptchaPage(html) {
+  const code = normalizeJwxtLoginError(String(html || "")).error;
+  return [
+    "JWXT_CAPTCHA_REQUIRED",
+    "JWXT_CAPTCHA_INVALID",
+    "JWXT_CAPTCHA_SESSION_EXPIRED"
+  ].includes(code);
 }
 
 function throwJwxtError(code, message, meta) {
@@ -86,14 +86,7 @@ function portalDiagnostics(response, finalUrl) {
     lower.includes("login-croypto") ||
     lower.includes("_eventid")
   );
-  const containsCaptcha = includesAnyText(lower, [
-    "captcha",
-    "validatecode",
-    "verifycode"
-  ]) || includesAnyText(html, [
-    "验证码",
-    "楠岃瘉鐮"
-  ]);
+  const containsCaptcha = isExplicitCaptchaPage(html);
   const containsMaintenance = includesAnyText(lower, [
     "maintenance",
     "service unavailable",
@@ -468,7 +461,7 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     return getAndFollow(cookieJar, followed.finalUrl, LOGIN_POST_URL);
   }
   if (isInvalidCredentialPage(followed.response && followed.response.data)) {
-    throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或教务密码错误，请检查后重试", {
+    throwJwxtError("JWXT_INVALID_CREDENTIALS", "学号或密码错误，请重新输入", {
       portalStage: true,
       portalResult: portalDiagnostics(followed.response, followed.finalUrl)
     });
@@ -555,6 +548,7 @@ module.exports = {
   getAndFollow,
   encryptPassword,
   isInvalidCredentialPage,
+  isExplicitCaptchaPage,
   findJwxtJSessionId,
   LOGIN_URL,
   LOGIN_POST_URL,
