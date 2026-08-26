@@ -99,7 +99,10 @@ process.env.TEACHING_WEEK_END_DATE = "2026-07-12";
 const automatic = loadConfiguredTerm("2026-08-13");
 assert.strictEqual(automatic.termYear, "2026");
 assert.strictEqual(automatic.termSemester, "3");
-assert.strictEqual(automatic.termConfigSource, "AUTO");
+assert.strictEqual(automatic.termConfigSource, "OFFICIAL_SCHOOL_NOTICE");
+assert.strictEqual(automatic.teachingWeekStartDate, "2026-08-31");
+assert.strictEqual(automatic.teachingWeekStartSchoolVerified, true);
+assert.strictEqual(automatic.teachingWeekEndSchoolVerified, false);
 
 process.env.TERM_CONFIG_MODE = "manual";
 const manual = loadConfiguredTerm("2026-08-13");

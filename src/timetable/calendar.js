@@ -7,6 +7,28 @@ const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_TEACHING_WEEKS = 18;
 
+// Official overrides are intentionally field-scoped. A verified start date must
+// not make an inferred teaching end date look school-verified.
+const OFFICIAL_TERM_OVERRIDES = Object.freeze({
+  "2026-1": Object.freeze({
+    semesterStartDate: "2026-08-29",
+    teachingWeekStartDate: "2026-08-31",
+    source: "OFFICIAL_SCHOOL_NOTICE",
+    termConfigSource: "OFFICIAL_SCHOOL_NOTICE",
+    calendarSource: "OFFICIAL_SCHOOL_NOTICE",
+    sourceTitle: "关于2026年暑期放假有关事宜的通知",
+    sourcePublishedDate: "2026-06-25",
+    sourceUrl: "https://www.tyust.edu.cn/info/1092/13580.htm",
+    semesterStartSource: "OFFICIAL_SCHOOL_NOTICE_RETURN_PERIOD",
+    semesterStartSchoolVerified: true,
+    teachingWeekStartSource: "OFFICIAL_SCHOOL_NOTICE",
+    teachingWeekStartSchoolVerified: true,
+    teachingWeekEndSource: "AUTO_18_WEEK_INFERENCE",
+    teachingWeekEndSchoolVerified: false,
+    schoolVerified: false
+  })
+});
+
 function pad2(value) {
   return String(value).padStart(2, "0");
 }
@@ -135,8 +157,27 @@ function inferAutoTermConfig(date) {
     teachingWeekEndDate: calculatedTeachingEnd(teachingWeekStartDate, maxTeachingWeeks),
     maxTeachingWeeks,
     source: "AUTO",
-    termConfigSource: "AUTO"
+    termConfigSource: "AUTO",
+    calendarSource: "AUTO",
+    semesterStartSource: "AUTO",
+    semesterStartSchoolVerified: false,
+    teachingWeekStartSource: "AUTO",
+    teachingWeekStartSchoolVerified: false,
+    teachingWeekEndSource: "AUTO_18_WEEK_INFERENCE",
+    teachingWeekEndSchoolVerified: false,
+    schoolVerified: false
   });
+}
+
+function matchingOfficialOverride(automatic) {
+  const key = String(automatic.academicYear) + "-" + String(automatic.semester);
+  const override = OFFICIAL_TERM_OVERRIDES[key];
+  if (!override) return null;
+  const teachingWeekEndDate = calculatedTeachingEnd(
+    override.teachingWeekStartDate,
+    automatic.maxTeachingWeeks
+  );
+  return Object.assign({}, automatic, override, { teachingWeekEndDate });
 }
 
 function readTermConfigFile() {
@@ -161,7 +202,15 @@ function normalizeConfiguredTerm(value, source) {
     teachingWeekEndDate: String(input.teachingWeekEndDate || ""),
     maxTeachingWeeks,
     source,
-    termConfigSource: source
+    termConfigSource: source,
+    calendarSource: source,
+    semesterStartSource: source,
+    semesterStartSchoolVerified: false,
+    teachingWeekStartSource: source,
+    teachingWeekStartSchoolVerified: false,
+    teachingWeekEndSource: source,
+    teachingWeekEndSchoolVerified: false,
+    schoolVerified: false
   });
 }
 
@@ -192,7 +241,7 @@ function loadConfiguredTerm(date) {
   if (mode === "manual") return manualTermConfig(fileConfig);
 
   const automatic = inferAutoTermConfig(date);
-  return matchingFallback(fileConfig, automatic) || automatic;
+  return matchingOfficialOverride(automatic) || matchingFallback(fileConfig, automatic) || automatic;
 }
 
 function assertTermConfig(termConfig) {
@@ -319,5 +368,6 @@ module.exports = {
   semesterToXqm,
   xqmToSemester,
   generateGradeQueryTerms,
-  parseDateParts
+  parseDateParts,
+  OFFICIAL_TERM_OVERRIDES
 };
