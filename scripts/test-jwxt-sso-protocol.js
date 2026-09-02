@@ -3,7 +3,9 @@ const {
   parseCurrentSsoLoginForm,
   buildCurrentSsoLoginPayload,
   encryptPassword,
-  encryptCaptchaPayload
+  encryptCaptchaPayload,
+  ssoValueShape,
+  describeSsoPostShape
 } = require("../src/login/httpJwxtLogin");
 
 const fixture = [
@@ -41,6 +43,15 @@ assert.strictEqual(body.get("execution"), "exec-A");
 assert.strictEqual(body.get("croypto"), protocol.crypto);
 assert.ok(body.get("captcha_payload"), "captcha_payload must be encrypted, even without a challenge");
 assert.strictEqual(body.get("service"), protocol.service);
+assert.strictEqual(ssoValueShape(body.get("execution")), "plain");
+assert.strictEqual(ssoValueShape(body.get("captcha_payload")), "base64-like");
+const shape = describeSsoPostShape(body.toString(), {
+  "Content-Type": "application/x-www-form-urlencoded",
+  Origin: "https://sso1.tyust.edu.cn",
+  Referer: "https://sso1.tyust.edu.cn/login"
+}, [], "https://sso1.tyust.edu.cn/login");
+assert.ok(shape.fieldNames.includes("captcha_payload"));
+assert.ok(shape.bodyLength > 0);
 
 const fixtureB = fixture.replace("exec-A", "exec-B").replace("payload-A", "payload-B");
 assert.notStrictEqual(parseCurrentSsoLoginForm(fixtureB).execution, protocol.execution);

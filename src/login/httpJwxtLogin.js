@@ -209,11 +209,13 @@ function logSsoRequestFailure(stage, err) {
   const requestMethod = requestConfig && requestConfig.method ? String(requestConfig.method).toUpperCase() : "unknown";
   const startedAt = Number(err && err.ssoStartedAt);
   const elapsedMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : "unknown";
+  const timeoutMs = Number(err && err.ssoTimeoutMs) || "unknown";
   console.log("[sso] request-failed" +
     " stage=" + String(stage || "UNKNOWN") +
     " method=" + requestMethod +
     " hostname=" + requestHost +
     " elapsedMs=" + elapsedMs +
+    " timeoutMs=" + timeoutMs +
     " name=" + String((err && err.name) || "Error") +
     " code=" + String((err && err.code) || "none") +
     " message=" + sanitizeSsoErrorMessage(err && err.message) +
@@ -310,6 +312,41 @@ function logSsoCookieState(stage, cookieJar, url) {
     " pathname=" + (parts.pathname || "unknown") +
     " count=" + names.length +
     " names=" + (names.length ? names.join(",") : "none"));
+}
+
+function ssoValueShape(value) {
+  const text = String(value == null ? "" : value);
+  if (!text) return "empty";
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) return "uuid-like";
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") return "json-like";
+  } catch (err) {}
+  if (/^[A-Za-z0-9+/]+={0,2}$/.test(text) && text.length % 4 === 0 && (/[+/=]/.test(text) || text.length >= 24)) return "base64-like";
+  return "plain";
+}
+
+function describeSsoPostShape(form, headers, cookieJar, url) {
+  const body = String(form || "");
+  const params = new URLSearchParams(body);
+  const entries = Array.from(params.entries());
+  const fieldNames = entries.map(entry => entry[0]);
+  const lines = [
+    "[sso] post-shape",
+    "fields=" + fieldNames.join(","),
+    "contentType=" + String((headers && (headers["Content-Type"] || headers["content-type"])) || "unknown"),
+    "originHost=" + safeUrlParts(headers && headers.Origin).host,
+    "referer=" + safeUrlForLog(headers && headers.Referer, url),
+    "cookieNames=" + (cookieNamesForUrl(cookieJar || [], url).join(",") || "none"),
+    "bodyLength=" + Buffer.byteLength(body, "utf8")
+  ];
+  entries.forEach(([name, value]) => {
+    lines.push(name + ".empty=" + (value === "" ? "YES" : "NO"));
+    lines.push(name + ".len=" + Buffer.byteLength(value, "utf8"));
+    lines.push(name + ".shape=" + ssoValueShape(value));
+  });
+  console.log(lines.join("\n"));
+  return { fieldNames, bodyLength: Buffer.byteLength(body, "utf8") };
 }
 
 function cookieNamesForDomain(cookieJar, domain) {
@@ -415,6 +452,7 @@ async function requestNoRedirect(cookieJar, method, url, options) {
 
   let response;
   const startedAt = Date.now();
+  const timeoutMs = options && options.timeout ? options.timeout : 15000;
   try {
     response = await axios({
       method,
@@ -423,11 +461,12 @@ async function requestNoRedirect(cookieJar, method, url, options) {
       headers,
       maxRedirects: 0,
       validateStatus: () => true,
-      timeout: options && options.timeout ? options.timeout : 15000,
+      timeout: timeoutMs,
       responseType: options && options.responseType
     });
   } catch (err) {
     err.ssoStartedAt = startedAt;
+    err.ssoTimeoutMs = timeoutMs;
     logSsoRequestFailure(options && options.stage, err);
     throw err;
   }
@@ -599,6 +638,12 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     throw err;
   }
 
+  describeSsoPostShape(form, {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Origin": CAS_ORIGIN,
+    "Referer": LOGIN_URL
+  }, cookieJar, LOGIN_POST_URL);
+
   const loginResponse = await requestNoRedirect(cookieJar, "POST", LOGIN_POST_URL, {
     stage: "POST_LOGIN",
     data: form,
@@ -724,6 +769,8 @@ module.exports = {
   logSsoRequestFailure,
   logSsoFlowFailure,
   logSsoCookieState,
+  ssoValueShape,
+  describeSsoPostShape,
   isInvalidCredentialPage,
   isExplicitCaptchaPage,
   findJwxtJSessionId,
