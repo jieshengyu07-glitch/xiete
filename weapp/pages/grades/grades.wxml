@@ -16,7 +16,7 @@
 
     <block wx:else>
       <view wx:if="{{groupedGrades.length}}" class="term-toolbar">
-        <picker class="term-picker" mode="selector" range="{{termLabels}}" value="{{activeTermIndex}}" bindchange="selectTerm">
+        <view class="selector-copy">
           <view class="selector-label">当前学期</view>
           <view class="selector-value">
             <view class="selector-copy">
@@ -25,8 +25,21 @@
             </view>
             <text class="selector-arrow">⌄</text>
           </view>
-        </picker>
+        </view>
         <button class="refresh-btn" loading="{{refreshing}}" disabled="{{refreshing}}" bindtap="refreshGrades">{{refreshButtonText}}</button>
+      </view>
+
+      <scroll-view wx:if="{{groupedGrades.length}}" class="term-tabs" scroll-x="true" scroll-into-view="{{activeTermViewId}}" enhanced="true" show-scrollbar="false">
+        <view class="term-tabs-track">
+          <view wx:for="{{groupedGrades}}" wx:for-item="term" wx:for-index="index" wx:key="key" id="term-{{term.key}}" class="term-tab {{index===activeTermIndex ? 'term-tab-active' : ''}}" bindtap="selectTerm" data-index="{{index}}">
+            <text>{{term.termName}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view wx:if="{{currentGroup}}" class="term-heading">
+        <text class="term-heading-title">{{currentGroup.termName}}</text>
+        <text class="term-heading-count">{{currentGrades.length}} 闂ㄨ</text>
       </view>
 
       <view wx:if="{{accountNotice}}" class="account-notice">

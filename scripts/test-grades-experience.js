@@ -25,9 +25,13 @@ const page = fs.readFileSync(path.resolve(__dirname, "../weapp/pages/grades/grad
 const template = fs.readFileSync(path.resolve(__dirname, "../weapp/pages/grades/grades.wxml"), "utf8");
 const style = fs.readFileSync(path.resolve(__dirname, "../weapp/pages/grades/grades.wxss"), "utf8");
 assert.match(page, /presentGrades/);
+assert.match(page, /groups = \(view\.groupedGrades \|\| \[\]\)\.filter/);
+assert.match(page, /group\.grades\.length > 0/);
 assert.match(page, /gradesPresentation/);
 assert.match(page, /campusPresentation/);
-assert.match(template, /mode="selector"/);
+assert.doesNotMatch(template, /<picker\b|mode="selector"/);
+assert.match(template, /<scroll-view[^>]+scroll-x="true"/);
+assert.match(template, /scroll-into-view="\{\{activeTermViewId\}\}"/);
 assert.match(template, /本学期暂无成绩/);
 assert.doesNotMatch(template, /GPA|绩点|sourceText|成绩来源/);
 assert.match(style, /-webkit-line-clamp: 2/);

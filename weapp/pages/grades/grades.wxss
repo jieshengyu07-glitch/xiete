@@ -76,6 +76,59 @@
   min-width: 0;
 }
 
+.term-tabs {
+  width: 100%;
+  margin: 0 -2rpx 24rpx;
+  white-space: nowrap;
+}
+
+.term-tabs-track {
+  display: inline-flex;
+  gap: 12rpx;
+  padding: 2rpx 2rpx 8rpx;
+}
+
+.term-tab {
+  display: inline-flex;
+  align-items: center;
+  height: 72rpx;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  padding: 0 30rpx;
+  border: 1rpx solid #e5eaf2;
+  border-radius: 36rpx;
+  background: #ffffff;
+  color: #526079;
+  font-size: 25rpx;
+  line-height: 72rpx;
+  white-space: nowrap;
+}
+
+.term-tab-active {
+  border-color: #1677ff;
+  background: #1677ff;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.term-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 4rpx 18rpx;
+}
+
+.term-heading-title {
+  color: #152338;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.term-heading-count {
+  color: #8a94a6;
+  font-size: 23rpx;
+}
+
 .refresh-btn {
   flex-shrink: 0;
   width: 172rpx;
@@ -166,8 +219,7 @@
 }
 
 .selector-arrow {
-  color: #1677ff;
-  font-size: 32rpx;
+  display: none;
 }
 
 .empty-title {

@@ -3,9 +3,28 @@ const { formatJwxtErrorMessage, isCaptchaRequired } = require("../../utils/jwxtE
 const { gradesPresentation, campusPresentation, userErrorMessage } = require("../../utils/statusPresenter");
 const { presentGrades } = require("../../utils/gradesPresenter");
 
+// Tabs are a history view: only terms backed by at least one real grade record
+// are displayable. availableTerms may also contain empty/future discovery entries.
+function gradesDisplayView(view, selectedKey) {
+  const groups = (view.groupedGrades || []).filter(group =>
+    Array.isArray(group.grades) && group.grades.length > 0
+  );
+  let activeIndex = groups.findIndex(group => group.key === selectedKey);
+  if (activeIndex < 0) activeIndex = 0;
+  const currentGroup = groups[activeIndex] || null;
+  return Object.assign({}, view, {
+    groupedGrades: groups,
+    termLabels: groups.map(group => group.termName),
+    activeTermIndex: activeIndex,
+    currentGroup,
+    currentGrades: currentGroup ? currentGroup.grades : [],
+    emptyState: view.totalCount > 0 && currentGroup ? "HAS_DATA" : view.emptyState
+  });
+}
+
 Page({
   data: {
-    grades: [], groupedGrades: [], termLabels: [], currentGroup: null, currentGrades: [],
+    grades: [], groupedGrades: [], termLabels: [], currentGroup: null, currentGrades: [], activeTermViewId: "",
     activeTermIndex: 0, count: 0, emptyState: "NO_DATA", isInitialLoading: true,
     refreshing: false, syncing: false, refreshStage: "", refreshError: "",
     refreshButtonText: "刷新成绩", lastSuccessAtText: "", authRequired: false,
@@ -25,7 +44,7 @@ Page({
   resetLoggedOutState() {
     this.stopSyncPolling();
     this.setData({
-      grades: [], groupedGrades: [], termLabels: [], currentGroup: null, currentGrades: [],
+      grades: [], groupedGrades: [], termLabels: [], currentGroup: null, currentGrades: [], activeTermViewId: "",
       activeTermIndex: 0, count: 0, emptyState: "NO_DATA", isInitialLoading: false,
       refreshing: false, syncing: false, authRequired: true, error: "请先登录后查看成绩",
       notice: "", productState: "NO_DATA", statusTitle: "登录后可同步成绩",
@@ -111,7 +130,7 @@ Page({
     if (!polling && !this.data.grades.length) this.setData({ isInitialLoading: true, error: null });
     return api.request("/grades").then(data => {
       const selectedKey = this.data.currentGroup && this.data.currentGroup.key;
-      const view = presentGrades(data, selectedKey);
+      const view = gradesDisplayView(presentGrades(data, selectedKey), selectedKey);
       const grades = view.grades;
       const syncing = Boolean(data.syncing);
       const display = gradesPresentation(Object.assign({}, data, { hasGrades: view.totalCount > 0 }));
@@ -124,6 +143,7 @@ Page({
         return;
       }
       this.setData(Object.assign({}, view, {
+        activeTermViewId: view.currentGroup ? "term-" + view.currentGroup.key : "",
         count: data.count || view.totalCount, syncing, authRequired: false, refreshing: syncing,
         refreshButtonText: syncing ? "正在更新" : "刷新成绩",
         lastSuccessAtText: display.updatedAtText || this.data.lastSuccessAtText,
@@ -195,9 +215,10 @@ Page({
   },
 
   selectTerm(e) {
-    const index = Number(e.detail.value || 0);
+    const index = Number(e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.index : 0);
     const currentGroup = this.data.groupedGrades[index] || null;
     this.setData({ activeTermIndex: index, currentGroup, currentGrades: currentGroup ? currentGroup.grades : [],
+      activeTermViewId: currentGroup ? "term-" + currentGroup.key : "",
       emptyState: !this.data.count ? "NO_DATA" : (currentGroup && !currentGroup.grades.length ? "EMPTY_TERM" : "HAS_DATA") });
   }
 });
