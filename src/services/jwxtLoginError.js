@@ -5,7 +5,7 @@ const ERROR_MESSAGES = {
   JWXT_CAPTCHA_SESSION_EXPIRED: "验证码已过期，请重新获取",
   JWXT_SSO_FAILED: "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统",
   JWXT_TIMEOUT: "教务系统响应超时，请稍后再试",
-  JWXT_UNAVAILABLE: "教务系统暂时不可用，请稍后再试",
+  JWXT_UNAVAILABLE: "学校官网叒崩了，一会再重试吧",
   JWXT_LOGIN_FAILED: "教务登录失败，请稍后再试",
   LOGIN_REQUIRED: "请先绑定教务账号"
 };
@@ -52,14 +52,100 @@ function includesAny(text, patterns) {
   return patterns.some(pattern => text.includes(pattern));
 }
 
-function isHttpServerError(err, context) {
-  const status = Number(
-    (context && (context.status || context.httpStatus)) ||
-    (err && (err.status || err.httpStatus)) ||
-    (err && err.response && err.response.status) ||
-    0
-  );
-  return status >= 500;
+function errorChain(value) {
+  const chain = [];
+  let current = value;
+  while (current && typeof current === "object" && chain.length < 6 && !chain.includes(current)) {
+    chain.push(current);
+    current = current.cause;
+  }
+  return chain;
+}
+
+function upstreamStatus(err, context) {
+  const candidates = [context].concat(errorChain(err));
+  for (const item of candidates) {
+    const status = Number(
+      item && ((item.response && item.response.status) || item.status || item.httpStatus)
+    );
+    if (Number.isFinite(status) && status > 0) return status;
+  }
+  return 0;
+}
+
+function upstreamCodes(err, context) {
+  return [context].concat(errorChain(err)).flatMap(item => [
+    item && item.code,
+    item && item.error,
+    item && item.reason
+  ]).filter(Boolean).map(value => String(value).toUpperCase());
+}
+
+function upstreamText(err, context) {
+  const chain = errorChain(err);
+  const values = [context].concat(chain.length ? chain : [err]);
+  return normalizeText(values.map(messageOf).filter(Boolean).join(" ")).toLowerCase();
+}
+
+function isJwxtUpstreamFailure(err, context) {
+  const status = upstreamStatus(err, context);
+  if (status >= 500) return true;
+
+  const codes = upstreamCodes(err, context);
+  if (codes.some(code => [
+    "JWXT_UNAVAILABLE",
+    "JWXT_TIMEOUT",
+    "ETIMEDOUT",
+    "ESOCKETTIMEDOUT",
+    "ECONNABORTED",
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "ENETUNREACH",
+    "EHOSTUNREACH",
+    "EPIPE",
+    "EPROTO",
+    "ERR_NETWORK",
+    "ERR_BAD_RESPONSE",
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+    "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    "CERT_HAS_EXPIRED"
+  ].includes(code))) return true;
+
+  const chain = errorChain(err);
+  if (chain.some(item => item && item.request && !item.response)) return true;
+  if ([context].concat(chain).some(item => item && item.upstreamResponseEmpty === true)) return true;
+
+  const lower = upstreamText(err, context);
+  return includesAny(lower, [
+    "socket hang up",
+    "network error",
+    "network timeout",
+    "connect timeout",
+    "connection timeout",
+    "request timeout",
+    "response timeout",
+    "socket timeout",
+    "dns failure",
+    "tls connection failure",
+    "connection aborted",
+    "connection closed before response",
+    "upstream unavailable",
+    "service unavailable",
+    "login page fetch failed",
+    "empty upstream response",
+    "no response from jwxt",
+    "timed out",
+    "timeout",
+    "etimedout",
+    "esockettimedout",
+    "econnaborted",
+    "econnrefused",
+    "econnreset",
+    "enotfound",
+    "eai_again"
+  ]);
 }
 
 function normalizeJwxtLoginError(rawText, context) {
@@ -77,7 +163,12 @@ function normalizeJwxtLoginError(rawText, context) {
     return normalizeJwxtError("LOGIN_REQUIRED");
   }
 
-  // 1. Account/password errors must win even if the same login page also contains captcha markup.
+  // 1. Transport/upstream evidence always wins over response-body heuristics.
+  if (isJwxtUpstreamFailure(rawText, context)) {
+    return normalizeJwxtError("JWXT_UNAVAILABLE");
+  }
+
+  // 2. Explicit account/password errors win over captcha markup in a valid response.
   if (
     originalCode === "JWXT_INVALID_CREDENTIALS" ||
     originalCode === "INVALID_CREDENTIALS" ||
@@ -95,22 +186,20 @@ function normalizeJwxtLoginError(rawText, context) {
       "密码不正确",
       "密码有误",
       "用户名或密码错误",
-      "用户名或密码",
       "账号或密码错误",
-      "账号或密码",
+      "账户或密码错误",
       "学号或密码错误",
       "用户名不存在",
       "账号不存在",
       "账户不存在",
       "学号不存在",
-      "登录失败，用户名或密码",
       "学号或教务密码错误"
     ])
   ) {
     return normalizeJwxtError("JWXT_INVALID_CREDENTIALS");
   }
 
-  // 2. Captcha was submitted, but the submitted value was wrong/expired.
+  // 3. Captcha was submitted, but the submitted value was wrong/expired.
   if (
     originalCode === "JWXT_CAPTCHA_INVALID" ||
     originalCode === "CAPTCHA_LOGIN_FAILED" ||
@@ -140,7 +229,7 @@ function normalizeJwxtLoginError(rawText, context) {
     return normalizeJwxtError("JWXT_CAPTCHA_SESSION_EXPIRED");
   }
 
-  // 3. Captcha required only on explicit "required/empty/please enter" semantics.
+  // 4. Captcha required only on explicit "required/empty/please enter" semantics.
   if (
     originalCode === "JWXT_CAPTCHA_REQUIRED" ||
     codeLower === "captcha_required" ||
@@ -159,7 +248,7 @@ function normalizeJwxtLoginError(rawText, context) {
     return normalizeJwxtError("JWXT_CAPTCHA_REQUIRED");
   }
 
-  // 4. SSO/JWXT session handoff failed after CAS.
+  // 5. SSO/JWXT session handoff failed after CAS.
   if (
     originalCode === "JWXT_SSO_FAILED" ||
     includesAny(lower, [
@@ -172,49 +261,7 @@ function normalizeJwxtLoginError(rawText, context) {
     return normalizeJwxtError("JWXT_SSO_FAILED");
   }
 
-  // 5. Timeout.
-  if (
-    originalCode === "JWXT_TIMEOUT" ||
-    ["ECONNABORTED", "ETIMEDOUT"].includes(originalCode) ||
-    includesAny(lower, [
-      "timeout",
-      "timed out",
-      "etimedout"
-    ])
-  ) {
-    return normalizeJwxtError("JWXT_TIMEOUT");
-  }
-
-  // 6. Network/server unavailable.
-  if (
-    originalCode === "JWXT_UNAVAILABLE" ||
-    isHttpServerError(rawText, context) ||
-    [
-      "ENOTFOUND",
-      "ECONNRESET",
-      "EAI_AGAIN",
-      "ECONNREFUSED",
-      "ENETUNREACH",
-      "ERR_BAD_RESPONSE"
-    ].includes(originalCode) ||
-    includesAny(lower, [
-      "network",
-      "socket hang up",
-      "enotfound",
-      "econnreset",
-      "econnrefused",
-      "econnaborted",
-      "eai_again",
-      "503",
-      "502",
-      "500",
-      "504"
-    ])
-  ) {
-    return normalizeJwxtError("JWXT_UNAVAILABLE");
-  }
-
-  // 7. A returned login page or generic failure without explicit credential
+  // 6. A returned login page or generic failure without explicit credential
   // evidence is not enough to claim that the account/password is wrong.
   if (originalCode === "JWXT_LOGIN_FAILED" || codeLower === "jwxt_login_failed") {
     return normalizeJwxtError("JWXT_LOGIN_FAILED");
@@ -248,6 +295,7 @@ function createJwxtError(code, message) {
 module.exports = {
   ERROR_MESSAGES,
   classifyJwxtLoginError,
+  isJwxtUpstreamFailure,
   normalizeJwxtLoginError,
   normalizeJwxtError,
   createJwxtError

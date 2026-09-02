@@ -54,6 +54,8 @@ function isTransientBindError(err) {
     "ECONNABORTED",
     "ETIMEDOUT",
     "ECONNRESET",
+    "ECONNREFUSED",
+    "ESOCKETTIMEDOUT",
     "ENOTFOUND",
     "EAI_AGAIN"
   ].includes(code);

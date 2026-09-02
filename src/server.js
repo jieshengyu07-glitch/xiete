@@ -14,7 +14,7 @@ const credentialStore = require("./services/credentialStore");
 const auth = require("./middleware/auth");
 const { assertJwtConfig, signToken, verifyToken } = require("./utils/jwt");
 const courseRatingStore = require("./rating/courseRatingStore");
-const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
+const { classifyJwxtLoginError, isJwxtUpstreamFailure } = require("./services/jwxtLoginError");
 const { assertWechatConfig, resolveWechatOpenid } = require("./services/wechatAuth");
 const userPersistence = require("./services/userPersistence");
 const { markCampusLoginValid } = require("./services/campusLoginState");
@@ -242,8 +242,20 @@ function logPortalResult(result) {
 function classifyPortalCredentialError(err) {
   const result = portalResultFromError(err);
   const jwxt = classifyJwxtLoginError(err);
-  const rawCode = String(err && (err.code || err.error || err.reason) || "");
-  const networkCodes = ["ECONNABORTED", "ETIMEDOUT", "ENOTFOUND", "ECONNRESET", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "ERR_BAD_RESPONSE"];
+  if (
+    isJwxtUpstreamFailure(err, { status: result.status }) ||
+    result.containsMaintenance ||
+    jwxt.error === "JWXT_UNAVAILABLE"
+  ) {
+    return {
+      code: "PORTAL_UNAVAILABLE",
+      portalAuthStatus: "UNAVAILABLE",
+      jwxtStatus: "JWXT_UNAVAILABLE",
+      status: 503,
+      message: "学校官网叒崩了，一会再重试吧",
+      result
+    };
+  }
 
   if (result.containsInvalidCredential || jwxt.error === "JWXT_INVALID_CREDENTIALS") {
     return {
@@ -251,7 +263,7 @@ function classifyPortalCredentialError(err) {
       portalAuthStatus: "INVALID_CREDENTIALS",
       jwxtStatus: "LOGIN_FAILED",
       status: 400,
-      message: "账号或密码错误，请检查后重试。",
+      message: "学号或密码错误，请重新输入",
       result
     };
   }
@@ -263,23 +275,6 @@ function classifyPortalCredentialError(err) {
       jwxtStatus: "CAPTCHA_REQUIRED",
       status: 400,
       message: "门户需要验证码或人机验证，请稍后重试或使用验证码登录。",
-      result
-    };
-  }
-
-  if (
-    result.status >= 500 ||
-    result.containsMaintenance ||
-    networkCodes.includes(rawCode) ||
-    jwxt.error === "JWXT_UNAVAILABLE" ||
-    jwxt.error === "JWXT_TIMEOUT"
-  ) {
-    return {
-      code: "PORTAL_UNAVAILABLE",
-      portalAuthStatus: "UNAVAILABLE",
-      jwxtStatus: "LOGIN_FAILED",
-      status: 503,
-      message: "门户暂时不可用，请稍后再试。",
       result
     };
   }

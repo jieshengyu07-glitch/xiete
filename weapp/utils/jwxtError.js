@@ -1,11 +1,11 @@
 const MESSAGE_BY_CODE = {
-  JWXT_INVALID_CREDENTIALS: "学号或教务密码错误，请检查后重试",
+  JWXT_INVALID_CREDENTIALS: "学号或密码错误，请重新输入",
   JWXT_CAPTCHA_INVALID: "验证码错误，请重新输入或刷新验证码",
   JWXT_CAPTCHA_REQUIRED: "教务系统需要验证码，请输入验证码完成验证",
   JWXT_CAPTCHA_SESSION_EXPIRED: "验证码已过期，请重新获取",
   JWXT_SSO_FAILED: "教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统",
   JWXT_TIMEOUT: "教务系统响应超时，请稍后再试",
-  JWXT_UNAVAILABLE: "教务系统暂时不可用，请稍后再试",
+  JWXT_UNAVAILABLE: "学校官网叒崩了，一会再重试吧",
   JWXT_LOGIN_FAILED: "教务登录失败，请稍后再试",
   LOGIN_REQUIRED: "请先绑定教务账号",
   XG_LOGIN_REQUIRED: "成绩登录已失效，请重新登录",
@@ -57,14 +57,11 @@ function isInvalidCredentials(err, message) {
     includesAny(text, [
       "密码错误",
       "用户名或密码错误",
-      "用户名或密码",
       "账号或密码错误",
-      "账号或密码",
+      "账户或密码错误",
       "学号或密码错误",
       "用户名不存在",
       "账号不存在",
-      "认证失败",
-      "登录失败，用户名或密码",
       "学号或教务密码错误"
     ]);
 }
@@ -147,18 +144,25 @@ function isTimeout(err, message) {
 }
 
 function isUnavailable(err, message) {
-  const code = errorCode(err);
+  const code = errorCode(err).toUpperCase();
   const lower = normalizedText(err, message).toLowerCase();
   const text = normalizedText(err, message);
+  const hasUpstreamHttpStatus = /(?:http|status|upstream)\s*[:=]?\s*(500|502|503|504|521|522|523|524)\b/i.test(lower);
   return code === "JWXT_UNAVAILABLE" ||
-    code === "jwxt_unavailable" ||
+    code === "JWXT_TIMEOUT" ||
+    code === "PORTAL_UNAVAILABLE" ||
+    [
+      "ETIMEDOUT", "ESOCKETTIMEDOUT", "ECONNABORTED", "ECONNREFUSED",
+      "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH",
+      "ERR_NETWORK", "ERR_BAD_RESPONSE", "EPROTO"
+    ].includes(code) ||
     lower.includes("econn") ||
+    lower.includes("enotfound") ||
+    lower.includes("eai_again") ||
     lower.includes("network") ||
     lower.includes("socket hang up") ||
-    lower.includes("500") ||
-    lower.includes("502") ||
-    lower.includes("503") ||
-    lower.includes("504") ||
+    lower.includes("timed out") ||
+    hasUpstreamHttpStatus ||
     text.includes("暂时不可用");
 }
 
@@ -166,14 +170,13 @@ function formatJwxtErrorMessage(err, fallback) {
   const code = errorCode(err);
   const message = rawText(err, fallback);
 
-  // Keep the same priority as the backend classifier. Text wins over a broad code.
+  // Transport evidence must win over any stale login-page text in the payload.
+  if (isUnavailable(err, message) || isTimeout(err, message)) return MESSAGE_BY_CODE.JWXT_UNAVAILABLE;
   if (isInvalidCredentials(err, message)) return MESSAGE_BY_CODE.JWXT_INVALID_CREDENTIALS;
   if (isCaptchaWrong(err, message)) return MESSAGE_BY_CODE.JWXT_CAPTCHA_INVALID;
   if (isCaptchaSessionExpired(err, message)) return MESSAGE_BY_CODE.JWXT_CAPTCHA_SESSION_EXPIRED;
   if (isCaptchaRequired(err, message)) return MESSAGE_BY_CODE.JWXT_CAPTCHA_REQUIRED;
   if (isSsoFailed(err, message)) return MESSAGE_BY_CODE.JWXT_SSO_FAILED;
-  if (isTimeout(err, message)) return MESSAGE_BY_CODE.JWXT_TIMEOUT;
-  if (isUnavailable(err, message)) return MESSAGE_BY_CODE.JWXT_UNAVAILABLE;
   if (isLoginRequired(err, message)) return MESSAGE_BY_CODE.LOGIN_REQUIRED;
   if (MESSAGE_BY_CODE[code]) return MESSAGE_BY_CODE[code];
   return message || fallback || "请求失败，请稍后重试";

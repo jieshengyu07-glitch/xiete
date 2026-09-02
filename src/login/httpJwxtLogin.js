@@ -187,11 +187,40 @@ function absoluteUrl(location, baseUrl) {
 function safeUrlForLog(url, baseUrl) {
   try {
     const parsed = new URL(String(url || ""), baseUrl);
-    const keys = Array.from(parsed.searchParams.keys());
-    return parsed.origin + parsed.pathname + (keys.length ? "?" + keys.map(key => key + "=[present]").join("&") : "");
+    return parsed.origin + parsed.pathname;
   } catch (err) {
     return "[unparseable-url]";
   }
+}
+
+function sanitizeSsoErrorMessage(value) {
+  return String(value || "")
+    .replace(/https?:\/\/[^\s]+/gi, "[url]")
+    .replace(/(password|passwd|execution|crypto|captcha[_-]?payload|captcha[_-]?code|cookie|ticket|code)=([^&\s]+)/gi, "$1=[redacted]")
+    .slice(0, 240);
+}
+
+function logSsoRequestFailure(stage, err) {
+  const response = err && err.response;
+  const cause = err && err.cause;
+  const responseStatus = response && Number(response.status) > 0 ? Number(response.status) : "none";
+  const requestConfig = err && err.config;
+  const requestUrl = requestConfig && requestConfig.url;
+  const requestHost = requestUrl ? safeUrlParts(requestUrl).host : "unknown";
+  const requestMethod = requestConfig && requestConfig.method ? String(requestConfig.method).toUpperCase() : "unknown";
+  const startedAt = Number(err && err.ssoStartedAt);
+  const elapsedMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : "unknown";
+  console.log("[sso] request-failed" +
+    " stage=" + String(stage || "UNKNOWN") +
+    " method=" + requestMethod +
+    " hostname=" + requestHost +
+    " elapsedMs=" + elapsedMs +
+    " name=" + String((err && err.name) || "Error") +
+    " code=" + String((err && err.code) || "none") +
+    " message=" + sanitizeSsoErrorMessage(err && err.message) +
+    " hasResponse=" + Boolean(response) +
+    " responseStatus=" + responseStatus +
+    " causeCode=" + String((cause && cause.code) || "none"));
 }
 
 function parseSetCookie(header, responseUrl) {
@@ -364,16 +393,24 @@ async function requestNoRedirect(cookieJar, method, url, options) {
   const cookieHeader = cookieHeaderFor(cookieJar, url);
   if (cookieHeader) headers.Cookie = cookieHeader;
 
-  const response = await axios({
-    method,
-    url,
-    data: options && options.data,
-    headers,
-    maxRedirects: 0,
-    validateStatus: () => true,
-    timeout: options && options.timeout ? options.timeout : 15000,
-    responseType: options && options.responseType
-  });
+  let response;
+  const startedAt = Date.now();
+  try {
+    response = await axios({
+      method,
+      url,
+      data: options && options.data,
+      headers,
+      maxRedirects: 0,
+      validateStatus: () => true,
+      timeout: options && options.timeout ? options.timeout : 15000,
+      responseType: options && options.responseType
+    });
+  } catch (err) {
+    err.ssoStartedAt = startedAt;
+    logSsoRequestFailure(options && options.stage, err);
+    throw err;
+  }
 
   storeCookies(cookieJar, response.headers["set-cookie"], url);
   return response;
@@ -392,12 +429,20 @@ async function followRedirects(cookieJar, startResponse, startUrl, options) {
     const location = response.headers && response.headers.location;
     if (!location || response.status < 300 || response.status >= 400) break;
 
-    const nextUrl = absoluteUrl(location, currentUrl);
+    let nextUrl;
+    try {
+      nextUrl = absoluteUrl(location, currentUrl);
+    } catch (err) {
+      err.config = err.config || { method: "GET", url: currentUrl };
+      logSsoRequestFailure("FOLLOW_REDIRECT", err);
+      throw err;
+    }
     const previousUrl = currentUrl;
     currentUrl = nextUrl;
     urls.push(currentUrl);
 
     response = await requestNoRedirect(cookieJar, "GET", currentUrl, {
+      stage: "FOLLOW_REDIRECT",
       headers: {
         "User-Agent": userAgent(),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -412,6 +457,7 @@ async function followRedirects(cookieJar, startResponse, startUrl, options) {
 
 async function getAndFollow(cookieJar, url, referer, options) {
   const response = await requestNoRedirect(cookieJar, "GET", url, {
+    stage: options && options.stage ? options.stage : "FOLLOW_REDIRECT",
     headers: {
       "User-Agent": userAgent(),
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -432,6 +478,7 @@ function encryptPassword(loginCroypto, password) {
 async function checkCaptcha(cookieJar, studentId) {
   const url = CAS_ORIGIN + "/api/protected/user/findCaptchaCount/" + encodeURIComponent(studentId);
   const response = await requestNoRedirect(cookieJar, "GET", url, {
+    stage: "CAPTCHA_PRECHECK",
     headers: {
       "User-Agent": userAgent(),
       "Accept": "application/json, text/plain, */*",
@@ -445,6 +492,7 @@ async function checkCaptcha(cookieJar, studentId) {
 
 async function loginCasToPortal(cookieJar, studentId, password) {
   const loginPage = await requestNoRedirect(cookieJar, "GET", LOGIN_URL, {
+    stage: "GET_LOGIN_PAGE",
     headers: {
       "User-Agent": userAgent(),
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -496,6 +544,7 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   });
 
   const loginResponse = await requestNoRedirect(cookieJar, "POST", LOGIN_POST_URL, {
+    stage: "POST_LOGIN",
     data: form,
     headers: {
       "User-Agent": userAgent(),
@@ -613,6 +662,8 @@ module.exports = {
   encryptPassword,
   parseCurrentSsoLoginForm,
   buildCurrentSsoLoginPayload,
+  sanitizeSsoErrorMessage,
+  logSsoRequestFailure,
   isInvalidCredentialPage,
   isExplicitCaptchaPage,
   findJwxtJSessionId,
