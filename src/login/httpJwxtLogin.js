@@ -223,6 +223,16 @@ function logSsoRequestFailure(stage, err) {
     " causeCode=" + String((cause && cause.code) || "none"));
 }
 
+function logSsoFlowFailure(stage, reasonCode, err, url) {
+  const parts = safeUrlParts(url || (err && err.config && err.config.url) || LOGIN_URL);
+  console.log("[sso] flow-failed" +
+    " stage=" + String(stage || "UNKNOWN") +
+    " reasonCode=" + String(reasonCode || (err && err.code) || "FLOW_ERROR") +
+    " hostname=" + (parts.host || "unknown") +
+    " pathname=" + (parts.pathname || "unknown") +
+    " hasResponse=" + Boolean(err && err.response));
+}
+
 function parseSetCookie(header, responseUrl) {
   const parts = String(header || "").split(";").map(part => part.trim());
   const first = parts.shift() || "";
@@ -514,7 +524,13 @@ async function loginCasToPortal(cookieJar, studentId, password) {
       portalResult: portalDiagnostics(loginPage, LOGIN_URL)
     });
   }
-  const protocol = parseCurrentSsoLoginForm(html);
+  let protocol;
+  try {
+    protocol = parseCurrentSsoLoginForm(html);
+  } catch (err) {
+    logSsoFlowFailure("GET_LOGIN_PAGE_PARSE", "LOGIN_FORM_PARSE_FAILED", err, LOGIN_URL);
+    throw err;
+  }
   const execution = protocol.execution;
   const loginCroypto = protocol.crypto;
   const needsCaptcha = await checkCaptcha(cookieJar, studentId).catch(() => false);
@@ -532,16 +548,32 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     portalResult: portalDiagnostics(loginPage, LOGIN_URL)
   });
 
-  const encryptedPassword = encryptPassword(loginCroypto, password);
-  if (!encryptedPassword) throw new Error("DES password encryption failed.");
+  let encryptedPassword;
+  try {
+    encryptedPassword = encryptPassword(loginCroypto, password);
+  } catch (err) {
+    logSsoFlowFailure("BUILD_LOGIN_PAYLOAD", "PASSWORD_TRANSFORM_FAILED", err, LOGIN_POST_URL);
+    throw err;
+  }
+  if (!encryptedPassword) {
+    const err = new Error("DES password encryption failed.");
+    logSsoFlowFailure("BUILD_LOGIN_PAYLOAD", "PASSWORD_TRANSFORM_EMPTY", err, LOGIN_POST_URL);
+    throw err;
+  }
 
-  const form = buildCurrentSsoLoginPayload({
-    username: studentId,
-    password: encryptedPassword,
-    execution,
-    crypto: loginCroypto,
-    captchaPayload: protocol.captchaPayload
-  });
+  let form;
+  try {
+    form = buildCurrentSsoLoginPayload({
+      username: studentId,
+      password: encryptedPassword,
+      execution,
+      crypto: loginCroypto,
+      captchaPayload: protocol.captchaPayload
+    });
+  } catch (err) {
+    logSsoFlowFailure("BUILD_LOGIN_PAYLOAD", "LOGIN_PAYLOAD_BUILD_FAILED", err, LOGIN_POST_URL);
+    throw err;
+  }
 
   const loginResponse = await requestNoRedirect(cookieJar, "POST", LOGIN_POST_URL, {
     stage: "POST_LOGIN",
@@ -664,6 +696,7 @@ module.exports = {
   buildCurrentSsoLoginPayload,
   sanitizeSsoErrorMessage,
   logSsoRequestFailure,
+  logSsoFlowFailure,
   isInvalidCredentialPage,
   isExplicitCaptchaPage,
   findJwxtJSessionId,

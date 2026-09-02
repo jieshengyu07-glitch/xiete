@@ -11,6 +11,7 @@ const {
   encryptPassword,
   parseCurrentSsoLoginForm,
   buildCurrentSsoLoginPayload,
+  logSsoFlowFailure,
   isInvalidCredentialPage,
   findJwxtJSessionId,
   LOGIN_URL,
@@ -133,13 +134,21 @@ async function createCaptchaSession(userId, studentId) {
   const html = String(loginPage.data || "");
   const expectedStudentId = String(studentId || "").trim();
   const parsedHiddenFields = parseHiddenInputs(html);
-  const protocol = typeof parseCurrentSsoLoginForm === "function"
-    ? parseCurrentSsoLoginForm(html)
-    : {
-      execution: parseHiddenValue(html, "execution") || parseHiddenValue(html, "login-page-flowkey"),
-      crypto: parseHiddenValue(html, "login-croypto"),
-      captchaPayload: ""
-    };
+  let protocol;
+  try {
+    protocol = typeof parseCurrentSsoLoginForm === "function"
+      ? parseCurrentSsoLoginForm(html)
+      : {
+        execution: parseHiddenValue(html, "execution") || parseHiddenValue(html, "login-page-flowkey"),
+        crypto: parseHiddenValue(html, "login-croypto"),
+        captchaPayload: ""
+      };
+  } catch (err) {
+    if (typeof logSsoFlowFailure === "function") {
+      logSsoFlowFailure("GET_LOGIN_PAGE_PARSE", "LOGIN_FORM_PARSE_FAILED", err, LOGIN_URL);
+    }
+    throw err;
+  }
   const execution = protocol.execution || resolveExecution(html, parsedHiddenFields);
   const loginCroypto = protocol.crypto || parseHiddenValue(html, "login-croypto");
   if (!execution || !loginCroypto) {
@@ -230,32 +239,48 @@ async function loginWithCaptcha(userId, payload) {
     throw err;
   }
 
-  const encryptedPassword = encryptPassword(session.loginCroypto, password);
+  let encryptedPassword;
+  try {
+    encryptedPassword = encryptPassword(session.loginCroypto, password);
+  } catch (err) {
+    if (typeof logSsoFlowFailure === "function") {
+      logSsoFlowFailure("BUILD_LOGIN_PAYLOAD", "PASSWORD_TRANSFORM_FAILED", err, LOGIN_POST_URL);
+    }
+    throw err;
+  }
   if (!encryptedPassword) {
     const err = new Error("教务密码加密失败");
     err.code = "JWXT_LOGIN_FAILED";
     throw err;
   }
 
-  const form = typeof buildCurrentSsoLoginPayload === "function"
-    ? buildCurrentSsoLoginPayload({
-      username: studentId,
-      password: encryptedPassword,
-      execution: session.execution,
-      crypto: session.loginCroypto,
-      captchaCode: captcha,
-      captchaPayload: session.captchaPayload
-    })
-    : new URLSearchParams({
-      username: studentId,
-      password: encryptedPassword,
-      type: "UsernamePassword",
-      _eventId: "submit",
-      geolocation: "",
-      execution: session.execution,
-      captcha_code: captcha,
-      croypto: session.loginCroypto
-    }).toString();
+  let form;
+  try {
+    form = typeof buildCurrentSsoLoginPayload === "function"
+      ? buildCurrentSsoLoginPayload({
+        username: studentId,
+        password: encryptedPassword,
+        execution: session.execution,
+        crypto: session.loginCroypto,
+        captchaCode: captcha,
+        captchaPayload: session.captchaPayload
+      })
+      : new URLSearchParams({
+        username: studentId,
+        password: encryptedPassword,
+        type: "UsernamePassword",
+        _eventId: "submit",
+        geolocation: "",
+        execution: session.execution,
+        captcha_code: captcha,
+        croypto: session.loginCroypto
+      }).toString();
+  } catch (err) {
+    if (typeof logSsoFlowFailure === "function") {
+      logSsoFlowFailure("BUILD_LOGIN_PAYLOAD", "LOGIN_PAYLOAD_BUILD_FAILED", err, LOGIN_POST_URL);
+    }
+    throw err;
+  }
 
   const loginResponse = await requestNoRedirect(session.cookieJar, "POST", LOGIN_POST_URL, {
     data: form,
