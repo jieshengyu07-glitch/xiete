@@ -1,6 +1,9 @@
 const axios = require("axios");
 const CryptoJS = require("crypto-js");
-const { normalizeJwxtLoginError } = require("../services/jwxtLoginError");
+const {
+  isJwxtUpstreamFailure,
+  normalizeJwxtLoginError
+} = require("../services/jwxtLoginError");
 
 const CAS_ORIGIN = "https://sso1.tyust.edu.cn";
 const PORTAL_ORIGIN = "https://ronghemenhu.tyust.edu.cn";
@@ -33,6 +36,52 @@ function parseHiddenValue(html, id) {
   const pattern = new RegExp("<[^>]+id=[\"']" + id + "[\"'][^>]*>([^<]*)<\\/[^>]+>", "i");
   const match = String(html || "").match(pattern);
   return match ? decodeHtml(match[1].trim()) : "";
+}
+
+function parseInputValue(html, name) {
+  const text = String(html || "");
+  const escaped = String(name || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp("<input\\b[^>]*(?:name|id)=[\\\"']" + escaped + "[\\\"'][^>]*\\bvalue=[\\\"']([^\\\"']*)[\\\"']", "i"),
+    new RegExp("<input\\b[^>]*\\bvalue=[\\\"']([^\\\"']*)[\\\"'][^>]*(?:name|id)=[\\\"']" + escaped + "[\\\"']", "i")
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return decodeHtml(match[1].trim());
+  }
+  return "";
+}
+
+function parseCurrentSsoLoginForm(html) {
+  const text = String(html || "");
+  return {
+    execution: parseHiddenValue(text, "execution") ||
+      parseInputValue(text, "execution") ||
+      parseHiddenValue(text, "login-page-flowkey"),
+    crypto: parseHiddenValue(text, "crypto") ||
+      parseInputValue(text, "crypto") ||
+      parseHiddenValue(text, "login-croypto"),
+    captchaPayload: parseHiddenValue(text, "captcha_payload") ||
+      parseInputValue(text, "captcha_payload"),
+    service: parseInputValue(text, "service")
+  };
+}
+
+function buildCurrentSsoLoginPayload({ username, password, execution, crypto, captchaCode, captchaPayload, service }) {
+  return new URLSearchParams({
+    username: String(username || ""),
+    type: "UsernamePassword",
+    _eventId: "submit",
+    geolocation: "",
+    execution: String(execution || ""),
+    captcha_code: String(captchaCode || ""),
+    crypto: String(crypto || ""),
+    password: String(password || ""),
+    captcha_payload: String(captchaPayload || ""),
+    // Legacy CAS deployments call the dynamic crypto field `croypto`.
+    croypto: String(crypto || ""),
+    ...(service ? { service: String(service) } : {})
+  }).toString();
 }
 
 function isInvalidCredentialPage(html) {
@@ -135,6 +184,16 @@ function absoluteUrl(location, baseUrl) {
   return new URL(location, baseUrl).toString();
 }
 
+function safeUrlForLog(url, baseUrl) {
+  try {
+    const parsed = new URL(String(url || ""), baseUrl);
+    const keys = Array.from(parsed.searchParams.keys());
+    return parsed.origin + parsed.pathname + (keys.length ? "?" + keys.map(key => key + "=[present]").join("&") : "");
+  } catch (err) {
+    return "[unparseable-url]";
+  }
+}
+
 function parseSetCookie(header, responseUrl) {
   const parts = String(header || "").split(";").map(part => part.trim());
   const first = parts.shift() || "";
@@ -234,9 +293,9 @@ function printHttpStep(cookieJar, url, response) {
   const requestCookieNames = cookieNamesFromCookieHeader(sentCookieHeader);
 
   console.log("[JWXT SSO]");
-  console.log("URL: " + url);
+  console.log("URL: " + safeUrlForLog(url));
   console.log("HTTP status: " + response.status);
-  console.log("Location: " + (location || "(none)"));
+  console.log("Location: " + (location ? safeUrlForLog(location, url) : "(none)"));
   console.log("Set-Cookie names: " + (names.length ? names.join(", ") : "(none)"));
   console.log("Request Cookie names: " + (requestCookieNames.length ? requestCookieNames.join(", ") : "(none)"));
 }
@@ -264,7 +323,7 @@ function printJwxtDebugSummary(cookieJar, finalUrl, urls) {
   const metas = newjwcCookieMetas(cookieJar);
 
   console.log("\n=== JWXT SSO Debug Summary ===");
-  console.log("Final URL: " + finalUrl);
+  console.log("Final URL: " + safeUrlForLog(finalUrl));
   console.log("Reached /sso/jasiglogin/jwglxt: " + (flags.reachedJasigLogin ? "YES" : "NO"));
   console.log("Reached /jwglxt/ticketlogin: " + (flags.reachedTicketLogin ? "YES" : "NO"));
   console.log("Reached /jwglxt/xtgl/index_initMenu.html: " + (flags.reachedIndexInitMenu ? "YES" : "NO"));
@@ -392,16 +451,24 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     }
   });
 
-  if (loginPage.status >= 500) {
-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {
+  if (isJwxtUpstreamFailure({ response: loginPage })) {
+    throwJwxtError("JWXT_UNAVAILABLE", "学校官网叒崩了，一会再重试吧", {
       portalStage: true,
       portalResult: portalDiagnostics(loginPage, LOGIN_URL)
     });
   }
 
   const html = String(loginPage.data || "");
-  const execution = parseHiddenValue(html, "login-page-flowkey");
-  const loginCroypto = parseHiddenValue(html, "login-croypto");
+  if (!html.trim()) {
+    throwJwxtError("JWXT_UNAVAILABLE", "学校官网叒崩了，一会再重试吧", {
+      upstreamResponseEmpty: true,
+      portalStage: true,
+      portalResult: portalDiagnostics(loginPage, LOGIN_URL)
+    });
+  }
+  const protocol = parseCurrentSsoLoginForm(html);
+  const execution = protocol.execution;
+  const loginCroypto = protocol.crypto;
   const needsCaptcha = await checkCaptcha(cookieJar, studentId).catch(() => false);
 
   if (needsCaptcha) throwJwxtError("JWXT_CAPTCHA_REQUIRED", "教务系统需要验证码，请输入验证码完成验证", {
@@ -420,16 +487,13 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   const encryptedPassword = encryptPassword(loginCroypto, password);
   if (!encryptedPassword) throw new Error("DES password encryption failed.");
 
-  const form = new URLSearchParams({
+  const form = buildCurrentSsoLoginPayload({
     username: studentId,
     password: encryptedPassword,
-    type: "UsernamePassword",
-    _eventId: "submit",
-    geolocation: "",
     execution,
-    captcha_code: "",
-    croypto: loginCroypto
-  }).toString();
+    crypto: loginCroypto,
+    captchaPayload: protocol.captchaPayload
+  });
 
   const loginResponse = await requestNoRedirect(cookieJar, "POST", LOGIN_POST_URL, {
     data: form,
@@ -442,16 +506,16 @@ async function loginCasToPortal(cookieJar, studentId, password) {
     }
   });
 
-  if (loginResponse.status >= 500) {
-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {
+  if (isJwxtUpstreamFailure({ response: loginResponse })) {
+    throwJwxtError("JWXT_UNAVAILABLE", "学校官网叒崩了，一会再重试吧", {
       portalStage: true,
       portalResult: portalDiagnostics(loginResponse, LOGIN_POST_URL)
     });
   }
 
   const followed = await followRedirects(cookieJar, loginResponse, LOGIN_POST_URL);
-  if (followed.response && followed.response.status >= 500) {
-    throwJwxtError("JWXT_UNAVAILABLE", "教务系统暂时不可用，请稍后再试", {
+  if (followed.response && isJwxtUpstreamFailure({ response: followed.response })) {
+    throwJwxtError("JWXT_UNAVAILABLE", "学校官网叒崩了，一会再重试吧", {
       portalStage: true,
       portalResult: portalDiagnostics(followed.response, followed.finalUrl)
     });
@@ -547,6 +611,8 @@ module.exports = {
   followRedirects,
   getAndFollow,
   encryptPassword,
+  parseCurrentSsoLoginForm,
+  buildCurrentSsoLoginPayload,
   isInvalidCredentialPage,
   isExplicitCaptchaPage,
   findJwxtJSessionId,
