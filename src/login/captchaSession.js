@@ -9,6 +9,8 @@ const {
   followRedirects,
   getAndFollow,
   encryptPassword,
+  parseCurrentSsoLoginForm,
+  buildCurrentSsoLoginPayload,
   isInvalidCredentialPage,
   findJwxtJSessionId,
   LOGIN_URL,
@@ -131,8 +133,15 @@ async function createCaptchaSession(userId, studentId) {
   const html = String(loginPage.data || "");
   const expectedStudentId = String(studentId || "").trim();
   const parsedHiddenFields = parseHiddenInputs(html);
-  const execution = resolveExecution(html, parsedHiddenFields);
-  const loginCroypto = parseHiddenValue(html, "login-croypto");
+  const protocol = typeof parseCurrentSsoLoginForm === "function"
+    ? parseCurrentSsoLoginForm(html)
+    : {
+      execution: parseHiddenValue(html, "execution") || parseHiddenValue(html, "login-page-flowkey"),
+      crypto: parseHiddenValue(html, "login-croypto"),
+      captchaPayload: ""
+    };
+  const execution = protocol.execution || resolveExecution(html, parsedHiddenFields);
+  const loginCroypto = protocol.crypto || parseHiddenValue(html, "login-croypto");
   if (!execution || !loginCroypto) {
     const err = new Error("教务登录页缺少必要字段，请稍后重试");
     err.code = "JWXT_LOGIN_PAGE_INVALID";
@@ -167,6 +176,7 @@ async function createCaptchaSession(userId, studentId) {
     loginPageHtml: html,
     execution,
     loginCroypto,
+    captchaPayload: protocol.captchaPayload,
     studentId: expectedStudentId,
     captchaUrl,
     createdAt: new Date().toISOString(),
@@ -227,16 +237,25 @@ async function loginWithCaptcha(userId, payload) {
     throw err;
   }
 
-  const form = new URLSearchParams({
-    username: studentId,
-    password: encryptedPassword,
-    type: "UsernamePassword",
-    _eventId: "submit",
-    geolocation: "",
-    execution: session.execution,
-    captcha_code: captcha,
-    croypto: session.loginCroypto
-  }).toString();
+  const form = typeof buildCurrentSsoLoginPayload === "function"
+    ? buildCurrentSsoLoginPayload({
+      username: studentId,
+      password: encryptedPassword,
+      execution: session.execution,
+      crypto: session.loginCroypto,
+      captchaCode: captcha,
+      captchaPayload: session.captchaPayload
+    })
+    : new URLSearchParams({
+      username: studentId,
+      password: encryptedPassword,
+      type: "UsernamePassword",
+      _eventId: "submit",
+      geolocation: "",
+      execution: session.execution,
+      captcha_code: captcha,
+      croypto: session.loginCroypto
+    }).toString();
 
   const loginResponse = await requestNoRedirect(session.cookieJar, "POST", LOGIN_POST_URL, {
     data: form,
