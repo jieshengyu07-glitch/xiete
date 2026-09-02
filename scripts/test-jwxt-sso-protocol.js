@@ -2,7 +2,8 @@ const assert = require("assert");
 const {
   parseCurrentSsoLoginForm,
   buildCurrentSsoLoginPayload,
-  encryptPassword
+  encryptPassword,
+  encryptCaptchaPayload
 } = require("../src/login/httpJwxtLogin");
 
 const fixture = [
@@ -23,22 +24,22 @@ assert.strictEqual(protocol.service, "/oauth2.0/callbackAuthorize");
 
 const encrypted = encryptPassword(protocol.crypto, "synthetic-password");
 assert.ok(encrypted && encrypted.length > 0, "password transform should complete");
+const encryptedCaptchaPayload = encryptCaptchaPayload(protocol.crypto, protocol.captchaPayload);
 const body = new URLSearchParams(buildCurrentSsoLoginPayload({
   username: "synthetic-student",
   password: encrypted,
   execution: protocol.execution,
   crypto: protocol.crypto,
-  captchaPayload: protocol.captchaPayload,
+  captchaPayload: encryptedCaptchaPayload,
   service: protocol.service
 }));
 
-for (const key of ["username", "type", "_eventId", "geolocation", "execution", "captcha_code", "crypto", "password", "captcha_payload"]) {
+for (const key of ["username", "type", "_eventId", "geolocation", "execution", "captcha_code", "password", "captcha_payload", "croypto"]) {
   assert.ok(body.has(key), "missing protocol field: " + key);
 }
 assert.strictEqual(body.get("execution"), "exec-A");
-assert.strictEqual(body.get("crypto"), protocol.crypto);
 assert.strictEqual(body.get("croypto"), protocol.crypto);
-assert.strictEqual(body.get("captcha_payload"), "payload-A");
+assert.ok(body.get("captcha_payload"), "captcha_payload must be encrypted, even without a challenge");
 assert.strictEqual(body.get("service"), protocol.service);
 
 const fixtureB = fixture.replace("exec-A", "exec-B").replace("payload-A", "payload-B");

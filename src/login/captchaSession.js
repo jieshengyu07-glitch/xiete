@@ -9,6 +9,7 @@ const {
   followRedirects,
   getAndFollow,
   encryptPassword,
+  encryptCaptchaPayload,
   parseCurrentSsoLoginForm,
   buildCurrentSsoLoginPayload,
   logSsoFlowFailure,
@@ -263,7 +264,7 @@ async function loginWithCaptcha(userId, payload) {
         execution: session.execution,
         crypto: session.loginCroypto,
         captchaCode: captcha,
-        captchaPayload: session.captchaPayload
+        captchaPayload: encryptCaptchaPayload(session.loginCroypto, session.captchaPayload)
       })
       : new URLSearchParams({
         username: studentId,

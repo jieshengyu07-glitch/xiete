@@ -68,20 +68,19 @@ function parseCurrentSsoLoginForm(html) {
 }
 
 function buildCurrentSsoLoginPayload({ username, password, execution, crypto, captchaCode, captchaPayload, service }) {
-  return new URLSearchParams({
+  const fields = {
     username: String(username || ""),
     type: "UsernamePassword",
     _eventId: "submit",
     geolocation: "",
     execution: String(execution || ""),
     captcha_code: String(captchaCode || ""),
-    crypto: String(crypto || ""),
     password: String(password || ""),
     captcha_payload: String(captchaPayload || ""),
-    // Legacy CAS deployments call the dynamic crypto field `croypto`.
-    croypto: String(crypto || ""),
-    ...(service ? { service: String(service) } : {})
-  }).toString();
+    croypto: String(crypto || "")
+  };
+  if (service) fields.service = String(service);
+  return new URLSearchParams(fields).toString();
 }
 
 function isInvalidCredentialPage(html) {
@@ -302,6 +301,17 @@ function cookieNamesForUrl(cookieJar, url) {
     .map(cookie => cookie.name);
 }
 
+function logSsoCookieState(stage, cookieJar, url) {
+  const names = cookieNamesForUrl(cookieJar, url);
+  const parts = safeUrlParts(url);
+  console.log("[sso] cookie-state" +
+    " stage=" + String(stage || "UNKNOWN") +
+    " hostname=" + (parts.host || "unknown") +
+    " pathname=" + (parts.pathname || "unknown") +
+    " count=" + names.length +
+    " names=" + (names.length ? names.join(",") : "none"));
+}
+
 function cookieNamesForDomain(cookieJar, domain) {
   return Array.from(new Set(
     cookieJar
@@ -479,7 +489,20 @@ async function getAndFollow(cookieJar, url, referer, options) {
 
 function encryptPassword(loginCroypto, password) {
   const key = CryptoJS.enc.Base64.parse(loginCroypto);
-  return CryptoJS.DES.encrypt(password, key, {
+  return CryptoJS.AES.encrypt(password, key, {
+    mode: CryptoJS.mode.ECB,
+    padding: CryptoJS.pad.Pkcs7
+  }).toString();
+}
+
+// The public CAS login bundle always submits an encrypted JSON object here.
+// With no interactive challenge completed, the browser value is AES("{}").
+function encryptCaptchaPayload(loginCroypto, captchaPayload) {
+  const key = CryptoJS.enc.Base64.parse(loginCroypto);
+  let value = captchaPayload;
+  if (value === undefined || value === null || value === "") value = {};
+  if (typeof value !== "string") value = JSON.stringify(value);
+  return CryptoJS.AES.encrypt(value, key, {
     mode: CryptoJS.mode.ECB,
     padding: CryptoJS.pad.Pkcs7
   }).toString();
@@ -517,6 +540,7 @@ async function loginCasToPortal(cookieJar, studentId, password) {
   }
 
   const html = String(loginPage.data || "");
+  logSsoCookieState("GET_LOGIN_PAGE_COMPLETE", cookieJar, LOGIN_URL);
   if (!html.trim()) {
     throwJwxtError("JWXT_UNAVAILABLE", "学校官网叒崩了，一会再重试吧", {
       upstreamResponseEmpty: true,
@@ -568,7 +592,7 @@ async function loginCasToPortal(cookieJar, studentId, password) {
       password: encryptedPassword,
       execution,
       crypto: loginCroypto,
-      captchaPayload: protocol.captchaPayload
+      captchaPayload: encryptCaptchaPayload(loginCroypto, protocol.captchaPayload)
     });
   } catch (err) {
     logSsoFlowFailure("BUILD_LOGIN_PAYLOAD", "LOGIN_PAYLOAD_BUILD_FAILED", err, LOGIN_POST_URL);
@@ -586,6 +610,7 @@ async function loginCasToPortal(cookieJar, studentId, password) {
       "Referer": LOGIN_URL
     }
   });
+  logSsoCookieState("POST_LOGIN_SENT", cookieJar, LOGIN_POST_URL);
 
   if (isJwxtUpstreamFailure({ response: loginResponse })) {
     throwJwxtError("JWXT_UNAVAILABLE", "学校官网叒崩了，一会再重试吧", {
@@ -692,11 +717,13 @@ module.exports = {
   followRedirects,
   getAndFollow,
   encryptPassword,
+  encryptCaptchaPayload,
   parseCurrentSsoLoginForm,
   buildCurrentSsoLoginPayload,
   sanitizeSsoErrorMessage,
   logSsoRequestFailure,
   logSsoFlowFailure,
+  logSsoCookieState,
   isInvalidCredentialPage,
   isExplicitCaptchaPage,
   findJwxtJSessionId,
