@@ -1058,6 +1058,10 @@ app.get("/status", auth, async (req, res) => {
     isUserTimetableSyncRunning(req.userId)
   );
   const persistentGrades = req.userId ? await campusCacheRuntime.getGrades(req.userId) : null;
+  const persistentTimetable = req.userId ? await campusCacheRuntime.getTimetable(req.userId) : null;
+  if (productionPostgresRuntime()) {
+    hasTimetable = Boolean(persistentTimetable && persistentTimetable.timetable && persistentTimetable.timetable.length);
+  }
   const gradesCache = req.userId && persistentGrades && persistentGrades.grades.length
     ? persistentGrades
     : (req.userId && !productionPostgresRuntime()
@@ -1488,12 +1492,17 @@ function fillDaySections(rows) {
 
 async function termRowsForRequest(req) {
   const term = loadConfiguredTerm();
-  let rows = requestStorage(req).getTimetable(term.termYear, term.termSemester);
+  const productionDb = productionPostgresRuntime();
+  let rows = productionDb ? [] : requestStorage(req).getTimetable(term.termYear, term.termSemester);
+  let source = productionDb ? "none" : "legacy";
   if (req.userId) {
     const cache = await campusCacheRuntime.getTimetable(req.userId);
-    if (cache && cache.timetable && cache.timetable.length) rows = cache.timetable.filter(item => String(item.termYear || item.term_year || term.termYear) === String(term.termYear) && String(item.termSemester || item.term_semester || term.termSemester) === String(term.termSemester));
+    if (cache && cache.timetable && cache.timetable.length) {
+      rows = cache.timetable.filter(item => String(item.termYear || item.term_year || term.termYear) === String(term.termYear) && String(item.termSemester || item.term_semester || term.termSemester) === String(term.termSemester));
+      source = "postgres";
+    }
   }
-  return { term, rows };
+  return { term, rows, source };
 }
 
 function dateParam(req) {
@@ -1551,7 +1560,7 @@ function sendTermConfigError(res, err) {
 }
 
 // GET /timetable/config
-app.get("/timetable/config", auth, (req, res) => {
+app.get("/timetable/config", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     res.setHeader("Cache-Control", "no-store");
@@ -1559,8 +1568,11 @@ app.get("/timetable/config", auth, (req, res) => {
   }
   try {
     const info = currentTermInfo();
-    const activeStorage = requestStorage(req);
-    const cachedRows = activeStorage.getTimetable(info.termYear, info.termSemester);
+    const activeStorage = productionPostgresRuntime() ? null : requestStorage(req);
+    const persistent = req.userId ? await campusCacheRuntime.getTimetable(req.userId) : null;
+    const cachedRows = persistent && persistent.timetable && persistent.timetable.length
+      ? persistent.timetable.filter(item => String(item.termYear || item.term_year || info.termYear) === String(info.termYear) && String(item.termSemester || item.term_semester || info.termSemester) === String(info.termSemester))
+      : (activeStorage ? activeStorage.getTimetable(info.termYear, info.termSemester) : []);
     res.json(Object.assign({
       success: true,
       academicYear: info.academicYear,
@@ -1578,7 +1590,8 @@ app.get("/timetable/config", auth, (req, res) => {
       weekType: info.weekType,
       weekTypeText: info.weekTypeText,
       hasTimetable: cachedRows.length > 0,
-      timetableCount: cachedRows.length
+      timetableCount: cachedRows.length,
+      source: cachedRows.length ? (persistent && persistent.timetable && persistent.timetable.length ? "postgres" : "legacy") : (productionPostgresRuntime() ? "none" : "legacy")
     }, publicClassTimeConfig()));
   } catch (err) {
     if (sendTermConfigError(res, err)) return;
@@ -1604,7 +1617,8 @@ app.get("/timetable/today", auth, async (req, res) => {
     if (sendTermConfigError(res, err)) return;
     return res.status(500).json({ success: false, error: "TIMETABLE_TODAY_FAILED", message: err.message });
   }
-  const { rows } = await termRowsForRequest(req);
+  const { rows, source } = await termRowsForRequest(req);
+  console.log("[timetable] endpoint=today source=" + source);
   const syncScheduled = await maybeScheduleTimetableSync(req.userId, rows);
   const syncing = Boolean(syncScheduled || isUserTimetableSyncRunning(req.userId));
   const syncState = await syncStateRuntime.get(req.userId, "timetable");
@@ -1655,7 +1669,8 @@ app.get("/timetable/week", auth, async (req, res) => {
     if (sendTermConfigError(res, err)) return;
     return res.status(500).json({ success: false, error: "TIMETABLE_WEEK_FAILED", message: err.message });
   }
-  const { rows } = await termRowsForRequest(req);
+  const { rows, source } = await termRowsForRequest(req);
+  console.log("[timetable] endpoint=week source=" + source);
   const syncScheduled = await maybeScheduleTimetableSync(req.userId, rows);
   const syncing = Boolean(syncScheduled || isUserTimetableSyncRunning(req.userId));
   const syncState = await syncStateRuntime.get(req.userId, "timetable");
