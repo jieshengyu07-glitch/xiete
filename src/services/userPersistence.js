@@ -3,6 +3,11 @@ const path = require("path");
 const { getUserPaths, safeUserId } = require("./userPaths");
 const { assertUserDataWritable } = require("./userDataDeletion");
 const campusSessionStore = require("./campusSessionStore");
+const { isPostgresEnabled } = require("../db/pool");
+
+function productionCacheRuntime() {
+  return String(process.env.NODE_ENV || "").toLowerCase() === "production" && isPostgresEnabled();
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -173,6 +178,7 @@ function saveBoundProfile(userId, studentId) {
 }
 
 function readGradesCache(userId) {
+  if (productionCacheRuntime()) return defaultGradesCache();
   const paths = initUserData(userId);
   const data = Object.assign(defaultGradesCache(), readJson(paths.gradesPath, {}));
   data.grades = Array.isArray(data.grades) ? data.grades : [];
@@ -180,6 +186,7 @@ function readGradesCache(userId) {
 }
 
 function saveGradesCache(userId, grades, updatedAt) {
+  if (productionCacheRuntime()) return { updatedAt: updatedAt || nowIso(), grades: Array.isArray(grades) ? grades : [] };
   const paths = initUserData(userId);
   const data = {
     updatedAt: updatedAt || nowIso(),
@@ -190,6 +197,7 @@ function saveGradesCache(userId, grades, updatedAt) {
 }
 
 function readTimetableCache(userId) {
+  if (productionCacheRuntime()) return defaultTimetableCache();
   const paths = initUserData(userId);
   const data = Object.assign(defaultTimetableCache(), readJson(paths.timetablePath, {}));
   data.timetable = Array.isArray(data.timetable) ? data.timetable : [];
@@ -197,6 +205,7 @@ function readTimetableCache(userId) {
 }
 
 function saveTimetableCache(userId, timetable, updatedAt) {
+  if (productionCacheRuntime()) return { updatedAt: updatedAt || nowIso(), timetable: Array.isArray(timetable) ? timetable : [] };
   const paths = initUserData(userId);
   const data = {
     updatedAt: updatedAt || nowIso(),
@@ -207,6 +216,7 @@ function saveTimetableCache(userId, timetable, updatedAt) {
 }
 
 function readSyncState(userId, type) {
+  if (productionCacheRuntime()) return type ? Object.assign({}, defaultSyncState(), defaultTaskState(type), { type }) : defaultSyncState();
   const paths = initUserData(userId);
   const state = normalizeSyncState(readJson(paths.syncPath, {}));
   if (!type) return state;
@@ -241,6 +251,7 @@ function summarizeTaskStates(tasks) {
 }
 
 function updateSyncState(userId, patch, type) {
+  if (productionCacheRuntime()) return Object.assign(defaultTaskState(type || (patch && patch.type) || ""), patch || {}, { type: type || (patch && patch.type) || "" });
   const paths = initUserData(userId);
   const current = readSyncState(userId);
   const change = patch || {};
@@ -286,6 +297,7 @@ function saveCampusState(userId, activeStorage) {
 }
 
 function mirrorFromStorage(userId, activeStorage, options) {
+  if (productionCacheRuntime()) return { grades: activeStorage && typeof activeStorage.getGrades === "function" ? activeStorage.getGrades() : [], timetable: activeStorage && activeStorage.data && Array.isArray(activeStorage.data.timetable) ? activeStorage.data.timetable : [] };
   initUserData(userId);
   const now = nowIso();
   let grades = [];

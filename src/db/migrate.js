@@ -26,6 +26,33 @@ const statements = [
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   "CREATE INDEX IF NOT EXISTS jwxt_bindings_student_id_idx ON jwxt_bindings(student_id)"
+  ,`CREATE TABLE IF NOT EXISTS campus_cache (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    grades_payload JSONB,
+    grades_updated_at TIMESTAMPTZ,
+    timetable_payload JSONB,
+    timetable_updated_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`
+  ,`CREATE TABLE IF NOT EXISTS sync_state (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    grades_last_attempt_at TIMESTAMPTZ,
+    grades_last_success_at TIMESTAMPTZ,
+    grades_last_error TEXT,
+    grades_next_retry_at TIMESTAMPTZ,
+    timetable_last_attempt_at TIMESTAMPTZ,
+    timetable_last_success_at TIMESTAMPTZ,
+    timetable_last_error TEXT,
+    timetable_next_retry_at TIMESTAMPTZ,
+    campus_last_attempt_at TIMESTAMPTZ,
+    campus_last_success_at TIMESTAMPTZ,
+    campus_last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`
 ];
 
 async function migrate() {

@@ -6,6 +6,8 @@ const { isPostgresEnabled } = require("../db/pool");
 const userPersistence = require("../services/userPersistence");
 const { markCampusLoginValid } = require("../services/campusLoginState");
 const { ensureUserSession } = require("./userSession");
+const campusCacheRuntime = require("../services/campusCacheRuntime");
+const syncStateRuntime = require("../services/syncStateRuntime");
 
 const running = new Map();
 
@@ -30,6 +32,7 @@ async function syncUserGrades(userId, options) {
       errorCode: "LOGIN_REQUIRED",
       lastError: "LOGIN_REQUIRED"
     }, "grades");
+    try { await syncStateRuntime.update(userId, "grades", { lastError: code }); } catch (_) {}
     return {
       success: false,
       error: "LOGIN_REQUIRED",
@@ -45,12 +48,14 @@ async function syncUserGrades(userId, options) {
     errorCode: "",
     lastError: ""
   }, "grades");
+  try { await syncStateRuntime.update(userId, "grades", { lastAttemptAt: new Date().toISOString() }); } catch (_) {}
 
   try {
     const result = await runCycleForUser(userId, {
       skipJwxt: Boolean(options && options.skipJwxt)
     });
     if (result && result.success) {
+      try { await campusCacheRuntime.saveGrades(userId, storage.getGrades(), new Date().toISOString()); await syncStateRuntime.update(userId, "grades", { lastSuccessfulAt: new Date().toISOString(), lastError: "" }); } catch (cacheErr) { console.error("[cache] grade persistence failed code=" + (cacheErr.code || "CACHE_WRITE_FAILED")); }
       await markCampusLoginValid(userId, result.gradeSource || result.source || "grades");
       userPersistence.mirrorFromStorage(userId, storage, {
         kind: "grades",

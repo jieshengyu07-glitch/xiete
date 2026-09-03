@@ -37,6 +37,9 @@ const reviewDemo = require("./services/reviewDemo");
 const { assertSessionEncryptionConfig } = require("./services/sessionCrypto");
 const { rateLimit } = require("./middleware/rateLimit");
 const { initializePersistence, closePool } = require("./db/persistence");
+const userRepository = require("./repositories/userRepository");
+const campusCacheRuntime = require("./services/campusCacheRuntime");
+const syncStateRuntime = require("./services/syncStateRuntime");
 
 assertJwtConfig();
 assertWechatConfig();
@@ -528,6 +531,7 @@ function scheduleFinalUserDataDeletion(userId) {
       // file after the first deletion. Remove the directory once more after
       // all known work has settled.
       userPersistence.deleteUserData(userId);
+      userRepository.deleteUser(userId).catch(() => {});
       console.log("[privacy] delete-user-data complete userIdHash=" + userIdHash(userId));
     } catch (err) {
       console.log("[privacy] delete-user-data cleanup-failed code=" + String((err && err.code) || "DELETE_USER_DATA_FAILED"));
@@ -891,7 +895,7 @@ function publicCampusLoginStatus(options) {
 }
 
 function publicGradeQueryStatus(activeStorage, campusLoginStatus, gradeSync) {
-  const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
+  const meta = activeStorage && activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
   const code = normalizeJwxtApiCode(meta && meta.lastError);
   if (campusLoginStatus === "not_bound") return "not_bound";
   if (campusLoginStatus === "recovering") return "recovering";
@@ -1001,9 +1005,9 @@ app.get("/status", auth, async (req, res) => {
   const unevaluatedCourses = buildUnevaluatedCourses(activeStorage);
   const hasXg = xgScoreConfigured(activeStorage);
   const gradeSource = detectGradeSource(activeStorage, hasXg, bound || valid);
-  const campusSync = req.userId ? userPersistence.readSyncState(req.userId, "campus") : {};
-  const gradeSync = req.userId ? userPersistence.readSyncState(req.userId, "grades") : {};
-  const timetableSync = req.userId ? userPersistence.readSyncState(req.userId, "timetable") : {};
+  const campusSync = req.userId ? await syncStateRuntime.get(req.userId, "campus") : {};
+  const gradeSync = req.userId ? await syncStateRuntime.get(req.userId, "grades") : {};
+  const timetableSync = req.userId ? await syncStateRuntime.get(req.userId, "timetable") : {};
   const successAt = campusSuccessTime(accountMeta, campusSync, gradeSync, timetableSync);
   const lastJwxtSuccessAt = jwxtSuccessTime(accountMeta, campusSync, timetableSync);
   const reloginFailure = campusReloginFailure(accountMeta, campusSync);
@@ -1048,10 +1052,13 @@ app.get("/status", auth, async (req, res) => {
     timetableSync,
     isUserTimetableSyncRunning(req.userId)
   );
-  const gradesCache = req.userId ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage) : null;
+  const persistentGrades = req.userId ? await campusCacheRuntime.getGrades(req.userId) : null;
+  const gradesCache = req.userId && persistentGrades && persistentGrades.grades.length
+    ? persistentGrades
+    : (req.userId ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage) : null);
   const totalGrades = gradesCache ? gradesCache.grades.length : activeStorage.getGrades().length;
-  const gradeMeta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
-  const timetableMeta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("timetable") : {};
+  const gradeMeta = req.userId ? await syncStateRuntime.get(req.userId, "grades") : {};
+  const timetableMeta = req.userId ? await syncStateRuntime.get(req.userId, "timetable") : {};
   const accountState = productAccountState(bound, campusLoginStatus, accountMeta, campusSync);
   const termStatus = termInfo && termInfo.termStatus || "";
   const studentId = accountMeta && accountMeta.studentId ? String(accountMeta.studentId) : "";
@@ -1213,10 +1220,11 @@ app.get("/grades", auth, async (req, res) => {
   const activeStorage = storage.createStorageForUser(req.userId);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
   const accountMeta = await credentialStore.readBoundAccountMetaAsync(req.userId);
-  const gradesCache = userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage);
+  const persistentGrades = await campusCacheRuntime.getGrades(req.userId);
+  const gradesCache = persistentGrades.grades.length ? persistentGrades : userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage);
   const syncScheduled = await maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades");
   const syncing = Boolean(syncScheduled || isUserGradeSyncRunning(req.userId));
-  const syncState = userPersistence.readSyncState(req.userId, "grades");
+  const syncState = await syncStateRuntime.get(req.userId, "grades");
   const syncStatus = syncing ? "running" : (syncState.status || (gradesCache.grades.length ? "success" : "idle"));
   const syncErrorCode = syncStatus === "failed" ? String(syncState.errorCode || syncState.lastError || "SYNC_FAILED") : "";
   const grades = gradesCache.grades.map(compactGrade);
@@ -1466,9 +1474,13 @@ function fillDaySections(rows) {
   }));
 }
 
-function termRowsForRequest(req) {
+async function termRowsForRequest(req) {
   const term = loadConfiguredTerm();
-  const rows = requestStorage(req).getTimetable(term.termYear, term.termSemester);
+  let rows = requestStorage(req).getTimetable(term.termYear, term.termSemester);
+  if (req.userId) {
+    const cache = await campusCacheRuntime.getTimetable(req.userId);
+    if (cache && cache.timetable && cache.timetable.length) rows = cache.timetable.filter(item => String(item.termYear || item.term_year || term.termYear) === String(term.termYear) && String(item.termSemester || item.term_semester || term.termSemester) === String(term.termSemester));
+  }
   return { term, rows };
 }
 
@@ -1505,7 +1517,7 @@ async function maybeScheduleTimetableSync(userId, rows) {
   let credentials = null;
   try { credentials = await credentialStore.getJwxtCredentialsAsync(userId); } catch (_) {}
   if (!userId || rows.length || !credentials) return false;
-  const state = userPersistence.readSyncState(userId, "timetable");
+  const state = await syncStateRuntime.get(userId, "timetable");
   const finishedAt = state.type === "timetable" ? timeValue(state.finishedAt) : 0;
   const sinceFinished = finishedAt ? Date.now() - finishedAt : Infinity;
   if (state.status === "failed" && sinceFinished < FAILED_SYNC_RETRY_INTERVAL_MS) return false;
@@ -1580,13 +1592,13 @@ app.get("/timetable/today", auth, async (req, res) => {
     if (sendTermConfigError(res, err)) return;
     return res.status(500).json({ success: false, error: "TIMETABLE_TODAY_FAILED", message: err.message });
   }
-  const { rows } = termRowsForRequest(req);
+  const { rows } = await termRowsForRequest(req);
   const syncScheduled = await maybeScheduleTimetableSync(req.userId, rows);
   const syncing = Boolean(syncScheduled || isUserTimetableSyncRunning(req.userId));
-  const syncState = userPersistence.readSyncState(req.userId, "timetable");
+  const syncState = await syncStateRuntime.get(req.userId, "timetable");
   const syncStatus = syncing ? "running" : (syncState.type === "timetable" ? syncState.status : (rows.length ? "success" : "idle"));
   const activeStorage = requestStorage(req);
-  const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("timetable") : {};
+  const meta = await syncStateRuntime.get(req.userId, "timetable");
   const accountMeta = req.userId ? await credentialStore.readBoundAccountMetaAsync(req.userId) : null;
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
   const warning = rows.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode);
@@ -1631,13 +1643,13 @@ app.get("/timetable/week", auth, async (req, res) => {
     if (sendTermConfigError(res, err)) return;
     return res.status(500).json({ success: false, error: "TIMETABLE_WEEK_FAILED", message: err.message });
   }
-  const { rows } = termRowsForRequest(req);
+  const { rows } = await termRowsForRequest(req);
   const syncScheduled = await maybeScheduleTimetableSync(req.userId, rows);
   const syncing = Boolean(syncScheduled || isUserTimetableSyncRunning(req.userId));
-  const syncState = userPersistence.readSyncState(req.userId, "timetable");
+  const syncState = await syncStateRuntime.get(req.userId, "timetable");
   const syncStatus = syncing ? "running" : (rows.length ? "success" : (syncState.status || "idle"));
   const activeStorage = requestStorage(req);
-  const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("timetable") : {};
+  const meta = await syncStateRuntime.get(req.userId, "timetable");
   const accountMeta = req.userId ? await credentialStore.readBoundAccountMetaAsync(req.userId) : null;
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
   const warning = rows.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode);
@@ -1946,11 +1958,12 @@ app.post("/unbind-account", auth, async (req, res) => {
       return res.json({ success: true, unbound: true, reviewDemo: true });
     }
     await credentialStore.deleteBoundAccountAsync(req.userId);
-    await credentialStore.deleteBoundAccountAsync(req.userId);
+    await campusCacheRuntime.deleteCache(req.userId);
+    await syncStateRuntime.deleteState(req.userId);
     deleteCookies(req.userId);
     requestStorage(req).clearXgSession();
     clearCaptchaSessionsForUser(req.userId);
-    console.log("[api] JWXT account unbound; credentials and cookies removed; cached grades/timetable kept");
+    console.log("[api] JWXT account unbound; credentials and cached data removed");
     res.json({ success: true, unbound: true });
   } catch (err) {
     res.status(500).json({

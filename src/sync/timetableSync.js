@@ -3,10 +3,13 @@ const userPersistence = require("../services/userPersistence");
 const { markCampusLoginValid } = require("../services/campusLoginState");
 const { loadConfiguredTerm } = require("../timetable/calendar");
 const { syncTimetableForUser } = require("../timetable/sync");
+const campusCacheRuntime = require("../services/campusCacheRuntime");
+const syncStateRuntime = require("../services/syncStateRuntime");
 
 const running = new Map();
 
 async function syncUserTimetable(userId) {
+  try { await syncStateRuntime.update(userId, "timetable", { lastAttemptAt: new Date().toISOString() }); } catch (_) {}
   const storage = createStorageForUser(userId);
   userPersistence.initUserData(userId);
   userPersistence.updateSyncState(userId, {
@@ -16,6 +19,7 @@ async function syncUserTimetable(userId) {
   try {
     const result = await syncTimetableForUser(userId, storage, { term: loadConfiguredTerm() });
     if (result && result.success) {
+      try { await campusCacheRuntime.saveTimetable(userId, storage.getTimetable(loadConfiguredTerm().termYear, loadConfiguredTerm().termSemester), result.updatedAt); await syncStateRuntime.update(userId, "timetable", { lastSuccessfulAt: result.updatedAt, lastError: "" }); } catch (cacheErr) { console.error("[cache] timetable persistence failed code=" + (cacheErr.code || "CACHE_WRITE_FAILED")); }
       await markCampusLoginValid(userId, "timetable");
       userPersistence.mirrorFromStorage(userId, storage, { kind: "timetable", status: "success" });
       userPersistence.updateSyncState(userId, {
@@ -27,6 +31,7 @@ async function syncUserTimetable(userId) {
     userPersistence.updateSyncState(userId, {
       status: "failed", type: "timetable", finishedAt: new Date().toISOString(), errorCode: code, lastError: code
     }, "timetable");
+    try { await syncStateRuntime.update(userId, "timetable", { lastError: code }); } catch (_) {}
     return result;
   } catch (err) {
     const code = String((err && err.code) || "TIMETABLE_SYNC_FAILED");
