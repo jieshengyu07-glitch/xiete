@@ -2003,7 +2003,7 @@ app.post("/unbind-account", auth, async (req, res) => {
 
 // DELETE /account/data (POST alias retained for already released clients).
 // A successful response means the user directory is already absent.
-function deleteAccountData(req, res) {
+async function deleteAccountData(req, res) {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, req.method + " " + req.path);
   if (!userDataDeletion.beginUserDataDeletion(req.userId)) {
@@ -2011,6 +2011,12 @@ function deleteAccountData(req, res) {
   }
   try {
     clearCaptchaSessionsForUser(req.userId);
+    // Personal-data deletion is an immediate database operation. Do it before
+    // removing the ephemeral directory so a successful response can never
+    // claim deletion while the PostgreSQL identity still exists.
+    if (isPostgresEnabled()) {
+      await userRepository.deleteUser(req.userId);
+    }
     userPersistence.deleteUserData(req.userId);
     const deletionPending = isUserBackgroundWorkRunning(req.userId);
     if (deletionPending) {
