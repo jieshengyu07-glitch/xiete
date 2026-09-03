@@ -2,20 +2,18 @@ services:
   - type: web
     name: xiete
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /health
     numInstances: 1
-    disk:
-      name: campus-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATA_DIR
         value: /data
+      - key: DATABASE_URL
+        sync: false
       - key: JWT_SECRET
         sync: false
       - key: CREDENTIAL_SECRET

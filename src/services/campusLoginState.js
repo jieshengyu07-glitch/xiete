@@ -1,7 +1,7 @@
-const credentialStore = require("./credentialStore");
+const credentialRuntime = require("./credentialRuntime");
 const userPersistence = require("./userPersistence");
 
-function markCampusLoginValid(userId, source) {
+async function markCampusLoginValid(userId, source) {
   if (!userId) return false;
   const at = new Date().toISOString();
   const channel = String(source || "query").toLowerCase() === "xg" ? "xg" : "jwxt";
@@ -13,7 +13,7 @@ function markCampusLoginValid(userId, source) {
     extra.lastJwxtError = null;
     extra.lastJwxtErrorMessage = null;
   }
-  const updated = credentialStore.updateBoundAccountStatus(userId, channel === "jwxt" ? "OK" : null, extra);
+  const updated = await credentialRuntime.updateBoundAccountStatus(userId, channel === "jwxt" ? "OK" : null, extra);
   userPersistence.updateSyncState(userId, {
     status: "ready",
     type: "campus",

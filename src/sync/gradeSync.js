@@ -1,6 +1,8 @@
 const { runCycleForUser } = require("../checker");
 const { createStorageForUser } = require("../db/storage");
-const credentialStore = require("../services/credentialStore");
+const credentialRuntime = require("../services/credentialRuntime");
+const legacyCredentialStore = require("../services/credentialStore");
+const { isPostgresEnabled } = require("../db/pool");
 const userPersistence = require("../services/userPersistence");
 const { markCampusLoginValid } = require("../services/campusLoginState");
 const { ensureUserSession } = require("./userSession");
@@ -14,9 +16,10 @@ function normalizeErrorCode(result) {
 async function syncUserGrades(userId, options) {
   const storage = createStorageForUser(userId);
   userPersistence.initUserData(userId);
-  ensureUserSession(userId);
+  try { const sessionProbe = ensureUserSession(userId); if (sessionProbe && typeof sessionProbe.catch === "function") sessionProbe.catch(() => {}); } catch (_) {}
 
-  const credentials = credentialStore.getJwxtCredentials(userId);
+  let credentials = null;
+  try { credentials = isPostgresEnabled() ? await credentialRuntime.getJwxtCredentials(userId) : legacyCredentialStore.getJwxtCredentials(userId); } catch (_) {}
   if (!credentials) {
     const finishedAt = new Date().toISOString();
     userPersistence.updateSyncState(userId, {
@@ -48,7 +51,7 @@ async function syncUserGrades(userId, options) {
       skipJwxt: Boolean(options && options.skipJwxt)
     });
     if (result && result.success) {
-      markCampusLoginValid(userId, result.gradeSource || result.source || "grades");
+      await markCampusLoginValid(userId, result.gradeSource || result.source || "grades");
       userPersistence.mirrorFromStorage(userId, storage, {
         kind: "grades",
         status: "success"

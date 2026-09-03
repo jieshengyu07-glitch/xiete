@@ -1,7 +1,7 @@
 const axios = require("axios");
 const { loadCookies, writeCookies } = require("../checker");
 const { httpJwxtLogin } = require("../login/httpJwxtLogin");
-const credentialStore = require("../services/credentialStore");
+const credentialRuntime = require("../services/credentialRuntime");
 const { classifyJwxtLoginError } = require("../services/jwxtLoginError");
 const { loadConfiguredTerm } = require("./calendar");
 
@@ -34,7 +34,7 @@ async function ensureCookies(userId) {
   let cookies = loadCookies(userId);
   if (cookieHeader(cookies)) return cookies;
 
-  const credentials = credentialStore.getJwxtCredentials(userId);
+  const credentials = await credentialRuntime.getJwxtCredentials(userId);
   if (!credentials) {
     const err = new Error("请先绑定教务账号");
     err.code = "LOGIN_REQUIRED";
@@ -46,7 +46,7 @@ async function ensureCookies(userId) {
     login = await httpJwxtLogin(credentials.studentId, credentials.password);
   } catch (cause) {
     const classified = classifyJwxtLoginError(cause);
-    credentialStore.updateBoundAccountStatus(userId, classified.error, { clearLastJwxtLoginAt: true });
+    await credentialRuntime.updateBoundAccountStatus(userId, classified.error, { clearLastJwxtLoginAt: true });
     const err = new Error(classified.message);
     err.code = classified.error;
     throw err;
@@ -54,13 +54,13 @@ async function ensureCookies(userId) {
 
   cookies = selectJwxtCookies(login.cookies);
   if (!cookieHeader(cookies)) {
-    credentialStore.updateBoundAccountStatus(userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
+    await credentialRuntime.updateBoundAccountStatus(userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
     const err = new Error("教务系统登录态获取失败，请稍后重试；如果一直失败，请确认你能在官网登录并进入教务系统");
     err.code = "JWXT_SSO_FAILED";
     throw err;
   }
   writeCookies(cookies, userId);
-  credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
+  await credentialRuntime.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
   return cookies;
 }
 
@@ -285,21 +285,21 @@ async function syncTimetableForUser(userId, storage, options) {
     rawItems = await fetchTimetable(cookies, term);
   } catch (err) {
     if (err.code !== "COOKIE_EXPIRED") throw err;
-    const credentials = credentialStore.getJwxtCredentials(userId);
+    const credentials = await credentialRuntime.getJwxtCredentials(userId);
     if (!credentials) throw err;
     let login;
     try {
       login = await httpJwxtLogin(credentials.studentId, credentials.password);
     } catch (cause) {
       const classified = classifyJwxtLoginError(cause);
-      credentialStore.updateBoundAccountStatus(userId, classified.error, { clearLastJwxtLoginAt: true });
+      await credentialRuntime.updateBoundAccountStatus(userId, classified.error, { clearLastJwxtLoginAt: true });
       const nextErr = new Error(classified.message);
       nextErr.code = classified.error;
       throw nextErr;
     }
     cookies = selectJwxtCookies(login.cookies);
     writeCookies(cookies, userId);
-    credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
+    await credentialRuntime.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
     rawItems = await fetchTimetable(cookies, term);
   }
 

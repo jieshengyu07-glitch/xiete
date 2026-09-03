@@ -36,11 +36,13 @@ const userDataDeletion = require("./services/userDataDeletion");
 const reviewDemo = require("./services/reviewDemo");
 const { assertSessionEncryptionConfig } = require("./services/sessionCrypto");
 const { rateLimit } = require("./middleware/rateLimit");
+const { initializePersistence, closePool } = require("./db/persistence");
 
 assertJwtConfig();
 assertWechatConfig();
 reviewDemo.assertReviewDemoConfig();
 assertSessionEncryptionConfig();
+const persistenceReady = initializePersistence();
 if (process.env.NODE_ENV === "production") assertTermConfig();
 config.logDataPath();
 
@@ -350,11 +352,11 @@ function gradeChannelMode() {
   return ["auto", "jwxt", "xg"].includes(mode) ? mode : "auto";
 }
 
-function recordJwxtSuccess(userId, activeStorage, kind) {
+async function recordJwxtSuccess(userId, activeStorage, kind) {
   const at = nowIso();
   if (activeStorage && typeof activeStorage.setSyncSuccess === "function") activeStorage.setSyncSuccess(kind, at);
   if (userId) {
-    credentialStore.updateBoundAccountStatus(userId, "OK", {
+    await credentialStore.updateBoundAccountStatusAsync(userId, "OK", {
       lastSuccessfulSyncAt: at,
       lastJwxtError: null,
       lastJwxtErrorMessage: null
@@ -362,12 +364,12 @@ function recordJwxtSuccess(userId, activeStorage, kind) {
   }
 }
 
-function recordJwxtFailure(userId, activeStorage, kind, code, message) {
+async function recordJwxtFailure(userId, activeStorage, kind, code, message) {
   const normalized = normalizeJwxtApiCode(code);
   const at = nowIso();
   if (activeStorage && typeof activeStorage.setSyncFailure === "function") activeStorage.setSyncFailure(kind, normalized, message, at);
   if (userId) {
-    credentialStore.updateBoundAccountStatus(userId, statusFromApiCode(normalized), {
+    await credentialStore.updateBoundAccountStatusAsync(userId, statusFromApiCode(normalized), {
       lastFailedSyncAt: at,
       lastJwxtError: normalized,
       lastJwxtErrorMessage: message || ""
@@ -402,10 +404,12 @@ function timeValue(value) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-function shouldScheduleGradeSync(userId, activeStorage, gradesCache) {
+async function shouldScheduleGradeSync(userId, activeStorage, gradesCache) {
   if (!userId) return false;
-  if (!credentialStore.getJwxtCredentials(userId)) return false;
-  const accountMeta = credentialStore.readBoundAccountMeta(userId);
+  let credentials = null;
+  try { credentials = await credentialStore.getJwxtCredentialsAsync(userId); } catch (_) {}
+  if (!credentials) return false;
+  const accountMeta = await credentialStore.readBoundAccountMetaAsync(userId);
   const cooldown = isRetryCooledDown(accountMeta);
   const channelMode = gradeChannelMode();
   if (cooldown.cooledDown && channelMode === "jwxt") return false;
@@ -429,9 +433,9 @@ function shouldScheduleGradeSync(userId, activeStorage, gradesCache) {
   return Date.now() - lastSync > AUTO_GRADE_SYNC_INTERVAL_MS;
 }
 
-function maybeScheduleGradeSync(userId, activeStorage, gradesCache, reason) {
-  if (!shouldScheduleGradeSync(userId, activeStorage, gradesCache)) return false;
-  const cooldown = isRetryCooledDown(credentialStore.readBoundAccountMeta(userId));
+async function maybeScheduleGradeSync(userId, activeStorage, gradesCache, reason) {
+  if (!(await shouldScheduleGradeSync(userId, activeStorage, gradesCache))) return false;
+  const cooldown = isRetryCooledDown(await credentialStore.readBoundAccountMetaAsync(userId));
   const skipJwxt = cooldown.cooledDown && gradeChannelMode() === "auto";
   console.log("[user-sync] schedule-grade-sync reason=" + (reason || "auto"));
   scheduleUserGradeSync(userId, reason || "auto", { skipJwxt });
@@ -566,12 +570,12 @@ function scheduleBindCompletion(userId, portal) {
         throw err;
       }
 
-      credentialStore.updateBoundAccountStatus(userId, "OK", {
+      await credentialStore.updateBoundAccountStatusAsync(userId, "OK", {
         portalAuthStatus: "OK",
         lastJwxtLoginAt: new Date().toISOString()
       });
       writeCookies(jwxtCookies, userId);
-      markCampusLoginValid(userId, "jwxt");
+      await markCampusLoginValid(userId, "jwxt");
       userPersistence.saveCampusState(userId, storage.createStorageForUser(userId));
       console.log("[bind] background jwxt-sso success userIdHash=" + userIdHash(userId));
       return { success: true, campusLoginStatus: "valid" };
@@ -580,7 +584,7 @@ function scheduleBindCompletion(userId, portal) {
       const publicStatus = jwxtPublicStatusFromError(classified.error);
       const failedAt = new Date().toISOString();
       console.log("[bind] background jwxt-sso failed code=" + classified.error);
-      credentialStore.updateBoundAccountStatus(userId, publicStatus, {
+      await credentialStore.updateBoundAccountStatusAsync(userId, publicStatus, {
         portalAuthStatus: "OK",
         clearLastJwxtLoginAt: true,
         lastFailedSyncAt: failedAt,
@@ -620,6 +624,7 @@ app.post("/auth/wechat-login", wechatLoginLimiter, async (req, res) => {
         message: "个人数据正在删除，请稍后重新登录"
       });
     }
+    await credentialStore.ensurePostgresUser(userId);
     const token = signToken({ userId });
     console.log("[auth] wechat-login success");
     res.json({
@@ -948,7 +953,7 @@ function productDataState(hasData, syncStatus, termStatus) {
   return status === "success" || status === "ok" ? "READY" : "CACHED";
 }
 
-app.get("/status", auth, (req, res) => {
+app.get("/status", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /status");
   if (reviewDemo.isReviewDemoUser(req.userId)) {
@@ -975,15 +980,22 @@ app.get("/status", auth, (req, res) => {
     };
     return res.json(demoStatus);
   }
-  const activeStorage = requestStorage(req);
-  if (req.userId) {
-    userPersistence.initUserData(req.userId);
-    userPersistence.touchLogin(req.userId);
+  let activeStorage;
+  try { activeStorage = requestStorage(req); } catch (_) { activeStorage = null; }
+  if (!activeStorage) {
+    activeStorage = { data: {}, getGrades: () => [], getTimetable: () => [], getSyncMeta: () => ({}), getXgSession: () => null };
   }
-  const cookies = loadCookies(req.userId);
+  if (req.userId) {
+    try { userPersistence.initUserData(req.userId); userPersistence.touchLogin(req.userId); } catch (_) {}
+  }
+  let cookies = [];
+  try { cookies = loadCookies(req.userId); } catch (_) {}
   const valid = hasJwxtSessionCookie(cookies);
-  let accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
-  const credentials = req.userId ? credentialStore.getJwxtCredentials(req.userId) : credentialStore.getJwxtCredentials();
+  let accountMeta = req.userId ? await credentialStore.readBoundAccountMetaAsync(req.userId) : null;
+  let credentials = null;
+  try { credentials = req.userId ? await credentialStore.getJwxtCredentialsAsync(req.userId) : credentialStore.getJwxtCredentials(); } catch (err) {
+    if (err && err.code !== "CREDENTIALS_UNAVAILABLE") throw err;
+  }
   const bound = req.userId ? Boolean(accountMeta) : Boolean(credentials);
   let jwxtStatus = publicJwxtStatus(bound, valid, accountMeta, credentials);
   const unevaluatedCourses = buildUnevaluatedCourses(activeStorage);
@@ -1018,8 +1030,8 @@ app.get("/status", auth, (req, res) => {
   const staleErrorRecovered = campusLoginStatus === "valid" &&
     Boolean(accountMeta && accountMeta.lastJwxtError) && lastJwxtSuccessAt > reloginFailure.at;
   if (staleErrorRecovered && req.userId) {
-    markCampusLoginValid(req.userId, "jwxt");
-    accountMeta = credentialStore.readBoundAccountMeta(req.userId);
+    await markCampusLoginValid(req.userId, "jwxt");
+    accountMeta = await credentialStore.readBoundAccountMetaAsync(req.userId);
     jwxtStatus = publicJwxtStatus(bound, valid, accountMeta, credentials);
   }
   const sessionRecoveryPending = campusLoginStatus === "recovering";
@@ -1169,7 +1181,7 @@ function availableGradeTerms(activeStorage, grades) {
   };
 }
 
-app.get("/grades", auth, (req, res) => {
+app.get("/grades", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /grades");
   if (reviewDemo.isReviewDemoUser(req.userId)) {
@@ -1200,9 +1212,9 @@ app.get("/grades", auth, (req, res) => {
   // Strictly user-scoped: never fall back to the process-wide legacy store.
   const activeStorage = storage.createStorageForUser(req.userId);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
-  const accountMeta = credentialStore.readBoundAccountMeta(req.userId);
+  const accountMeta = await credentialStore.readBoundAccountMetaAsync(req.userId);
   const gradesCache = userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage);
-  const syncScheduled = maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades");
+  const syncScheduled = await maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades");
   const syncing = Boolean(syncScheduled || isUserGradeSyncRunning(req.userId));
   const syncState = userPersistence.readSyncState(req.userId, "grades");
   const syncStatus = syncing ? "running" : (syncState.status || (gradesCache.grades.length ? "success" : "idle"));
@@ -1276,7 +1288,7 @@ app.post("/check", auth, async (req, res) => {
   const cachedGrades = activeStorage.getGrades();
   const hasCache = cachedGrades.length > 0;
   const channelMode = gradeChannelMode();
-  const cooldown = isRetryCooledDown(req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null);
+  const cooldown = isRetryCooledDown(req.userId ? await credentialStore.readBoundAccountMetaAsync(req.userId) : null);
   if (cooldown.cooledDown && channelMode === "jwxt") {
     console.log("[grade-check] step=failed code=" + cooldown.error + " reason=cooldown");
     return res.json({
@@ -1317,7 +1329,7 @@ app.post("/check", auth, async (req, res) => {
   }
   const r = req.userId ? await runCycleForUser(req.userId) : await runCycle();
   if (r.success) {
-    recordJwxtSuccess(req.userId, activeStorage, "grades");
+    await recordJwxtSuccess(req.userId, activeStorage, "grades");
     if (req.userId) {
       userPersistence.mirrorFromStorage(req.userId, activeStorage, {
         kind: "grades",
@@ -1330,7 +1342,7 @@ app.post("/check", auth, async (req, res) => {
     const classified = classifyJwxtLoginError(r.error || r.message || r);
     const code = normalizeJwxtApiCode(r.error || r.cookieStatus || classified.error);
     const message = r.message || classified.message;
-    recordJwxtFailure(req.userId, activeStorage, "grades", code, message);
+    await recordJwxtFailure(req.userId, activeStorage, "grades", code, message);
     if (req.userId) {
       userPersistence.updateSyncState(req.userId, {
         status: "failed",
@@ -1401,7 +1413,7 @@ app.post("/jwxt/login-with-captcha", auth, captchaLoginLimiter, async (req, res)
   } catch (err) {
     const classified = classifyJwxtLoginError(err);
     const code = err && err.code ? err.code : classified.error;
-    credentialStore.updateBoundAccountStatus(req.userId, code, { clearLastJwxtLoginAt: true });
+    await credentialStore.updateBoundAccountStatusAsync(req.userId, code, { clearLastJwxtLoginAt: true });
     res.status(apiErrorStatus(code)).json({
       success: false,
       error: code,
@@ -1489,8 +1501,10 @@ function emptyTimetableMessage(rows) {
   return rows.length ? "" : "暂无课表缓存，请稍后重试或在教务系统恢复后刷新。";
 }
 
-function maybeScheduleTimetableSync(userId, rows) {
-  if (!userId || rows.length || !credentialStore.getJwxtCredentials(userId)) return false;
+async function maybeScheduleTimetableSync(userId, rows) {
+  let credentials = null;
+  try { credentials = await credentialStore.getJwxtCredentialsAsync(userId); } catch (_) {}
+  if (!userId || rows.length || !credentials) return false;
   const state = userPersistence.readSyncState(userId, "timetable");
   const finishedAt = state.type === "timetable" ? timeValue(state.finishedAt) : 0;
   const sinceFinished = finishedAt ? Date.now() - finishedAt : Infinity;
@@ -1549,7 +1563,7 @@ app.get("/timetable/config", auth, (req, res) => {
 });
 
 // GET /timetable/today
-app.get("/timetable/today", auth, (req, res) => {
+app.get("/timetable/today", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   const requestedDate = dateParam(req);
   if (requestedDate === false) {
@@ -1567,13 +1581,13 @@ app.get("/timetable/today", auth, (req, res) => {
     return res.status(500).json({ success: false, error: "TIMETABLE_TODAY_FAILED", message: err.message });
   }
   const { rows } = termRowsForRequest(req);
-  const syncScheduled = maybeScheduleTimetableSync(req.userId, rows);
+  const syncScheduled = await maybeScheduleTimetableSync(req.userId, rows);
   const syncing = Boolean(syncScheduled || isUserTimetableSyncRunning(req.userId));
   const syncState = userPersistence.readSyncState(req.userId, "timetable");
   const syncStatus = syncing ? "running" : (syncState.type === "timetable" ? syncState.status : (rows.length ? "success" : "idle"));
   const activeStorage = requestStorage(req);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("timetable") : {};
-  const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
+  const accountMeta = req.userId ? await credentialStore.readBoundAccountMetaAsync(req.userId) : null;
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
   const warning = rows.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode);
   const todayRows = info.isTeachingPeriod ? rows
@@ -1600,7 +1614,7 @@ app.get("/timetable/today", auth, (req, res) => {
 });
 
 // GET /timetable/week
-app.get("/timetable/week", auth, (req, res) => {
+app.get("/timetable/week", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   const requestedDate = dateParam(req);
   if (requestedDate === false) {
@@ -1618,13 +1632,13 @@ app.get("/timetable/week", auth, (req, res) => {
     return res.status(500).json({ success: false, error: "TIMETABLE_WEEK_FAILED", message: err.message });
   }
   const { rows } = termRowsForRequest(req);
-  const syncScheduled = maybeScheduleTimetableSync(req.userId, rows);
+  const syncScheduled = await maybeScheduleTimetableSync(req.userId, rows);
   const syncing = Boolean(syncScheduled || isUserTimetableSyncRunning(req.userId));
   const syncState = userPersistence.readSyncState(req.userId, "timetable");
   const syncStatus = syncing ? "running" : (rows.length ? "success" : (syncState.status || "idle"));
   const activeStorage = requestStorage(req);
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("timetable") : {};
-  const accountMeta = req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null;
+  const accountMeta = req.userId ? await credentialStore.readBoundAccountMetaAsync(req.userId) : null;
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
   const warning = rows.length > 0 && ["JWXT_UNAVAILABLE", "JWXT_TIMEOUT", "JWXT_SSO_FAILED"].includes(warningCode);
   const filtered = info.isTeachingPeriod ? rows
@@ -1679,7 +1693,7 @@ app.post("/timetable/sync", auth, async (req, res) => {
   }
   const cachedRows = activeStorage.getTimetable(configuredTerm.termYear, configuredTerm.termSemester);
   const hasCache = cachedRows.length > 0;
-  const cooldown = isRetryCooledDown(req.userId ? credentialStore.readBoundAccountMeta(req.userId) : null);
+  const cooldown = isRetryCooledDown(req.userId ? await credentialStore.readBoundAccountMetaAsync(req.userId) : null);
   if (cooldown.cooledDown) {
     return res.json({
       success: false,
@@ -1716,12 +1730,12 @@ app.post("/timetable/sync", auth, async (req, res) => {
     if (result && result.success === false) {
       console.log("[timetable] sync empty rawCount=" + result.rawCount);
       if (result.error && result.error !== "TIMETABLE_EMPTY") {
-        recordJwxtFailure(req.userId, activeStorage, "timetable", result.error, result.message);
+        await recordJwxtFailure(req.userId, activeStorage, "timetable", result.error, result.message);
       }
       return res.json(result);
     }
     console.log("[timetable] sync success syncedCount=" + result.syncedCount);
-    recordJwxtSuccess(req.userId, activeStorage, "timetable");
+      await recordJwxtSuccess(req.userId, activeStorage, "timetable");
     if (req.userId) {
       userPersistence.mirrorFromStorage(req.userId, activeStorage, {
         kind: "timetable",
@@ -1735,7 +1749,7 @@ app.post("/timetable/sync", auth, async (req, res) => {
     const message = err && err.message ? err.message : classified.message;
     console.log("[timetable] sync failed code=" + code);
     if (sendTermConfigError(res, err)) return;
-    recordJwxtFailure(req.userId, activeStorage, "timetable", code, message);
+    await recordJwxtFailure(req.userId, activeStorage, "timetable", code, message);
     if (req.userId) {
       userPersistence.updateSyncState(req.userId, {
         status: "failed",
@@ -1793,7 +1807,7 @@ app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
     const existingStorage = alreadyDemo ? null : requestStorage(req);
     const existingCookies = alreadyDemo ? [] : loadCookies(req.userId);
     const hasExistingCampusData = !alreadyDemo && Boolean(
-      credentialStore.readBoundAccountMeta(req.userId) ||
+      await credentialStore.readBoundAccountMetaAsync(req.userId) ||
       (Array.isArray(existingCookies) && existingCookies.length) ||
       existingStorage.getGrades().length ||
       (existingStorage.data && Array.isArray(existingStorage.data.timetable) && existingStorage.data.timetable.length) ||
@@ -1834,13 +1848,13 @@ app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
     console.log("[bind] portal-classified code=" + classified.code);
 
     if (classified.code === "INVALID_CREDENTIALS") {
-      credentialStore.updateBoundAccountStatus(req.userId, "LOGIN_FAILED", {
+      await credentialStore.updateBoundAccountStatusAsync(req.userId, "LOGIN_FAILED", {
         portalAuthStatus: classified.portalAuthStatus,
         clearLastJwxtLoginAt: true
       });
       return res.status(400).json({
         success: false,
-        bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
+        bound: Boolean(await credentialStore.readBoundAccountMetaAsync(req.userId)),
         portalAuthStatus: classified.portalAuthStatus,
         jwxtStatus: classified.jwxtStatus,
         error: classified.code,
@@ -1849,13 +1863,13 @@ app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
     }
 
     if (classified.code === "PORTAL_VERIFICATION_REQUIRED") {
-      credentialStore.updateBoundAccountStatus(req.userId, "CAPTCHA_REQUIRED", {
+      await credentialStore.updateBoundAccountStatusAsync(req.userId, "CAPTCHA_REQUIRED", {
         portalAuthStatus: classified.portalAuthStatus,
         clearLastJwxtLoginAt: true
       });
       return res.status(400).json({
         success: false,
-        bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
+        bound: Boolean(await credentialStore.readBoundAccountMetaAsync(req.userId)),
         portalAuthStatus: classified.portalAuthStatus,
         jwxtStatus: classified.jwxtStatus,
         error: classified.code,
@@ -1863,13 +1877,13 @@ app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
       });
     }
 
-    credentialStore.updateBoundAccountStatus(req.userId, classified.jwxtStatus, {
+    await credentialStore.updateBoundAccountStatusAsync(req.userId, classified.jwxtStatus, {
       portalAuthStatus: classified.portalAuthStatus,
       clearLastJwxtLoginAt: true
     });
     return res.status(classified.status).json({
       success: false,
-      bound: Boolean(credentialStore.readBoundAccountMeta(req.userId)),
+      bound: Boolean(await credentialStore.readBoundAccountMetaAsync(req.userId)),
       portalAuthStatus: classified.portalAuthStatus,
       jwxtStatus: classified.jwxtStatus,
       error: classified.code,
@@ -1879,10 +1893,15 @@ app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
 
   logPortalResult(portal && portal.portalResult);
   console.log("[bind] portal-verified ok=true");
-  credentialStore.saveBoundAccount(studentId, password, req.userId);
+  try {
+    await credentialStore.saveBoundAccountAsync(studentId, password, req.userId);
+  } catch (err) {
+    console.error("[bind] persistence failed code=" + (err.code || "DATABASE_WRITE_FAILED"));
+    return res.status(503).json({ success: false, bound: false, error: "PERSISTENCE_UNAVAILABLE", message: "账户保存失败，请稍后重试" });
+  }
   userPersistence.saveBoundProfile(req.userId, studentId);
   console.log("[bind] account-saved userIdHash=" + userIdHash(req.userId));
-  credentialStore.updateBoundAccountStatus(req.userId, "COOKIE_EXPIRED", {
+  await credentialStore.updateBoundAccountStatusAsync(req.userId, "COOKIE_EXPIRED", {
     portalAuthStatus: "OK",
     clearLastJwxtLoginAt: true
   });
@@ -1918,7 +1937,7 @@ app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
 });
 
 // POST /unbind-account
-app.post("/unbind-account", auth, (req, res) => {
+app.post("/unbind-account", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "POST /unbind-account");
   try {
@@ -1926,7 +1945,8 @@ app.post("/unbind-account", auth, (req, res) => {
       reviewDemo.deactivate(req.userId);
       return res.json({ success: true, unbound: true, reviewDemo: true });
     }
-    credentialStore.deleteBoundAccount(req.userId);
+    await credentialStore.deleteBoundAccountAsync(req.userId);
+    await credentialStore.deleteBoundAccountAsync(req.userId);
     deleteCookies(req.userId);
     requestStorage(req).clearXgSession();
     clearCaptchaSessionsForUser(req.userId);
@@ -2087,8 +2107,22 @@ app.post("/grades/import", requireLegacyAdminAccess, auth, (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log("API running on http://localhost:" + PORT);
-  console.log("Endpoints: GET /status  GET /grades  POST /check");
-  if (adminDebugRoutesEnabled()) console.log("[admin] cookie/session debug routes enabled");
-});
+function startServer() {
+  return persistenceReady.then(() => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log("API running on http://localhost:" + PORT);
+      console.log("Endpoints: GET /status  GET /grades  POST /check");
+      if (adminDebugRoutesEnabled()) console.log("[admin] cookie/session debug routes enabled");
+    });
+    const shutdown = () => server.close(() => closePool().finally(() => process.exit(0)));
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+  }).catch(err => {
+    console.error("[persistence] startup failed code=" + (err.code || "DATABASE_UNAVAILABLE"));
+    process.exitCode = 1;
+  });
+}
+
+if (require.main === module) startServer();
+
+module.exports = { app, persistenceReady, startServer };

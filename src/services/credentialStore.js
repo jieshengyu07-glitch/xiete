@@ -2,6 +2,9 @@ const fs = require("fs");
 const path = require("path");
 const CryptoJS = require("crypto-js");
 const { getUserPaths } = require("./userPaths");
+const { isPostgresEnabled } = require("../db/pool");
+const userRepository = require("../repositories/userRepository");
+const jwxtBindingRepository = require("../repositories/jwxtBindingRepository");
 
 const MIN_SECRET_LENGTH = 32;
 const EXAMPLE_SECRETS = new Set([
@@ -275,6 +278,97 @@ function deleteBoundAccount(userId) {
   if (fs.existsSync(file)) fs.unlinkSync(file);
 }
 
+function readJsonAccount(file) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return null; }
+}
+
+async function ensurePostgresUser(userId) {
+  if (!isPostgresEnabled()) return null;
+  return userRepository.findOrCreateByOpenid(userId);
+}
+
+async function readBoundAccountMetaAsync(userId) {
+  if (!isPostgresEnabled()) return readBoundAccountMeta(userId);
+  await ensurePostgresUser(userId);
+  const row = await jwxtBindingRepository.findByOpenid(userId);
+  if (row) return jwxtBindingRepository.toMeta(row);
+  if (String(process.env.NODE_ENV || "").toLowerCase() === "production") return null;
+  const legacy = readBoundAccountMeta(userId);
+  if (!legacy) return null;
+  const raw = readJsonAccount(accountFile(userId));
+  await jwxtBindingRepository.upsertBinding(userId, {
+    studentId: legacy.studentId, passwordEnc: raw && raw.passwordEnc,
+    portalAuthStatus: legacy.portalAuthStatus, jwxtStatus: legacy.jwxtStatus,
+    xgStatus: legacy.xgStatus, lastJwxtLoginAt: legacy.lastJwxtLoginAt,
+    lastSuccessfulSyncAt: legacy.lastSuccessfulSyncAt, lastFailedSyncAt: legacy.lastFailedSyncAt,
+    lastJwxtError: legacy.lastJwxtError, lastJwxtErrorMessage: legacy.lastJwxtErrorMessage,
+    lastXgSuccessfulAt: legacy.lastXgSuccessfulAt
+  });
+  return legacy;
+}
+
+async function getJwxtCredentialsAsync(userId) {
+  if (!isPostgresEnabled()) return getJwxtCredentials(userId);
+  await readBoundAccountMetaAsync(userId);
+  const row = await jwxtBindingRepository.findByOpenid(userId);
+  if (!row) return null;
+  if (!row.password_enc) {
+    const err = new Error("Bound campus credentials are unavailable");
+    err.code = "CREDENTIALS_UNAVAILABLE";
+    throw err;
+  }
+  const decrypted = decryptSecretDetails(row.password_enc, "postgres jwxt_bindings");
+  if (!decrypted.value) {
+    const err = new Error("Bound campus credentials could not be decrypted");
+    err.code = "CREDENTIALS_UNAVAILABLE";
+    throw err;
+  }
+  return { studentId: String(row.student_id), password: decrypted.value, source: "postgres" };
+}
+
+async function saveBoundAccountAsync(studentId, password, userId) {
+  if (!isPostgresEnabled()) return saveBoundAccount(studentId, password, userId);
+  await ensurePostgresUser(userId);
+  const existing = await readBoundAccountMetaAsync(userId);
+  await jwxtBindingRepository.upsertBinding(userId, {
+    studentId: String(studentId), passwordEnc: encryptSecret(password), portalAuthStatus: "OK",
+    jwxtStatus: existing && existing.jwxtStatus || "COOKIE_EXPIRED",
+    xgStatus: existing && existing.xgStatus || "",
+    lastJwxtLoginAt: existing && existing.lastJwxtLoginAt,
+    lastSuccessfulSyncAt: existing && existing.lastSuccessfulSyncAt,
+    lastFailedSyncAt: existing && existing.lastFailedSyncAt,
+    lastJwxtError: existing && existing.lastJwxtError,
+    lastJwxtErrorMessage: existing && existing.lastJwxtErrorMessage,
+    lastXgSuccessfulAt: existing && existing.lastXgSuccessfulAt
+  });
+}
+
+async function updateBoundAccountStatusAsync(userId, status, extra) {
+  if (!isPostgresEnabled()) return updateBoundAccountStatus(userId, status, extra);
+  const existing = await readBoundAccountMetaAsync(userId);
+  if (!existing) return false;
+  const patch = extra || {};
+  const row = await jwxtBindingRepository.findByOpenid(userId);
+  await jwxtBindingRepository.upsertBinding(userId, {
+    studentId: existing.studentId, passwordEnc: row && row.password_enc,
+    jwxtStatus: status || existing.jwxtStatus,
+    portalAuthStatus: patch.portalAuthStatus || existing.portalAuthStatus,
+    xgStatus: patch.xgStatus !== undefined ? patch.xgStatus : existing.xgStatus,
+    lastJwxtLoginAt: patch.clearLastJwxtLoginAt ? null : (patch.lastJwxtLoginAt !== undefined ? patch.lastJwxtLoginAt : existing.lastJwxtLoginAt),
+    lastSuccessfulSyncAt: patch.lastSuccessfulSyncAt !== undefined ? patch.lastSuccessfulSyncAt : existing.lastSuccessfulSyncAt,
+    lastFailedSyncAt: patch.lastFailedSyncAt !== undefined ? patch.lastFailedSyncAt : existing.lastFailedSyncAt,
+    lastJwxtError: patch.lastJwxtError !== undefined ? patch.lastJwxtError : existing.lastJwxtError,
+    lastJwxtErrorMessage: patch.lastJwxtErrorMessage !== undefined ? patch.lastJwxtErrorMessage : existing.lastJwxtErrorMessage,
+    lastXgSuccessfulAt: patch.lastXgSuccessfulAt !== undefined ? patch.lastXgSuccessfulAt : existing.lastXgSuccessfulAt
+  });
+  return true;
+}
+
+async function deleteBoundAccountAsync(userId) {
+  if (!isPostgresEnabled()) return deleteBoundAccount(userId);
+  return jwxtBindingRepository.deleteBinding(userId);
+}
+
 module.exports = {
   assertCredentialConfig,
   getJwxtCredentials,
@@ -283,7 +377,13 @@ module.exports = {
   hasBoundAccount,
   saveBoundAccount,
   updateBoundAccountStatus,
-  deleteBoundAccount
+  deleteBoundAccount,
+  readBoundAccountMetaAsync,
+  getJwxtCredentialsAsync,
+  saveBoundAccountAsync,
+  updateBoundAccountStatusAsync,
+  deleteBoundAccountAsync,
+  ensurePostgresUser
 };
 
 if (process.env.NODE_ENV !== "development") {

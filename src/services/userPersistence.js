@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 const { getUserPaths, safeUserId } = require("./userPaths");
-const credentialStore = require("./credentialStore");
 const { assertUserDataWritable } = require("./userDataDeletion");
 const campusSessionStore = require("./campusSessionStore");
 
@@ -263,13 +262,13 @@ function updateSyncState(userId, patch, type) {
 
 function campusStateFromStorage(userId, activeStorage) {
   const paths = initUserData(userId);
-  const meta = credentialStore.readBoundAccountMeta(userId) || {};
+  const profile = readProfile(userId) || {};
   const session = activeStorage && typeof activeStorage.getXgSession === "function"
     ? activeStorage.getXgSession()
     : {};
   const cookies = readCookiesFile(paths, userId);
   return Object.assign(defaultCampusState(userId), {
-    studentId: meta.studentId || "",
+    studentId: profile.studentId || "",
     jwxtCookies: compactCookieMeta(cookies),
     xgCookies: session && session.cookies ? [{ name: "Cookie", domain: "xg.tyust.edu.cn", path: "/" }] : [],
     xgScoreUrl: session && session.scoreUrl ? String(session.scoreUrl) : "",

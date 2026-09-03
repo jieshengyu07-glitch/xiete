@@ -1,6 +1,6 @@
 const cheerio = require("cheerio");
 const crypto = require("crypto");
-const credentialStore = require("../services/credentialStore");
+const credentialRuntime = require("../services/credentialRuntime");
 const { httpPortalLogin, getAndFollow, requestNoRedirect, followRedirects, PORTAL_ORIGIN, userAgent } = require("../login/httpJwxtLogin");
 const { queryXgScores } = require("./xgScoreQuery");
 
@@ -4407,7 +4407,7 @@ async function debugStudentJudgeLaunch(cookieJar, homePage) {
 }
 
 async function debugXgLaunch(userId) {
-  const credentials = credentialStore.getJwxtCredentials(userId);
+  const credentials = await credentialRuntime.getJwxtCredentials(userId);
   if (!credentials || !credentials.studentId || !credentials.password) {
     throw makeError("CAMPUS_LOGIN_REQUIRED", "Campus account is not bound");
   }
@@ -4464,7 +4464,7 @@ async function ensureXgScoreSession(userId, activeStorage) {
     console.log("[xg-session] step=cache-invalid code=" + ((err && err.code) || "XG_SESSION_INVALID"));
   }
 
-  const credentials = credentialStore.getJwxtCredentials(userId);
+  const credentials = await credentialRuntime.getJwxtCredentials(userId);
   console.log("[xg-session] step=campus-credentials exists=" + Boolean(credentials && credentials.studentId && credentials.password));
   if (!credentials || !credentials.studentId || !credentials.password) {
     console.log("[xg-session] step=failed code=CAMPUS_LOGIN_REQUIRED");

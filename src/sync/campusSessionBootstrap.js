@@ -24,13 +24,13 @@ function recoveringResult(causeCode, retryAfterSeconds) {
 
 function defaultDependencies() {
   const checker = require("../checker");
-  const credentialStore = require("../services/credentialStore");
+  const credentialRuntime = require("../services/credentialRuntime");
   const userPersistence = require("../services/userPersistence");
   const { createStorageForUser } = require("../db/storage");
   const { ensureXgScoreSession } = require("../grade/xgSession");
   const { recoverCampusSession } = require("./campusSessionRecovery");
   return {
-    credentialStore,
+    credentialStore: credentialRuntime,
     userPersistence,
     createStorageForUser,
     validateJwxt: checker.validateJwxtSessionForUser,
@@ -53,18 +53,23 @@ async function bootstrapCampusSession(userId, overrides) {
   const deps = overrides && overrides.credentialStore
     ? overrides
     : Object.assign(defaultDependencies(), overrides || {});
-  const accountMeta = deps.credentialStore.readBoundAccountMeta(userId);
+  const store = deps.credentialStore || deps.credentialRuntime;
+  const getMeta = store.getBoundAccountMeta || store.readBoundAccountMeta;
+  const getCredentials = store.getJwxtCredentials || store.getJwxtCredentialsAsync;
+  const updateStatus = store.updateBoundAccountStatus || store.updateBoundAccountStatusAsync;
+  const accountMeta = await Promise.resolve(getMeta.call(store, userId));
   if (!accountMeta) return { success: true, skipped: true, reason: "NO_CAMPUS_ACCOUNT" };
 
-  const credentials = deps.credentialStore.getJwxtCredentials(userId);
+  let credentials;
+  try { credentials = await Promise.resolve(getCredentials.call(store, userId)); } catch (_) { credentials = null; }
   if (!credentials) {
     const failedAt = new Date().toISOString();
-    deps.credentialStore.updateBoundAccountStatus(userId, "LOGIN_FAILED", {
+    await Promise.resolve(updateStatus.call(store, userId, "LOGIN_FAILED", {
       lastFailedSyncAt: failedAt,
       lastJwxtError: "ACCOUNT_RELOGIN_REQUIRED",
       lastJwxtErrorMessage: "校园账号登录已过期，请重新绑定",
       xgStatus: "LOGIN_REQUIRED"
-    });
+    }));
     deps.userPersistence.updateSyncState(userId, {
       status: "failed",
       finishedAt: failedAt,
@@ -119,7 +124,7 @@ async function bootstrapCampusSession(userId, overrides) {
         ? { xgStatus: "OK", lastXgSuccessfulAt: recoveredAt }
         : { xgStatus: "UNAVAILABLE" })
     };
-    deps.credentialStore.updateBoundAccountStatus(userId, jwxtReady ? "OK" : null, statusExtra);
+    await Promise.resolve(updateStatus.call(store, userId, jwxtReady ? "OK" : null, statusExtra));
     deps.userPersistence.updateSyncState(userId, {
       status: "ready",
       finishedAt: recoveredAt,
@@ -135,12 +140,12 @@ async function bootstrapCampusSession(userId, overrides) {
   const failedAt = new Date().toISOString();
   if (!definitiveCause) {
     const retrySeconds = Math.max(30, retryAfterSeconds || 60);
-    deps.credentialStore.updateBoundAccountStatus(userId, "UNAVAILABLE", {
+    await Promise.resolve(updateStatus.call(store, userId, "UNAVAILABLE", {
       lastFailedSyncAt: failedAt,
       lastJwxtError: lastCause,
       lastJwxtErrorMessage: "教务系统暂时不可用，将自动恢复",
       xgStatus: "UNAVAILABLE"
-    });
+    }));
     deps.userPersistence.updateSyncState(userId, {
       status: "recovering",
       finishedAt: failedAt,
@@ -153,12 +158,12 @@ async function bootstrapCampusSession(userId, overrides) {
     return recoveringResult(lastCause, retrySeconds);
   }
 
-  deps.credentialStore.updateBoundAccountStatus(userId, "LOGIN_FAILED", {
+  await Promise.resolve(updateStatus.call(store, userId, "LOGIN_FAILED", {
     lastFailedSyncAt: failedAt,
     lastJwxtError: "ACCOUNT_RELOGIN_REQUIRED",
     lastJwxtErrorMessage: "校园账号登录已过期，请重新绑定",
     xgStatus: "LOGIN_REQUIRED"
-  });
+  }));
   deps.userPersistence.updateSyncState(userId, {
     status: "failed",
     finishedAt: failedAt,
@@ -175,6 +180,8 @@ function scheduleCampusSessionBootstrap(userId, overrides) {
   const deps = overrides && overrides.userPersistence
     ? overrides
     : defaultDependencies();
+  const store = deps.credentialStore || require("../services/credentialRuntime");
+  const updateStatus = store.updateBoundAccountStatus || store.updateBoundAccountStatusAsync;
   deps.userPersistence.updateSyncState(userId, {
     status: "recovering",
     startedAt: new Date().toISOString(),
@@ -191,12 +198,12 @@ function scheduleCampusSessionBootstrap(userId, overrides) {
     console.log("[campus-session] bootstrap failed code=" + causeCode);
     try {
       const definitive = isDefinitiveAuthFailure(causeCode);
-      deps.credentialStore.updateBoundAccountStatus(userId, definitive ? "LOGIN_FAILED" : "UNAVAILABLE", {
+      Promise.resolve(updateStatus.call(store, userId, definitive ? "LOGIN_FAILED" : "UNAVAILABLE", {
         lastFailedSyncAt: failedAt,
         lastJwxtError: definitive ? "ACCOUNT_RELOGIN_REQUIRED" : causeCode,
         lastJwxtErrorMessage: definitive ? "校园账号登录已过期，请重新绑定" : "教务系统暂时不可用，将自动恢复",
         xgStatus: definitive ? "LOGIN_REQUIRED" : "UNAVAILABLE"
-      });
+      })).catch(() => {});
       deps.userPersistence.updateSyncState(userId, {
         status: definitive ? "failed" : "recovering",
         finishedAt: failedAt,

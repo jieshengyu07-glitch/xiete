@@ -50,6 +50,7 @@ async function withServer(options, run) {
     CREDENTIAL_SECRET: credentialSecret,
     WECHAT_APPID: "debug-route-test-appid",
     WECHAT_SECRET: "debug-route-test-secret",
+    PERSISTENCE_MODE: "json",
     DISABLE_SCHEDULER: "1",
     PORT: String(options.port)
   });

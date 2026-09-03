@@ -16,6 +16,7 @@ async function captureStartup(nodeEnv, port) {
     WECHAT_APPID: "scheduler-test-appid",
     WECHAT_SECRET: "scheduler-test-secret",
     PORT: String(port)
+    ,PERSISTENCE_MODE: "json"
   });
   delete env.DISABLE_SCHEDULER;
   delete env.COOKIES_JSON;

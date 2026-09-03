@@ -3,7 +3,7 @@ const axios = require("axios");
 const storage = require("./db/storage");
 const { createStorageForUser } = require("./db/storage");
 const { httpJwxtLogin } = require("./login/httpJwxtLogin");
-const credentialStore = require("./services/credentialStore");
+const credentialRuntime = require("./services/credentialRuntime");
 const { classifyJwxtLoginError } = require("./services/jwxtLoginError");
 const { queryXgScores } = require("./grade/xgScoreQuery");
 const { ensureXgScoreSession } = require("./grade/xgSession");
@@ -259,9 +259,9 @@ function isLoginRequiredResult(result) {
   return result && (result.cookieStatus === "login_required" || result.error === "login_required");
 }
 
-function shouldAttemptCookieRefresh(result, userId) {
+async function shouldAttemptCookieRefresh(result, userId) {
   if (isCookieExpiredResult(result)) return true;
-  return isLoginRequiredResult(result) && Boolean(credentialStore.getJwxtCredentials(userId));
+  return isLoginRequiredResult(result) && Boolean(await credentialRuntime.getJwxtCredentials(userId).catch(() => null));
 }
 
 function recoveryNeedsAccountRelogin(code) {
@@ -279,10 +279,11 @@ function recoveryNeedsAccountRelogin(code) {
 }
 
 async function refreshCookiesFromEnv(userId) {
-  const credentials = credentialStore.getJwxtCredentials(userId);
+  let credentials = null;
+  try { credentials = await credentialRuntime.getJwxtCredentials(userId); } catch (_) {}
   if (!credentials) {
     console.log("[checker] Cookie 失效，但未配置 JWXT_STUDENT_ID/JWXT_PASSWORD，保持原返回");
-    if (userId && credentialStore.hasBoundAccount(userId)) {
+    if (userId && await credentialRuntime.hasBinding(userId)) {
       return {
         errorResult: fail("ACCOUNT_RELOGIN_REQUIRED", "校园账号登录已过期，请重新绑定", {
           error: "ACCOUNT_RELOGIN_REQUIRED"
@@ -308,20 +309,20 @@ async function refreshCookiesFromEnv(userId) {
     const hasRememberMe = selected.some(function(c) { return c.name === "rememberMe"; });
     if (!hasRoute || !hasJSession || !hasRememberMe) {
       console.log("[checker] 自动刷新失败：未获取完整 route/JSESSIONID/rememberMe Cookie");
-      credentialStore.updateBoundAccountStatus(userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
+      await credentialRuntime.updateBoundAccountStatus(userId, "JWXT_SSO_FAILED", { clearLastJwxtLoginAt: true });
       const err = new Error("Incomplete JWXT session cookies");
       err.code = "JWXT_SSO_FAILED";
       throw err;
     }
     writeCookies(selected, userId);
-    credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
+    await credentialRuntime.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
     console.log("[checker] 自动刷新成功，已更新 cookies.json（未打印 Cookie 值）");
     return selected;
   });
 
   if (!recovery.success) {
     console.log("[checker] 自动刷新失败：" + recovery.causeCode);
-    credentialStore.updateBoundAccountStatus(userId, recovery.causeCode, { clearLastJwxtLoginAt: true });
+    await credentialRuntime.updateBoundAccountStatus(userId, recovery.causeCode, { clearLastJwxtLoginAt: true });
     if (!recoveryNeedsAccountRelogin(recovery.causeCode)) {
       return {
         errorResult: fail(recovery.causeCode, "校园账号自动登录暂时失败，请稍后重试", {
@@ -597,7 +598,7 @@ async function tryJwxtCheckForUser(userId, userStorage) {
     return first;
   }
 
-  if (!shouldAttemptCookieRefresh(first, userId)) {
+  if (!(await shouldAttemptCookieRefresh(first, userId))) {
     gradeCheckLog("jwxt-failed", { code: first && (first.error || first.cookieStatus) || "JWXT_FAILED" });
     return first;
   }
@@ -648,7 +649,7 @@ async function runCycle() {
 async function runCycleForUser(userId, options) {
   gradeCheckLog("start", { userScope: "user" });
   const userStorage = createStorageForUser(userId);
-  const hasCampusAccount = Boolean(credentialStore.getJwxtCredentials(userId));
+  const hasCampusAccount = Boolean(await credentialRuntime.getJwxtCredentials(userId).catch(() => null));
   gradeCheckLog("campus-account", { exists: hasCampusAccount });
   const mode = gradeChannelMode();
   gradeCheckLog("channel-mode", { mode });

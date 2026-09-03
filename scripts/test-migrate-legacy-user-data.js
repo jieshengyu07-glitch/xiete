@@ -12,6 +12,7 @@ const env = Object.assign({}, process.env, {
   DATA_DIR: dataDir,
   CREDENTIAL_SECRET: "credential-secret-0123456789abcdef-extra",
   JWT_SECRET: "jwt-secret-0123456789abcdef012345-extra"
+  ,PERSISTENCE_MODE: "json"
 });
 
 function writeJson(file, value) {

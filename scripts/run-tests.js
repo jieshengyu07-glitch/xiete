@@ -11,6 +11,7 @@ const tests = fs.readdirSync(__dirname)
 
 const env = Object.assign({}, process.env, {
   NODE_ENV: "development",
+  PERSISTENCE_TEST_MODE: "1",
   DATA_DIR: dataDir,
   CREDENTIAL_SECRET: "test-credential-secret-0123456789-abcdef",
   SESSION_ENCRYPTION_KEY: "test-session-encryption-key-0123456789-abcdef",

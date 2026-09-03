@@ -337,8 +337,10 @@ async function loginWithCaptcha(userId, payload) {
   }
 
   const jwxtCookies = selectJwxtCookies(session.cookieJar);
-  credentialStore.saveBoundAccount(studentId, password, userId);
-  credentialStore.updateBoundAccountStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
+  const saveAccount = credentialStore.saveBoundAccountAsync || ((student, secret, owner) => credentialStore.saveBoundAccount(student, secret, owner));
+  const updateStatus = credentialStore.updateBoundAccountStatusAsync || ((owner, status, extra) => credentialStore.updateBoundAccountStatus(owner, status, extra));
+  await saveAccount(studentId, password, userId);
+  await updateStatus(userId, "COOKIE_VALID", { lastJwxtLoginAt: new Date().toISOString() });
   writeCookies(jwxtCookies, userId);
   sessions.delete(String(payload.sessionId || ""));
 

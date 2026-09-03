@@ -1,6 +1,6 @@
 const fs = require("fs");
 const { getUserPaths } = require("../services/userPaths");
-const credentialStore = require("../services/credentialStore");
+const credentialRuntime = require("../services/credentialRuntime");
 const { createStorageForUser } = require("../db/storage");
 const userPersistence = require("../services/userPersistence");
 const campusSessionStore = require("../services/campusSessionStore");
@@ -27,16 +27,28 @@ function ensureUserSession(userId) {
   const storage = createStorageForUser(userId);
   const cookies = campusSessionStore.loadCookies(userId) || [];
   const xgSession = storage.getXgSession();
-  const credentials = credentialStore.getJwxtCredentials(userId);
+  if (require("../db/pool").isPostgresEnabled()) return ensureUserSessionAsync(userId);
+  const legacyStore = require("../services/credentialStore");
+  const localCredentials = legacyStore.getJwxtCredentials(userId);
   const result = {
     userId,
-    hasCredentials: Boolean(credentials),
+    hasCredentials: Boolean(localCredentials),
     jwxtSessionValid: hasJwxtCookie(cookies),
     xgSessionValid: Boolean(xgSession && xgSession.scoreUrl && xgSession.cookies),
-    canRefresh: Boolean(credentials)
+    canRefresh: Boolean(localCredentials)
   };
-  userPersistence.saveCampusState(userId, storage);
+  try { userPersistence.saveCampusState(userId, storage); } catch (_) {}
   return result;
+}
+
+async function ensureUserSessionAsync(userId) {
+  const paths = userPersistence.initUserData(userId);
+  const storage = createStorageForUser(userId);
+  const cookies = campusSessionStore.loadCookies(userId) || [];
+  const xgSession = storage.getXgSession();
+  let credentials = null;
+  try { credentials = await credentialRuntime.getJwxtCredentials(userId); } catch (_) {}
+  return { userId, hasCredentials: Boolean(credentials), jwxtSessionValid: hasJwxtCookie(cookies), xgSessionValid: Boolean(xgSession && xgSession.scoreUrl && xgSession.cookies), canRefresh: Boolean(credentials) };
 }
 
 module.exports = {
