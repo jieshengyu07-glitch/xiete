@@ -10,6 +10,8 @@ const { ensureXgScoreSession } = require("./grade/xgSession");
 const { resolveGradeQueryTerms, publicTerm } = require("./grade/termDiscovery");
 const { recoverCampusSession } = require("./sync/campusSessionRecovery");
 const campusSessionStore = require("./services/campusSessionStore");
+const campusCacheRuntime = require("./services/campusCacheRuntime");
+const { isPostgresEnabled } = require("./db/pool");
 
 function legacyEnvCookiesAllowed() {
   return process.env.NODE_ENV === "development" ||
@@ -525,6 +527,23 @@ async function executeXgCheck(activeStorage, userId, reason) {
   activeStorage = activeStorage || storage;
 
   try {
+    // In production, the PostgreSQL cache is the cross-process last-known-good
+    // baseline. Hydrate it before deciding that XG is a canonical first source.
+    // Development/test JSON mode intentionally keeps its existing behavior.
+    if (userId && String(process.env.NODE_ENV || "").toLowerCase() === "production" && isPostgresEnabled()) {
+      const persisted = await campusCacheRuntime.getGrades(userId);
+      const current = typeof activeStorage.getGrades === "function" ? activeStorage.getGrades() : [];
+      const hasJwxtBaseline = (Array.isArray(current) ? current : []).some(item => {
+        const source = String(item && (item.preferredSource || item.source || item.channel || item.origin) || "").toLowerCase();
+        return source === "jwxt";
+      });
+      if (persisted && Array.isArray(persisted.grades) && persisted.grades.length && !hasJwxtBaseline) {
+        if (activeStorage.data && typeof activeStorage.data === "object") {
+          activeStorage.data.grades = persisted.grades.slice();
+        }
+        console.log("[grade-merge] baseline=postgres count=" + persisted.grades.length);
+      }
+    }
     gradeCheckLog("try-xg", { userScope: userId ? "user" : "legacy", reason: reason || "JWXT_FAILED" });
     const recovery = await recoverCampusSession(userId, "xg", () => ensureXgScoreSession(userId, activeStorage));
     if (!recovery.success) {

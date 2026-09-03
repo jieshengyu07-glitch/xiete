@@ -37,9 +37,14 @@ const reviewDemo = require("./services/reviewDemo");
 const { assertSessionEncryptionConfig } = require("./services/sessionCrypto");
 const { rateLimit } = require("./middleware/rateLimit");
 const { initializePersistence, closePool } = require("./db/persistence");
+const { isPostgresEnabled } = require("./db/pool");
 const userRepository = require("./repositories/userRepository");
 const campusCacheRuntime = require("./services/campusCacheRuntime");
 const syncStateRuntime = require("./services/syncStateRuntime");
+
+function productionPostgresRuntime() {
+  return String(process.env.NODE_ENV || "").toLowerCase() === "production" && isPostgresEnabled();
+}
 
 assertJwtConfig();
 assertWechatConfig();
@@ -1055,7 +1060,9 @@ app.get("/status", auth, async (req, res) => {
   const persistentGrades = req.userId ? await campusCacheRuntime.getGrades(req.userId) : null;
   const gradesCache = req.userId && persistentGrades && persistentGrades.grades.length
     ? persistentGrades
-    : (req.userId ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage) : null);
+    : (req.userId && !productionPostgresRuntime()
+      ? userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage)
+      : { grades: [], updatedAt: "" });
   const totalGrades = gradesCache ? gradesCache.grades.length : activeStorage.getGrades().length;
   const gradeMeta = req.userId ? await syncStateRuntime.get(req.userId, "grades") : {};
   const timetableMeta = req.userId ? await syncStateRuntime.get(req.userId, "timetable") : {};
@@ -1221,7 +1228,11 @@ app.get("/grades", auth, async (req, res) => {
   const meta = activeStorage.getSyncMeta ? activeStorage.getSyncMeta("grades") : {};
   const accountMeta = await credentialStore.readBoundAccountMetaAsync(req.userId);
   const persistentGrades = await campusCacheRuntime.getGrades(req.userId);
-  const gradesCache = persistentGrades.grades.length ? persistentGrades : userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage);
+  const gradesCache = persistentGrades.grades.length
+    ? persistentGrades
+    : (productionPostgresRuntime()
+      ? { grades: [], updatedAt: "" }
+      : userPersistence.ensureGradesCacheFromStorage(req.userId, activeStorage));
   const syncScheduled = await maybeScheduleGradeSync(req.userId, activeStorage, gradesCache, "open-grades");
   const syncing = Boolean(syncScheduled || isUserGradeSyncRunning(req.userId));
   const syncState = await syncStateRuntime.get(req.userId, "grades");
@@ -1229,7 +1240,8 @@ app.get("/grades", auth, async (req, res) => {
   const syncErrorCode = syncStatus === "failed" ? String(syncState.errorCode || syncState.lastError || "SYNC_FAILED") : "";
   const grades = gradesCache.grades.map(compactGrade);
   const termAvailability = availableGradeTerms(activeStorage, grades);
-  console.log("[grades] userIdHash=" + userIdHash(req.userId) + " source=" + (syncing ? "sync" : "file"));
+  const gradesSource = syncing ? "sync" : (persistentGrades.grades.length ? "postgres" : (productionPostgresRuntime() ? "none" : "legacy"));
+  console.log("[grades] userIdHash=" + userIdHash(req.userId) + " source=" + gradesSource);
   console.log("[grades] count=" + grades.length);
   if (syncing) console.log("[grades] syncing=true");
   const warningCode = normalizeJwxtApiCode((meta && meta.lastError) || (accountMeta && accountMeta.lastJwxtError));
