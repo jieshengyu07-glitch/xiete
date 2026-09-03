@@ -19,7 +19,9 @@ async function syncUserTimetable(userId) {
   try {
     const result = await syncTimetableForUser(userId, storage, { term: loadConfiguredTerm() });
     if (result && result.success) {
-      try { await campusCacheRuntime.saveTimetable(userId, storage.getTimetable(loadConfiguredTerm().termYear, loadConfiguredTerm().termSemester), result.updatedAt); await syncStateRuntime.update(userId, "timetable", { lastSuccessfulAt: result.updatedAt, lastError: "" }); } catch (cacheErr) { console.error("[cache] timetable persistence failed code=" + (cacheErr.code || "CACHE_WRITE_FAILED")); }
+      try { if (require("../db/pool").isPostgresEnabled()) await campusCacheRuntime.saveTimetable(userId, storage.getTimetable(loadConfiguredTerm().termYear, loadConfiguredTerm().termSemester), result.updatedAt); }
+      catch (cacheErr) { console.error("[cache] timetable persistence failed code=" + (cacheErr.code || "CACHE_WRITE_FAILED")); try { await syncStateRuntime.update(userId, "timetable", { lastError: "CACHE_PERSISTENCE_FAILED" }); } catch (_) {} return { success: false, error: "CACHE_PERSISTENCE_FAILED", message: "课表缓存持久化失败" }; }
+      if (require("../db/pool").isPostgresEnabled()) await syncStateRuntime.update(userId, "timetable", { lastSuccessfulAt: result.updatedAt, lastError: "" });
       await markCampusLoginValid(userId, "timetable");
       userPersistence.mirrorFromStorage(userId, storage, { kind: "timetable", status: "success" });
       userPersistence.updateSyncState(userId, {

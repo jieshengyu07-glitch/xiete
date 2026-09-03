@@ -5,12 +5,14 @@ const migration = fs.readFileSync(path.resolve(__dirname,"../src/db/migrate.js")
 const server = fs.readFileSync(path.resolve(__dirname,"../src/server.js"),"utf8");
 const cacheRuntime = fs.readFileSync(path.resolve(__dirname,"../src/services/campusCacheRuntime.js"),"utf8");
 const syncRuntime = fs.readFileSync(path.resolve(__dirname,"../src/services/syncStateRuntime.js"),"utf8");
+const cacheRepo = fs.readFileSync(path.resolve(__dirname,"../src/repositories/campusCacheRepository.js"),"utf8");
 assert.match(migration,/CREATE TABLE IF NOT EXISTS campus_cache/);
 assert.match(migration,/CREATE TABLE IF NOT EXISTS sync_state/);
 assert.match(migration,/campus_cache[\s\S]*ON DELETE CASCADE/);
 assert.match(migration,/sync_state[\s\S]*ON DELETE CASCADE/);
 assert.match(cacheRuntime,/grades_payload/); assert.match(cacheRuntime,/timetable_payload/);
 assert.match(syncRuntime,/lastAttemptAt/); assert.match(syncRuntime,/lastSuccessfulAt/);
+assert.match(cacheRepo,/JSON\.stringify\(payload\)/); assert.match(cacheRepo,/\$2::jsonb/);
 assert.match(server,/campusCacheRuntime\.deleteCache/); assert.match(server,/syncStateRuntime\.deleteState/);
 assert.doesNotMatch(migration.match(/CREATE TABLE IF NOT EXISTS campus_cache[\s\S]*?\)`/i)[0],/cookie|xg_session|password_enc/i);
 assert.match(cacheRuntime,/NODE_ENV/); assert.match(syncRuntime,/NODE_ENV/);

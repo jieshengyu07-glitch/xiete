@@ -32,7 +32,7 @@ async function syncUserGrades(userId, options) {
       errorCode: "LOGIN_REQUIRED",
       lastError: "LOGIN_REQUIRED"
     }, "grades");
-    try { await syncStateRuntime.update(userId, "grades", { lastError: code }); } catch (_) {}
+    try { await syncStateRuntime.update(userId, "grades", { lastError: "LOGIN_REQUIRED" }); } catch (_) {}
     return {
       success: false,
       error: "LOGIN_REQUIRED",
@@ -55,7 +55,14 @@ async function syncUserGrades(userId, options) {
       skipJwxt: Boolean(options && options.skipJwxt)
     });
     if (result && result.success) {
-      try { await campusCacheRuntime.saveGrades(userId, storage.getGrades(), new Date().toISOString()); await syncStateRuntime.update(userId, "grades", { lastSuccessfulAt: new Date().toISOString(), lastError: "" }); } catch (cacheErr) { console.error("[cache] grade persistence failed code=" + (cacheErr.code || "CACHE_WRITE_FAILED")); }
+      try { if (isPostgresEnabled()) await campusCacheRuntime.saveGrades(userId, storage.getGrades(), new Date().toISOString()); }
+      catch (cacheErr) {
+        const persistenceCode = "CACHE_PERSISTENCE_FAILED";
+        console.error("[cache] grade persistence failed code=" + (cacheErr.code || "CACHE_WRITE_FAILED"));
+        try { await syncStateRuntime.update(userId, "grades", { lastError: persistenceCode }); } catch (_) {}
+        return { success: false, error: persistenceCode, message: "成绩缓存持久化失败" };
+      }
+      if (isPostgresEnabled()) await syncStateRuntime.update(userId, "grades", { lastSuccessfulAt: new Date().toISOString(), lastError: "" });
       await markCampusLoginValid(userId, result.gradeSource || result.source || "grades");
       userPersistence.mirrorFromStorage(userId, storage, {
         kind: "grades",
