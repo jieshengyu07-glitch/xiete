@@ -1244,7 +1244,7 @@ app.get("/grades", auth, async (req, res) => {
   const syncErrorCode = syncStatus === "failed" ? String(syncState.errorCode || syncState.lastError || "SYNC_FAILED") : "";
   const grades = gradesCache.grades.map(compactGrade);
   const termAvailability = availableGradeTerms(activeStorage, grades);
-  const gradesSource = syncing ? "sync" : (persistentGrades.grades.length ? "postgres" : (productionPostgresRuntime() ? "none" : "legacy"));
+  const gradesSource = persistentGrades.grades.length ? "postgres" : (productionPostgresRuntime() ? "none" : "legacy");
   console.log("[grades] userIdHash=" + userIdHash(req.userId) + " source=" + gradesSource);
   console.log("[grades] count=" + grades.length);
   if (syncing) console.log("[grades] syncing=true");
