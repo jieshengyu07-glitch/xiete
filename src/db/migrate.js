@@ -53,6 +53,29 @@ const statements = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`
+  ,`CREATE TABLE IF NOT EXISTS api_request_metrics (
+    id BIGSERIAL PRIMARY KEY,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    method TEXT NOT NULL,
+    route TEXT NOT NULL,
+    status_code SMALLINT NOT NULL,
+    response_time_ms INTEGER NOT NULL
+  )`
+  ,"CREATE INDEX IF NOT EXISTS api_request_metrics_occurred_at_idx ON api_request_metrics (occurred_at)"
+  ,"CREATE INDEX IF NOT EXISTS api_request_metrics_route_occurred_at_idx ON api_request_metrics (route, occurred_at)"
+  ,`CREATE TABLE IF NOT EXISTS monitor_events (
+    id BIGSERIAL PRIMARY KEY,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    event_type TEXT NOT NULL,
+    success BOOLEAN NOT NULL,
+    error_type TEXT,
+    duration_ms INTEGER,
+    user_day_hash TEXT,
+    source TEXT
+  )`
+  ,"CREATE INDEX IF NOT EXISTS monitor_events_occurred_at_idx ON monitor_events (occurred_at)"
+  ,"CREATE INDEX IF NOT EXISTS monitor_events_event_type_occurred_at_idx ON monitor_events (event_type, occurred_at)"
+  ,"CREATE INDEX IF NOT EXISTS monitor_events_user_day_hash_occurred_at_idx ON monitor_events (user_day_hash, occurred_at)"
 ];
 
 async function migrate() {

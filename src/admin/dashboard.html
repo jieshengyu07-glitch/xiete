@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>太小科校园助手 · 实时监控</title>
+  <link rel="stylesheet" href="/admin/dashboard.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div><p class="eyebrow">TAIXIAOKE OPERATIONS</p><h1>太小科校园助手 · 实时监控</h1></div>
+      <div class="status-line"><span id="liveDot" class="dot"></span><span id="lastUpdated">等待连接</span></div>
+    </header>
+
+    <section id="loginPanel" class="login-panel">
+      <div><p class="eyebrow">ADMIN ACCESS</p><h2>连接只读监控面板</h2><p>管理密钥仅保留在当前页面内存中，刷新后需要重新输入。</p></div>
+      <form id="loginForm" autocomplete="off">
+        <label for="adminKey">管理密钥</label>
+        <div class="login-row"><input id="adminKey" type="password" minlength="32" required autocomplete="new-password" placeholder="输入 ADMIN_DASHBOARD_SECRET"><button type="submit">连接</button></div>
+        <p id="loginError" class="error" role="alert"></p>
+      </form>
+    </section>
+
+    <section id="dashboard" class="dashboard" hidden>
+      <div class="metrics-grid">
+        <article class="metric"><span>今日独立用户</span><strong id="uniqueUsers">—</strong><small>匿名日哈希去重</small></article>
+        <article class="metric"><span>近 5 分钟活跃</span><strong id="activeUsers">—</strong><small>实时活跃用户</small></article>
+        <article class="metric"><span>今日请求数</span><strong id="requestCount">—</strong><small>业务 API 请求</small></article>
+        <article class="metric"><span>平均响应</span><strong id="averageMs">—</strong><small>毫秒</small></article>
+        <article class="metric accent"><span>P95 响应</span><strong id="p95Ms">—</strong><small>毫秒</small></article>
+      </div>
+
+      <div class="content-grid">
+        <article class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">TRAFFIC</p><h2>请求趋势</h2></div><span>近 60 分钟</span></div><svg id="requestChart" viewBox="0 0 800 260" role="img" aria-label="请求数时间序列"></svg><p id="chartEmpty" class="empty" hidden>暂无请求数据</p></article>
+        <article class="panel health-panel"><div class="panel-head"><div><p class="eyebrow">SYSTEM</p><h2>服务健康</h2></div></div><div class="health-item"><span>Express</span><strong id="expressStatus">检查中</strong></div><div class="health-item"><span>服务运行时间</span><strong id="serviceUptime">—</strong></div><div class="health-item"><span>PostgreSQL</span><strong id="postgresStatus">检查中</strong></div><div class="health-item"><span>查询延迟</span><strong id="postgresLatency">—</strong></div><p id="dataNotice" class="notice"></p></article>
+      </div>
+
+      <article class="panel"><div class="panel-head"><div><p class="eyebrow">BUSINESS EVENTS</p><h2>今日业务事件</h2></div></div><div id="eventGrid" class="event-grid"></div></article>
+      <article class="panel"><div class="panel-head"><div><p class="eyebrow">ERRORS</p><h2>近 24 小时聚合错误</h2></div><span>最多 20 项</span></div><div class="table-wrap"><table><thead><tr><th>事件</th><th>错误类型</th><th>次数</th><th>最近发生</th></tr></thead><tbody id="errorRows"></tbody></table><p id="errorsEmpty" class="empty" hidden>暂无错误记录</p></div></article>
+    </section>
+  </main>
+  <script src="/admin/dashboard.js" defer></script>
+</body>
+</html>

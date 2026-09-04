@@ -36,11 +36,14 @@ const userDataDeletion = require("./services/userDataDeletion");
 const reviewDemo = require("./services/reviewDemo");
 const { assertSessionEncryptionConfig } = require("./services/sessionCrypto");
 const { rateLimit } = require("./middleware/rateLimit");
+const requestMetrics = require("./middleware/requestMetrics");
+const { monitorBusinessEvent } = require("./services/businessEventRecorder");
 const { initializePersistence, closePool } = require("./db/persistence");
 const { isPostgresEnabled } = require("./db/pool");
 const userRepository = require("./repositories/userRepository");
 const campusCacheRuntime = require("./services/campusCacheRuntime");
 const syncStateRuntime = require("./services/syncStateRuntime");
+const { createAdminRouter } = require("./admin/routes");
 
 function productionPostgresRuntime() {
   return String(process.env.NODE_ENV || "").toLowerCase() === "production" && isPostgresEnabled();
@@ -74,6 +77,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(requestMetrics());
+
 app.get("/health", (req, res) => {
   res.json({ status: "ok", version: "1.0.0" });
 });
@@ -95,6 +100,7 @@ app.get("/admin/diagnose-data", (req, res) => {
 });
 
 app.use(express.json({ limit: "1mb" }));
+app.use("/admin", createAdminRouter());
 
 function requestStorage(req) {
   return req.userId ? storage.createStorageForUser(req.userId) : storage;
@@ -622,10 +628,11 @@ function scheduleBindCompletion(userId, portal) {
 }
 
 // POST /auth/wechat-login
-app.post("/auth/wechat-login", wechatLoginLimiter, async (req, res) => {
+app.post("/auth/wechat-login", monitorBusinessEvent("wechat_login", { source: "wechat" }), wechatLoginLimiter, async (req, res) => {
   try {
     const code = req.body && req.body.code;
     const userId = await resolveWechatOpenid(code);
+    res.locals.monitoringUserIdentifier = userId;
     if (userDataDeletion.isUserDataDeletionPending(userId)) {
       return res.status(423).json({
         success: false,
@@ -1199,7 +1206,7 @@ function availableGradeTerms(activeStorage, grades) {
   };
 }
 
-app.get("/grades", auth, async (req, res) => {
+app.get("/grades", auth, monitorBusinessEvent("grades_query", { source: "cache" }), async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /grades");
   if (reviewDemo.isReviewDemoUser(req.userId)) {
@@ -1288,7 +1295,7 @@ app.get("/grade-changes", auth, (req, res) => {
 });
 
 // POST /check
-app.post("/check", auth, async (req, res) => {
+app.post("/check", auth, monitorBusinessEvent("grades_query", { source: "unknown" }), async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "POST /check");
   if (reviewDemo.isReviewDemoUser(req.userId)) {
@@ -1600,7 +1607,7 @@ app.get("/timetable/config", auth, async (req, res) => {
 });
 
 // GET /timetable/today
-app.get("/timetable/today", auth, async (req, res) => {
+app.get("/timetable/today", auth, monitorBusinessEvent("timetable_query", { source: "cache" }), async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   const requestedDate = dateParam(req);
   if (requestedDate === false) {
@@ -1652,7 +1659,7 @@ app.get("/timetable/today", auth, async (req, res) => {
 });
 
 // GET /timetable/week
-app.get("/timetable/week", auth, async (req, res) => {
+app.get("/timetable/week", auth, monitorBusinessEvent("timetable_query", { source: "cache" }), async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   const requestedDate = dateParam(req);
   if (requestedDate === false) {
@@ -1707,7 +1714,7 @@ app.get("/timetable/week", auth, async (req, res) => {
 });
 
 // POST /timetable/sync
-app.post("/timetable/sync", auth, async (req, res) => {
+app.post("/timetable/sync", auth, monitorBusinessEvent("timetable_query", { source: "jwxt" }), async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     return res.json({
@@ -1809,7 +1816,7 @@ app.post("/timetable/sync", auth, async (req, res) => {
 });
 
 // POST /bind-account
-app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
+app.post("/bind-account", auth, monitorBusinessEvent("bind_account", { source: "jwxt" }), bindAccountLimiter, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   console.log("[bind] start scope=" + (req.userId ? "user" : "legacy"));
   logUserScope(req, "POST /bind-account");
@@ -1976,7 +1983,7 @@ app.post("/bind-account", auth, bindAccountLimiter, async (req, res) => {
 });
 
 // POST /unbind-account
-app.post("/unbind-account", auth, async (req, res) => {
+app.post("/unbind-account", auth, monitorBusinessEvent("unbind_account", { source: "unknown" }), async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "POST /unbind-account");
   try {
