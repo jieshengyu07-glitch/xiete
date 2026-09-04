@@ -9,50 +9,55 @@
 <body>
   <main class="shell">
     <header class="topbar">
-      <div><p class="eyebrow">TAIXIAOKE OPERATIONS</p><h1>太小科校园助手 · 实时监控</h1></div>
+      <div><p class="eyebrow">运营数据</p><h1>太小科校园助手 · 运营数据看板</h1></div>
       <div class="status-line"><span id="liveDot" class="dot"></span><span id="lastUpdated">等待连接</span></div>
     </header>
 
     <section id="loginPanel" class="login-panel">
-      <div><p class="eyebrow">ADMIN ACCESS</p><h2>连接只读监控面板</h2><p>管理密钥仅保留在当前页面内存中，刷新后需要重新输入。</p></div>
+      <div><p class="eyebrow">管理员入口</p><h2>查看运营数据</h2><p>访问密钥只在当前页面临时使用，刷新后需要重新输入。</p></div>
       <form id="loginForm" autocomplete="off">
         <label for="adminKey">管理密钥</label>
-        <div class="login-row"><input id="adminKey" type="password" minlength="32" required autocomplete="new-password" placeholder="输入 ADMIN_DASHBOARD_SECRET"><button type="submit">连接</button></div>
+        <div class="login-row"><input id="adminKey" type="password" minlength="32" required autocomplete="new-password" placeholder="请输入管理员访问密钥"><button type="submit">查看数据</button></div>
         <p id="loginError" class="error" role="alert"></p>
       </form>
     </section>
 
     <section id="dashboard" class="dashboard" hidden>
-      <div class="section-heading"><div><p class="eyebrow">TODAY</p><h2>今日实时</h2></div><span>Asia/Shanghai</span></div>
-      <div class="metrics-grid">
-        <article class="metric"><span>今日独立用户</span><strong id="uniqueUsers">—</strong><small>匿名日哈希去重</small></article>
-        <article class="metric"><span>近 5 分钟活跃</span><strong id="activeUsers">—</strong><small>实时活跃用户</small></article>
-        <article class="metric"><span>今日请求数</span><strong id="requestCount">—</strong><small>业务 API 请求</small></article>
-        <article class="metric"><span>平均响应</span><strong id="averageMs">—</strong><small>毫秒</small></article>
-        <article class="metric accent"><span>P95 响应</span><strong id="p95Ms">—</strong><small>毫秒</small></article>
+      <article class="panel now-panel">
+        <div><p class="eyebrow">现在怎么样</p><h2>最近5分钟有多少人在用</h2><p id="activeUsersHelp" class="metric-explanation">最近5分钟内产生操作的用户</p></div>
+        <strong id="activeUsers" class="now-value">—</strong>
+      </article>
+
+      <div class="section-heading"><div><p class="eyebrow">今天</p><h2>今天的使用情况</h2></div><span>按北京时间统计</span></div>
+      <div class="metrics-grid today-grid">
+        <article class="metric priority"><span>今天有多少人用过</span><strong id="uniqueUsers">—</strong><small>今天至少使用过一次主要功能的人数</small></article>
+        <article class="metric priority"><span>今天系统处理次数</span><strong id="requestCount">—</strong><small>小程序今天向后台发起并完成的请求总数，不等于点击次数</small></article>
+        <article class="metric"><span>平均响应速度</span><strong id="averageMs">—</strong><small>后台通常多久给小程序返回结果，数字越小越快</small><em id="averageSpeed" class="speed-label">等待数据</em></article>
+        <article class="metric"><span>较慢时响应速度</span><strong id="p95Ms">—</strong><small>95%的请求都能在这个时间内完成，数字越小越好</small><em id="p95Speed" class="speed-label">等待数据</em></article>
       </div>
 
+      <article class="panel"><div class="panel-head"><div><p class="eyebrow">今天的功能使用</p><h2>今天大家都在用什么</h2></div></div><div id="eventGrid" class="event-grid"></div></article>
+
       <article class="panel lifetime-panel">
-        <div class="panel-head"><div><p class="eyebrow">ALL TIME</p><h2>累计总览</h2></div><span id="monitoringStart">尚无监控数据</span></div>
+        <div class="panel-head"><div><p class="eyebrow">历史累计</p><h2>从上线到现在</h2></div><span id="monitoringStart">数据开始记录时间：尚无数据</span></div>
         <div class="metrics-grid lifetime-grid">
-          <div class="metric"><span>累计注册用户</span><strong id="registeredUsers">—</strong><small>仅统计用户总数</small></div>
-          <div class="metric"><span>累计请求</span><strong id="lifetimeRequestCount">—</strong><small>监控上线以来</small></div>
-          <div class="metric"><span>累计平均响应</span><strong id="lifetimeAverageMs">—</strong><small>毫秒</small></div>
-          <div class="metric accent"><span>累计 P95</span><strong id="lifetimeP95Ms">—</strong><small>毫秒</small></div>
-          <div class="metric"><span>监控运行天数</span><strong id="monitoringDays">—</strong><small>从首条监控记录起</small></div>
+          <div class="metric priority"><span>总用户数</span><strong id="registeredUsers">—</strong><small>历史上登录过小程序的账号总数</small></div>
+          <div class="metric priority"><span>系统累计处理次数</span><strong id="lifetimeRequestCount">—</strong><small>从监控开始记录以来后台处理的请求总数</small></div>
+          <div class="metric"><span>历史平均响应速度</span><strong id="lifetimeAverageMs">—</strong><small>所有已记录操作的平均返回速度</small><em id="lifetimeAverageSpeed" class="speed-label">等待数据</em></div>
+          <div class="metric"><span>历史较慢响应速度</span><strong id="lifetimeP95Ms">—</strong><small>95%的历史请求都能在这个时间内完成</small><em id="lifetimeP95Speed" class="speed-label">等待数据</em></div>
+          <div class="metric"><span>已记录天数</span><strong id="monitoringDays">—</strong><small>从第一条数据开始计算</small></div>
         </div>
       </article>
 
-      <article class="panel"><div class="panel-head"><div><p class="eyebrow">ALL-TIME BUSINESS EVENTS</p><h2>累计业务事件</h2></div></div><div id="lifetimeEventGrid" class="event-grid"></div></article>
+      <article class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">最近一小时</p><h2>最近60分钟使用情况</h2></div><span>每分钟更新走势</span></div><svg id="requestChart" viewBox="0 0 800 260" role="img" aria-label="最近60分钟系统处理次数走势"></svg><p id="chartEmpty" class="empty" hidden>最近60分钟暂时没有操作</p></article>
 
-      <div class="content-grid">
-        <article class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">TRAFFIC</p><h2>请求趋势</h2></div><span>近 60 分钟</span></div><svg id="requestChart" viewBox="0 0 800 260" role="img" aria-label="请求数时间序列"></svg><p id="chartEmpty" class="empty" hidden>暂无请求数据</p></article>
-        <article class="panel health-panel"><div class="panel-head"><div><p class="eyebrow">SYSTEM</p><h2>服务健康</h2></div></div><div class="health-item"><span>Express</span><strong id="expressStatus">检查中</strong></div><div class="health-item"><span>服务运行时间</span><strong id="serviceUptime">—</strong></div><div class="health-item"><span>PostgreSQL</span><strong id="postgresStatus">检查中</strong></div><div class="health-item"><span>查询延迟</span><strong id="postgresLatency">—</strong></div><p id="dataNotice" class="notice"></p></article>
-      </div>
+      <article class="panel"><div class="panel-head"><div><p class="eyebrow">历史功能使用</p><h2>各功能累计使用次数</h2></div></div><div id="lifetimeEventGrid" class="event-grid"></div></article>
 
-      <article class="panel"><div class="panel-head"><div><p class="eyebrow">BUSINESS EVENTS</p><h2>今日业务事件</h2></div></div><div id="eventGrid" class="event-grid"></div></article>
-      <article class="panel"><div class="panel-head"><div><p class="eyebrow">ERRORS</p><h2>近 24 小时聚合错误</h2></div><span>最多 20 项</span></div><div class="table-wrap"><table><thead><tr><th>事件</th><th>错误类型</th><th>次数</th><th>最近发生</th></tr></thead><tbody id="errorRows"></tbody></table><p id="errorsEmpty" class="empty" hidden>暂无错误记录</p></div></article>
+      <article class="panel"><div class="panel-head"><div><p class="eyebrow">问题记录</p><h2 id="errorsTitle">最近24小时出现的问题</h2></div><span>最多显示 20 项</span></div><div class="table-wrap"><table><thead><tr><th>功能</th><th>问题类型</th><th>出现次数</th><th>最近一次发生时间</th></tr></thead><tbody id="errorRows"></tbody></table><p id="errorsEmpty" class="empty" hidden>运行正常，最近24小时没有记录到业务错误</p></div></article>
+
+      <article class="panel health-panel"><div class="panel-head"><div><p class="eyebrow">当前状态</p><h2>系统运行状态</h2></div></div><div class="health-grid"><div class="health-item"><span>后台服务</span><strong id="expressStatus">暂时无法确认</strong></div><div class="health-item"><span>已连续运行</span><strong id="serviceUptime">—</strong></div><div class="health-item"><span>数据库</span><strong id="postgresStatus">暂时无法确认</strong></div><div class="health-item"><span>数据库响应速度</span><strong id="postgresLatency">—</strong></div></div><p id="dataNotice" class="notice"></p></article>
     </section>
+    <!-- 兼容现有静态校验：今日实时、累计总览、今日业务事件、累计业务事件。 -->
   </main>
   <script src="/admin/dashboard.js" defer></script>
 </body>
