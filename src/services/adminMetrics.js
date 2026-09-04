@@ -27,6 +27,33 @@ function floorDate(value, intervalMs) {
   return new Date(Math.floor(value.getTime() / intervalMs) * intervalMs);
 }
 
+function eventSummary(rows, includeSuccessRate) {
+  const events = {};
+  Object.values(EVENT_KEYS).forEach(key => {
+    events[key] = { total: 0, success: 0, failure: 0 };
+    if (includeSuccessRate) events[key].successRate = 0;
+  });
+  rows.forEach(row => {
+    const key = EVENT_KEYS[row.eventType];
+    if (!key) return;
+    const total = finiteOrZero(row.total);
+    const success = finiteOrZero(row.success);
+    events[key] = {
+      total,
+      success,
+      failure: finiteOrZero(row.failure)
+    };
+    if (includeSuccessRate) events[key].successRate = total ? Math.round(success / total * 1000) / 10 : 0;
+  });
+  return events;
+}
+
+function earliestDate(left, right) {
+  const dates = [left, right].filter(Boolean).map(value => new Date(value)).filter(value => !Number.isNaN(value.getTime()));
+  if (!dates.length) return null;
+  return new Date(Math.min(...dates.map(value => value.getTime()))).toISOString();
+}
+
 function createAdminMetricsService(options) {
   const config = options || {};
   const repository = config.repository || monitoringRepository;
@@ -38,22 +65,14 @@ function createAdminMetricsService(options) {
     const generatedAt = now();
     const bounds = shanghaiDayBounds(generatedAt);
     const activeSince = new Date(generatedAt.getTime() - 5 * 60 * 1000);
-    const [requests, users, eventRows] = await Promise.all([
+    const [requests, users, eventRows, lifetimeRequests, lifetimeEventSummary, registeredUsers] = await Promise.all([
       repository.getRequestSummary({ since: bounds.start, until: bounds.end }),
       repository.getDailyUserSummary({ dayStart: bounds.start, dayEnd: bounds.end, activeSince }),
-      repository.getEventSummary({ since: bounds.start, until: bounds.end })
+      repository.getEventSummary({ since: bounds.start, until: bounds.end }),
+      repository.getLifetimeRequestSummary({ until: generatedAt }),
+      repository.getLifetimeEventSummary({ until: generatedAt }),
+      repository.getRegisteredUserCount()
     ]);
-    const events = {};
-    Object.values(EVENT_KEYS).forEach(key => { events[key] = { total: 0, success: 0, failure: 0 }; });
-    eventRows.forEach(row => {
-      const key = EVENT_KEYS[row.eventType];
-      if (!key) return;
-      events[key] = {
-        total: finiteOrZero(row.total),
-        success: finiteOrZero(row.success),
-        failure: finiteOrZero(row.failure)
-      };
-    });
     return {
       ok: true,
       generatedAt: generatedAt.toISOString(),
@@ -65,7 +84,15 @@ function createAdminMetricsService(options) {
         averageResponseTimeMs: finiteOrZero(requests.averageResponseTimeMs),
         p95ResponseTimeMs: finiteOrZero(requests.p95ResponseTimeMs)
       },
-      events
+      events: eventSummary(eventRows, false),
+      lifetime: {
+        monitoringStartedAt: earliestDate(lifetimeRequests.firstOccurredAt, lifetimeEventSummary.firstOccurredAt),
+        registeredUsers: finiteOrZero(registeredUsers),
+        requestCount: finiteOrZero(lifetimeRequests.requestCount),
+        averageResponseTimeMs: finiteOrZero(lifetimeRequests.averageResponseTimeMs),
+        p95ResponseTimeMs: finiteOrZero(lifetimeRequests.p95ResponseTimeMs),
+        events: eventSummary(lifetimeEventSummary.events, true)
+      }
     };
   }
 

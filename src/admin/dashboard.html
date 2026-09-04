@@ -23,6 +23,7 @@
     </section>
 
     <section id="dashboard" class="dashboard" hidden>
+      <div class="section-heading"><div><p class="eyebrow">TODAY</p><h2>今日实时</h2></div><span>Asia/Shanghai</span></div>
       <div class="metrics-grid">
         <article class="metric"><span>今日独立用户</span><strong id="uniqueUsers">—</strong><small>匿名日哈希去重</small></article>
         <article class="metric"><span>近 5 分钟活跃</span><strong id="activeUsers">—</strong><small>实时活跃用户</small></article>
@@ -30,6 +31,19 @@
         <article class="metric"><span>平均响应</span><strong id="averageMs">—</strong><small>毫秒</small></article>
         <article class="metric accent"><span>P95 响应</span><strong id="p95Ms">—</strong><small>毫秒</small></article>
       </div>
+
+      <article class="panel lifetime-panel">
+        <div class="panel-head"><div><p class="eyebrow">ALL TIME</p><h2>累计总览</h2></div><span id="monitoringStart">尚无监控数据</span></div>
+        <div class="metrics-grid lifetime-grid">
+          <div class="metric"><span>累计注册用户</span><strong id="registeredUsers">—</strong><small>仅统计用户总数</small></div>
+          <div class="metric"><span>累计请求</span><strong id="lifetimeRequestCount">—</strong><small>监控上线以来</small></div>
+          <div class="metric"><span>累计平均响应</span><strong id="lifetimeAverageMs">—</strong><small>毫秒</small></div>
+          <div class="metric accent"><span>累计 P95</span><strong id="lifetimeP95Ms">—</strong><small>毫秒</small></div>
+          <div class="metric"><span>监控运行天数</span><strong id="monitoringDays">—</strong><small>从首条监控记录起</small></div>
+        </div>
+      </article>
+
+      <article class="panel"><div class="panel-head"><div><p class="eyebrow">ALL-TIME BUSINESS EVENTS</p><h2>累计业务事件</h2></div></div><div id="lifetimeEventGrid" class="event-grid"></div></article>
 
       <div class="content-grid">
         <article class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">TRAFFIC</p><h2>请求趋势</h2></div><span>近 60 分钟</span></div><svg id="requestChart" viewBox="0 0 800 260" role="img" aria-label="请求数时间序列"></svg><p id="chartEmpty" class="empty" hidden>暂无请求数据</p></article>

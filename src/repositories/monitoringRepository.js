@@ -260,6 +260,64 @@ function createMonitoringRepository(poolProvider) {
     }));
   }
 
+  async function getLifetimeRequestSummary(options) {
+    const until = requiredDate(options && options.until, "until");
+    const db = providePool();
+    if (!db) throw new Error("POSTGRES_NOT_ENABLED");
+    const result = await adminQuery(db,
+      `SELECT COUNT(*) AS request_count,
+              AVG(response_time_ms) AS average_response_time_ms,
+              percentile_cont(0.95) WITHIN GROUP (ORDER BY response_time_ms) AS p95_response_time_ms,
+              MIN(occurred_at) AS first_occurred_at
+         FROM api_request_metrics
+        WHERE occurred_at <= $1`,
+      [until]
+    );
+    const row = result.rows[0] || {};
+    return {
+      requestCount: Number(row.request_count || 0),
+      averageResponseTimeMs: finiteNumber(row.average_response_time_ms),
+      p95ResponseTimeMs: finiteNumber(row.p95_response_time_ms),
+      firstOccurredAt: row.first_occurred_at ? requiredDate(row.first_occurred_at, "first_occurred_at") : null
+    };
+  }
+
+  async function getLifetimeEventSummary(options) {
+    const until = requiredDate(options && options.until, "until");
+    const db = providePool();
+    if (!db) throw new Error("POSTGRES_NOT_ENABLED");
+    const result = await adminQuery(db,
+      `SELECT event_type,
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE success = TRUE) AS success_count,
+              COUNT(*) FILTER (WHERE success = FALSE) AS failure_count,
+              MIN(occurred_at) AS first_occurred_at
+         FROM monitor_events
+        WHERE occurred_at <= $1
+        GROUP BY event_type`,
+      [until]
+    );
+    let firstOccurredAt = null;
+    const events = result.rows.map(row => {
+      const rowFirst = row.first_occurred_at ? requiredDate(row.first_occurred_at, "first_occurred_at") : null;
+      if (rowFirst && (!firstOccurredAt || rowFirst.getTime() < firstOccurredAt.getTime())) firstOccurredAt = rowFirst;
+      return {
+        eventType: String(row.event_type),
+        total: Number(row.total || 0),
+        success: Number(row.success_count || 0),
+        failure: Number(row.failure_count || 0)
+      };
+    });
+    return { events, firstOccurredAt };
+  }
+
+  async function getRegisteredUserCount() {
+    const db = providePool();
+    if (!db) throw new Error("POSTGRES_NOT_ENABLED");
+    const result = await adminQuery(db, "SELECT COUNT(*) AS registered_user_count FROM users", []);
+    return Number(result.rows[0] && result.rows[0].registered_user_count || 0);
+  }
+
   async function getRequestTimeseries(options) {
     const input = options || {};
     const since = requiredDate(input.since, "since");
@@ -332,6 +390,9 @@ function createMonitoringRepository(poolProvider) {
     insertMonitorEvent,
     getDailyUserSummary,
     getEventSummary,
+    getLifetimeRequestSummary,
+    getLifetimeEventSummary,
+    getRegisteredUserCount,
     getRequestTimeseries,
     getErrorSummary,
     checkPostgresHealth
