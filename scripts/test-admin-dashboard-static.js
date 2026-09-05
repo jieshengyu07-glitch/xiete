@@ -23,34 +23,64 @@ async function main(){
   assert.match(js,/function getFriendlyErrorInfo\(errorType\)/);
   [
     ["INVALID_CREDENTIALS","账号或密码错误"],
-    ["PORTAL_LOGIN_UNCONFIRMED","学校教务系统暂时没有确认登录"],
+    ["PORTAL_LOGIN_UNCONFIRMED","学校系统登录失败"],
     ["UNKNOWN","暂时无法确定原因"]
   ].forEach(([code,label])=>assert.ok(js.includes(code+':"'+label+'"'),code+" must have a friendly label"));
   assert.match(js,/friendlyErrorReasons\[code\]\|\|"暂时无法识别的问题"/);
   assert.ok(!js.includes("操作未成功"));
-  assert.match(js,/problem\.title="问题代码："\+info\.code/);
+  assert.ok(!js.includes("问题代码："));
+  assert.match(js,/problem\.title=info\.code/);
   const mappingDeclaration=js.match(/var friendlyErrorReasons=\{[\s\S]*?\};/)[0];
   const mappingFunction=js.match(/function getFriendlyErrorInfo\(errorType\)\{[^\n]+\}/)[0];
   const categoryDeclaration=js.match(/var friendlyErrorCategories=\{[\s\S]*?\};/)[0];
   const friendlyError=Function(mappingDeclaration+categoryDeclaration+mappingFunction+";return getFriendlyErrorInfo;")();
   [
-    ["INVALID_CREDENTIALS","账号或密码错误","用户输入的问题"],
-    ["JWXT_INVALID_CREDENTIALS","账号或密码错误","用户输入的问题"],
-    ["PORTAL_LOGIN_UNCONFIRMED","学校教务系统暂时没有确认登录","学校系统或登录流程问题"],
-    ["JWXT_CAPTCHA_REQUIRED","需要完成验证码","用户需要继续操作"],
-    ["JWXT_UNAVAILABLE","学校教务系统暂时无法访问","学校系统问题"],
-    ["JWXT_TIMEOUT","学校教务系统响应太慢","学校系统问题"],
+    ["INVALID_CREDENTIALS","账号或密码错误","用户填写的账号或密码不正确"],
+    ["JWXT_INVALID_CREDENTIALS","账号或密码错误","用户填写的账号或密码不正确"],
+    ["PORTAL_LOGIN_UNCONFIRMED","学校系统登录失败","可能是学校教务系统暂时异常"],
+    ["JWXT_CAPTCHA_REQUIRED","需要完成验证码","用户需要继续完成验证"],
+    ["JWXT_UNAVAILABLE","学校系统暂时无法访问","可能是学校教务系统暂时异常"],
+    ["JWXT_TIMEOUT","学校系统响应太慢","可能是学校教务系统暂时繁忙"],
     ["NETWORK_ERROR","网络连接异常","网络问题"],
-    ["DATABASE_ERROR","数据库暂时异常","系统问题，需要关注"],
+    ["DATABASE_ERROR","数据库出现异常","需要关注"],
     ["UNAUTHORIZED","登录状态已失效","用户需要重新登录"],
     ["NOT_BOUND","账号还没有绑定","用户需要先绑定账号"],
-    ["INTERNAL_ERROR","系统内部出现异常","系统问题，需要关注"],
+    ["INTERNAL_ERROR","小程序后台出现异常","需要关注"],
     ["UNKNOWN","暂时无法确定原因","暂时无法判断"]
   ].forEach(([code,reason,category])=>assert.deepStrictEqual(friendlyError(code),{code,reason,category}));
   assert.deepStrictEqual(friendlyError("FUTURE_SAFE_CODE"),{code:"FUTURE_SAFE_CODE",reason:"暂时无法识别的问题",category:"暂时无法判断"});
   const renderErrors=js.slice(js.indexOf("function renderErrors"),js.indexOf("function healthLabel"));
   assert.ok(!/textContent="问题代码："/.test(renderErrors),"technical code must not be visible body text");
   ["item.message","item.stack","item.response","item.data","openid","studentId","userDayHash"].forEach(value=>assert.ok(!renderErrors.includes(value),value+" must not be rendered"));
+  class FakeElement {
+    constructor(){this.children=[];this.hidden=false;this.title="";this.className="";this.value="";this._text="";}
+    set textContent(value){this._text=String(value);this.children=[];}
+    get textContent(){return this._text+this.children.map(child=>typeof child==="string"?child:child.textContent).join("");}
+    replaceChildren(...children){this._text="";this.children=children;}
+    append(...children){this.children.push(...children);}
+  }
+  const elements={errorRows:new FakeElement(),errorsEmpty:new FakeElement(),errorsTitle:new FakeElement()};
+  const fakeDocument={getElementById:id=>elements[id],createElement:()=>new FakeElement()};
+  const problemLabelsDeclaration=js.match(/var problemLabels=\{[^\n]+\};/)[0];
+  const elDeclaration=js.match(/var el=function\(id\)\{[^\n]+\};/)[0];
+  const textFunction=js.match(/function text\(id,value\)\{[^\n]+\}/)[0];
+  const countFunction=js.match(/function countText\(value,unit\)\{[^\n]+\}/)[0];
+  const renderFunction=js.match(/function renderErrors\(data\)\{[^\n]+\}/)[0];
+  const renderDashboardErrors=Function("document",problemLabelsDeclaration+mappingDeclaration+categoryDeclaration+elDeclaration+textFunction+mappingFunction+countFunction+renderFunction+";return renderErrors;")(fakeDocument);
+  renderDashboardErrors({errors:[
+    {eventType:"bind_account",errorType:"INVALID_CREDENTIALS",count:3,lastOccurredAt:"2026-09-05T00:15:00Z"},
+    {eventType:"bind_account",errorType:"PORTAL_LOGIN_UNCONFIRMED",count:2,lastOccurredAt:"2026-09-05T00:16:00Z"}
+  ]});
+  const visibleErrorText=elements.errorRows.textContent;
+  assert.ok(!visibleErrorText.includes("问题代码："));
+  assert.ok(!visibleErrorText.includes("INVALID_CREDENTIALS"));
+  assert.ok(!visibleErrorText.includes("PORTAL_LOGIN_UNCONFIRMED"));
+  assert.ok(visibleErrorText.includes("账号或密码错误"));
+  assert.ok(visibleErrorText.includes("用户填写的账号或密码不正确"));
+  assert.ok(visibleErrorText.includes("学校系统登录失败"));
+  assert.ok(visibleErrorText.includes("可能是学校教务系统暂时异常"));
+  assert.strictEqual(elements.errorRows.children[0].children[1].title,"INVALID_CREDENTIALS");
+  assert.strictEqual(elements.errorRows.children[1].children[1].title,"PORTAL_LOGIN_UNCONFIRMED");
   console.log("adminDashboardStaticSecurityHeadersTest=passed");
   console.log("adminDashboardFriendlyErrorMappingTest=passed");
   console.log("adminDashboardMemoryOnlySecretAndPollingTest=passed");
