@@ -71,8 +71,10 @@ const statements = [
     error_type TEXT,
     duration_ms INTEGER,
     user_day_hash TEXT,
-    source TEXT
+    source TEXT,
+    stage TEXT
   )`
+  ,"ALTER TABLE monitor_events ADD COLUMN IF NOT EXISTS stage TEXT"
   ,"CREATE INDEX IF NOT EXISTS monitor_events_occurred_at_idx ON monitor_events (occurred_at)"
   ,"CREATE INDEX IF NOT EXISTS monitor_events_event_type_occurred_at_idx ON monitor_events (event_type, occurred_at)"
   ,"CREATE INDEX IF NOT EXISTS monitor_events_user_day_hash_occurred_at_idx ON monitor_events (user_day_hash, occurred_at)"

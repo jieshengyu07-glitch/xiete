@@ -96,9 +96,9 @@ async function main() {
     payload: { secret: "payload-must-not-be-stored" }
   });
   const eventCall = calls[2];
-  assert.match(eventCall.sql, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\)/);
+  assert.match(eventCall.sql, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\)/);
   assert.deepStrictEqual(eventCall.values, [
-    occurredAt, "grades_query", false, "JWXT_UNAVAILABLE", 10, userDayHash, "jwxt"
+    occurredAt, "grades_query", false, "JWXT_UNAVAILABLE", 10, userDayHash, "jwxt", null
   ]);
   ["raw-user", "student-must", "password-must", "message-must", "stack-must", "payload-must"].forEach(value => {
     assert.ok(!JSON.stringify(eventCall.values).includes(value));
@@ -118,6 +118,7 @@ async function main() {
   const dailyCall = calls[3];
   assert.match(dailyCall.sql, /COUNT\(DISTINCT user_day_hash\)/);
   assert.match(dailyCall.sql, /user_day_hash IS NOT NULL/);
+  assert.match(dailyCall.sql, /event_type <> 'bind_stage'/);
   assert.strictEqual(dailyCall.queryTimeout, 5000);
   console.log("monitoringRepositoryParameterizedInsertTest=passed");
   console.log("monitoringRepositorySummaryTest=passed");

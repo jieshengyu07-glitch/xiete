@@ -45,7 +45,9 @@ async function main() {
       getLifetimeRequestSummary: async () => ({ requestCount: 1, averageResponseTimeMs: 4, p95ResponseTimeMs: 4, firstOccurredAt: new Date("2026-09-01T01:00:00Z") }),
       getLifetimeEventSummary: async () => ({ events: [], firstOccurredAt: null }),
       getRegisteredUserCount: async () => 100,
-      getBoundUserCount: async () => 80
+      getBoundUserCount: async () => 80,
+      getBindingFunnel: async () => [],
+      getBindingFailureBreakdown: async () => []
     },
     now: () => until
   });

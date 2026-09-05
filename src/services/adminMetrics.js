@@ -9,6 +9,19 @@ const EVENT_KEYS = {
   bind_account: "bindAccount",
   unbind_account: "unbindAccount"
 };
+const BIND_STAGE_KEYS = {
+  bind_started: "started",
+  portal_login_confirmed: "portalConfirmed",
+  binding_saved: "saved",
+  jwxt_login_confirmed: "jwxtConfirmed"
+};
+const BIND_FAILURE_LABELS = {
+  invalid_credentials: "账号或密码错误",
+  school_login_failed: "学校系统登录失败",
+  captcha_required: "需要验证码",
+  school_unavailable: "学校系统暂时无法访问",
+  other: "其他"
+};
 const RANGE_MS = { "60m": 60 * 60 * 1000, "6h": 6 * 60 * 60 * 1000, "24h": 24 * 60 * 60 * 1000 };
 const BUCKET_MS = { minute: 60 * 1000, "5minute": 5 * 60 * 1000, hour: 60 * 60 * 1000 };
 
@@ -60,6 +73,30 @@ function earliestDate(left, right) {
   return new Date(Math.min(...dates.map(value => value.getTime()))).toISOString();
 }
 
+function bindingFunnel(rows) {
+  const counts = { started: 0, portalConfirmed: 0, saved: 0, jwxtConfirmed: 0 };
+  rows.forEach(row => {
+    const key = BIND_STAGE_KEYS[row.stage];
+    if (key) counts[key] = finiteOrZero(row.count);
+  });
+  return Object.assign(counts, {
+    conversionRates: {
+      portalFromStarted: percentage(counts.portalConfirmed, counts.started),
+      savedFromPortal: percentage(counts.saved, counts.portalConfirmed),
+      jwxtFromSaved: percentage(counts.jwxtConfirmed, counts.saved),
+      finalSuccess: percentage(counts.jwxtConfirmed, counts.started)
+    }
+  });
+}
+
+function bindingFailures(rows) {
+  return rows.map(row => ({
+    reason: BIND_FAILURE_LABELS[row.reasonKey] || BIND_FAILURE_LABELS.other,
+    failureCount: finiteOrZero(row.failureCount),
+    affectedUsers: finiteOrZero(row.affectedUsers)
+  }));
+}
+
 function createAdminMetricsService(options) {
   const config = options || {};
   const repository = config.repository || monitoringRepository;
@@ -71,14 +108,16 @@ function createAdminMetricsService(options) {
     const generatedAt = now();
     const bounds = shanghaiDayBounds(generatedAt);
     const activeSince = new Date(generatedAt.getTime() - 5 * 60 * 1000);
-    const [requests, users, eventRows, lifetimeRequests, lifetimeEventSummary, registeredUsers, boundUsers] = await Promise.all([
+    const [requests, users, eventRows, lifetimeRequests, lifetimeEventSummary, registeredUsers, boundUsers, bindStageRows, bindFailureRows] = await Promise.all([
       repository.getRequestSummary({ since: bounds.start, until: bounds.end }),
       repository.getDailyUserSummary({ dayStart: bounds.start, dayEnd: bounds.end, activeSince }),
       repository.getEventSummary({ since: bounds.start, until: bounds.end }),
       repository.getLifetimeRequestSummary({ until: generatedAt }),
       repository.getLifetimeEventSummary({ until: generatedAt }),
       repository.getRegisteredUserCount(),
-      repository.getBoundUserCount()
+      repository.getBoundUserCount(),
+      repository.getBindingFunnel({ since: bounds.start, until: bounds.end }),
+      repository.getBindingFailureBreakdown({ since: bounds.start, until: bounds.end })
     ]);
     return {
       ok: true,
@@ -92,6 +131,8 @@ function createAdminMetricsService(options) {
         p95ResponseTimeMs: finiteOrZero(requests.p95ResponseTimeMs)
       },
       events: eventSummary(eventRows, false),
+      bindingFunnel: bindingFunnel(bindStageRows),
+      bindingFailures: bindingFailures(bindFailureRows),
       lifetime: {
         monitoringStartedAt: earliestDate(lifetimeRequests.firstOccurredAt, lifetimeEventSummary.firstOccurredAt),
         registeredUsers: finiteOrZero(registeredUsers),

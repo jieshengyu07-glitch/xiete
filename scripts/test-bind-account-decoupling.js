@@ -52,6 +52,7 @@ async function runCase(mode, callback) {
     CREDENTIAL_SECRET: credentialSecret,
     DISABLE_SCHEDULER: "1",
     MOCK_BIND_MODE: mode,
+    MOCK_BIND_STAGE_LOG: path.join(dataDir, "bind-stages.log"),
     PORT: String(port)
   });
   const child = spawn(process.execPath, ["-r", preload, "src/index.js"], {
@@ -63,12 +64,18 @@ async function runCase(mode, callback) {
   try {
     await waitForServer(port, child);
     const token = jwt.sign({ userId }, jwtSecret, { expiresIn: "5m" });
-    await callback({ port, token, dataDir, userId });
+    await callback({ port, token, dataDir, userId, stageLog: path.join(dataDir, "bind-stages.log") });
   } finally {
     if (child.exitCode === null) child.kill();
     await new Promise(resolve => setTimeout(resolve, 150));
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+}
+
+function stages(stageLog) {
+  return fs.existsSync(stageLog)
+    ? fs.readFileSync(stageLog, "utf8").trim().split(/\r?\n/).filter(Boolean)
+    : [];
 }
 
 async function waitForStatus(port, token, expected, attempts) {
@@ -82,7 +89,7 @@ async function waitForStatus(port, token, expected, attempts) {
 }
 
 async function main() {
-  await runCase("normal", async ({ port, token, dataDir, userId }) => {
+  await runCase("normal", async ({ port, token, dataDir, userId, stageLog }) => {
     const bound = await request(port, "POST", "/bind-account", token, { studentId: "student", password: "correct" });
     assert.strictEqual(bound.status, 200);
     assert.strictEqual(bound.data.bound, true);
@@ -91,11 +98,12 @@ async function main() {
     assert.strictEqual(status.data.campusLoginStatus, "valid");
     assert.strictEqual(fs.existsSync(path.join(dataDir, "users", userId, "account.json")), true);
     assert.strictEqual(fs.existsSync(path.join(dataDir, "users", userId, "cookies.json")), true);
+    assert.deepStrictEqual(stages(stageLog), ["bind_started", "portal_login_confirmed", "binding_saved", "jwxt_login_confirmed"]);
     console.log("correctAccountJwxtAvailableBindSuccessTest=passed");
     console.log("boundAccountJwxtRecoveryWritesCookiesTest=passed");
   });
 
-  await runCase("down", async ({ port, token, dataDir, userId }) => {
+  await runCase("down", async ({ port, token, dataDir, userId, stageLog }) => {
     const bound = await request(port, "POST", "/bind-account", token, { studentId: "student", password: "correct" });
     assert.strictEqual(bound.status, 200);
     assert.strictEqual(bound.data.bound, true);
@@ -106,6 +114,7 @@ async function main() {
     assert.strictEqual(status.data.campusLoginStatus, "recovering");
     assert.notStrictEqual(status.data.lastJwxtError, "ACCOUNT_RELOGIN_REQUIRED");
     assert.strictEqual(fs.existsSync(path.join(dataDir, "users", userId, "account.json")), true);
+    assert.deepStrictEqual(stages(stageLog), ["bind_started", "portal_login_confirmed", "binding_saved"]);
     console.log("correctAccountJwxtUnavailableStillBoundTest=passed");
   });
 
@@ -120,12 +129,13 @@ async function main() {
     console.log("boundAccountAutomaticJwxtRecoveryTest=passed");
   });
 
-  await runCase("invalid", async ({ port, token, dataDir, userId }) => {
+  await runCase("invalid", async ({ port, token, dataDir, userId, stageLog }) => {
     const bound = await request(port, "POST", "/bind-account", token, { studentId: "student", password: "wrong" });
     assert.strictEqual(bound.status, 400);
     assert.strictEqual(bound.data.success, false);
     assert.strictEqual(bound.data.error, "INVALID_CREDENTIALS");
     assert.strictEqual(fs.existsSync(path.join(dataDir, "users", userId, "account.json")), false);
+    assert.deepStrictEqual(stages(stageLog), ["bind_started"]);
     console.log("invalidPasswordBindFailureTest=passed");
   });
 }

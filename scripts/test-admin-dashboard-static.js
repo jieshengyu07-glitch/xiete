@@ -28,6 +28,10 @@ async function main(){
   const percentFunction=Function(js.match(/function percentText\(value\)\{[^\n]+\}/)[0]+";return percentText;")();
   assert.strictEqual(percentFunction(80),"80.0%");
   assert.strictEqual(percentFunction(0),"0.0%");
+  ["绑定流程情况","开始绑定","学校登录成功","账号保存成功","进入教务系统成功","今天为什么绑定失败","影响人数是今天的匿名去重人数"].forEach(value=>assert.ok(html.includes(value)));
+  assert.match(js,/renderBindingFunnel\(data\.bindingFunnel\)/);
+  assert.match(js,/renderBindingFailures\(data\.bindingFailures\)/);
+  assert.ok(!/bindingFailureList[^\n]+errorType/.test(js));
   assert.match(html,/<th>功能<\/th><th>发生了什么<\/th><th>次数<\/th><th>最近一次<\/th>/);
   assert.match(js,/function getFriendlyErrorInfo\(errorType\)/);
   [
@@ -68,7 +72,12 @@ async function main(){
     replaceChildren(...children){this._text="";this.children=children;}
     append(...children){this.children.push(...children);}
   }
-  const elements={errorRows:new FakeElement(),errorsEmpty:new FakeElement(),errorsTitle:new FakeElement()};
+  const elements={
+    errorRows:new FakeElement(),errorsEmpty:new FakeElement(),errorsTitle:new FakeElement(),
+    bindStarted:new FakeElement(),bindPortalConfirmed:new FakeElement(),bindSaved:new FakeElement(),bindJwxtConfirmed:new FakeElement(),
+    bindPortalRate:new FakeElement(),bindSavedRate:new FakeElement(),bindJwxtRate:new FakeElement(),bindFinalRate:new FakeElement(),
+    bindingFailureList:new FakeElement()
+  };
   const fakeDocument={getElementById:id=>elements[id],createElement:()=>new FakeElement()};
   const problemLabelsDeclaration=js.match(/var problemLabels=\{[^\n]+\};/)[0];
   const elDeclaration=js.match(/var el=function\(id\)\{[^\n]+\};/)[0];
@@ -90,6 +99,16 @@ async function main(){
   assert.ok(visibleErrorText.includes("可能是学校教务系统暂时异常"));
   assert.strictEqual(elements.errorRows.children[0].children[1].title,"INVALID_CREDENTIALS");
   assert.strictEqual(elements.errorRows.children[1].children[1].title,"PORTAL_LOGIN_UNCONFIRMED");
+  const funnelFunction=js.match(/function renderBindingFunnel\(value\)\{[^\n]+\}/)[0];
+  const failureFunction=js.match(/function renderBindingFailures\(rows\)\{[^\n]+\}/)[0];
+  const percentSource=js.match(/function percentText\(value\)\{[^\n]+\}/)[0];
+  const bindingRenderers=Function("document",elDeclaration+textFunction+countFunction+percentSource+funnelFunction+failureFunction+";return {renderBindingFunnel,renderBindingFailures};")(fakeDocument);
+  bindingRenderers.renderBindingFunnel({started:25,portalConfirmed:18,saved:8,jwxtConfirmed:5,conversionRates:{portalFromStarted:72,savedFromPortal:44.4,jwxtFromSaved:62.5,finalSuccess:20}});
+  bindingRenderers.renderBindingFailures([{reason:"账号或密码错误",failureCount:12,affectedUsers:7}]);
+  assert.strictEqual(elements.bindStarted.textContent,"25 次");
+  assert.strictEqual(elements.bindPortalRate.textContent,"上一步转化率 72.0%");
+  assert.strictEqual(elements.bindFinalRate.textContent,"20.0%");
+  assert.strictEqual(elements.bindingFailureList.textContent,"账号或密码错误12 次 · 影响 7 人");
   console.log("adminDashboardStaticSecurityHeadersTest=passed");
   console.log("adminDashboardFriendlyErrorMappingTest=passed");
   console.log("adminDashboardMemoryOnlySecretAndPollingTest=passed");

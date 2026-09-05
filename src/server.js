@@ -37,7 +37,7 @@ const reviewDemo = require("./services/reviewDemo");
 const { assertSessionEncryptionConfig } = require("./services/sessionCrypto");
 const { rateLimit } = require("./middleware/rateLimit");
 const requestMetrics = require("./middleware/requestMetrics");
-const { monitorBusinessEvent } = require("./services/businessEventRecorder");
+const { monitorBusinessEvent, createBindStageTracker } = require("./services/businessEventRecorder");
 const { initializePersistence, closePool } = require("./db/persistence");
 const { isPostgresEnabled } = require("./db/pool");
 const userRepository = require("./repositories/userRepository");
@@ -1831,6 +1831,11 @@ app.post("/bind-account", auth, monitorBusinessEvent("bind_account", { source: "
     });
   }
 
+  const recordBindStage = createBindStageTracker(
+    res.locals && res.locals.monitoringUserIdentifier || req.userId || null
+  );
+  recordBindStage("bind_started");
+
   const reviewCredentialStatus = reviewDemo.classifyCredentials(studentId, password);
   if (reviewCredentialStatus === "unavailable") {
     return res.status(503).json({
@@ -1939,12 +1944,14 @@ app.post("/bind-account", auth, monitorBusinessEvent("bind_account", { source: "
 
   logPortalResult(portal && portal.portalResult);
   console.log("[bind] portal-verified ok=true");
+  recordBindStage("portal_login_confirmed");
   try {
     await credentialStore.saveBoundAccountAsync(studentId, password, req.userId);
   } catch (err) {
     console.error("[bind] persistence failed code=" + (err.code || "DATABASE_WRITE_FAILED"));
     return res.status(503).json({ success: false, bound: false, error: "PERSISTENCE_UNAVAILABLE", message: "账户保存失败，请稍后重试" });
   }
+  recordBindStage("binding_saved");
   userPersistence.saveBoundProfile(req.userId, studentId);
   console.log("[bind] account-saved userIdHash=" + userIdHash(req.userId));
   await credentialStore.updateBoundAccountStatusAsync(req.userId, "COOKIE_EXPIRED", {
@@ -1953,6 +1960,11 @@ app.post("/bind-account", auth, monitorBusinessEvent("bind_account", { source: "
   });
 
   const completion = scheduleBindCompletion(req.userId, portal);
+  if (completion) {
+    completion.then(result => {
+      if (result && result.success) recordBindStage("jwxt_login_confirmed");
+    }).catch(() => {});
+  }
   const quickCompletion = await waitForBindCompletion(completion, 350);
   if (quickCompletion.completed && quickCompletion.result && quickCompletion.result.success) {
     return res.json({

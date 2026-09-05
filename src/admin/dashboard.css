@@ -357,6 +357,92 @@ button {
   line-height: 1.45;
 }
 
+.binding-layout {
+  display: grid;
+  grid-template-columns: 1.45fr 1fr;
+  gap: 28px;
+}
+
+.binding-layout h3 {
+  margin: 0 0 14px;
+  font-size: 15px;
+}
+
+.funnel-list {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.funnel-step {
+  position: relative;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel2);
+}
+
+.funnel-step:not(:last-child)::after {
+  content: "→";
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  z-index: 1;
+  color: var(--cyan);
+  transform: translate(50%, -50%);
+}
+
+.funnel-step span,
+.funnel-step small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.funnel-step strong {
+  display: block;
+  margin: 9px 0;
+  color: var(--cyan);
+  font-size: 25px;
+}
+
+.funnel-total {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.funnel-total strong {
+  color: var(--text);
+}
+
+.binding-failures {
+  display: grid;
+  gap: 8px;
+}
+
+.binding-failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--panel2);
+}
+
+.binding-failure span,
+.binding-note,
+.binding-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.binding-note {
+  margin-top: 14px;
+  line-height: 1.6;
+}
+
 .health-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -443,8 +529,13 @@ td {
   }
 
   .content-grid,
-  .login-panel {
+  .login-panel,
+  .binding-layout {
     grid-template-columns: 1fr;
+  }
+
+  .funnel-list {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .event-grid {
@@ -474,6 +565,18 @@ td {
   .event-grid,
   .health-grid {
     grid-template-columns: 1fr;
+  }
+
+  .funnel-list {
+    grid-template-columns: 1fr;
+  }
+
+  .funnel-step:not(:last-child)::after {
+    content: "↓";
+    top: auto;
+    right: 50%;
+    bottom: -10px;
+    transform: translate(50%, 50%);
   }
 
   .login-panel {

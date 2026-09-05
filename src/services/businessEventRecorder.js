@@ -46,7 +46,8 @@ function createBusinessEventRecorder(options) {
       errorType: input.success ? null : monitoringRepository.normalizeMonitorErrorType(input.errorType),
       durationMs: input.durationMs,
       userDayHash,
-      source: monitoringRepository.normalizeMonitorSource(input.source)
+      source: monitoringRepository.normalizeMonitorSource(input.source),
+      stage: input.eventType === "bind_stage" ? monitoringRepository.normalizeMonitorStage(input.stage) : null
     };
     try {
       Promise.resolve(repository.insertMonitorEvent(event))
@@ -54,6 +55,25 @@ function createBusinessEventRecorder(options) {
     } catch (_) {
       safelyReportWriteFailure(onWriteFailure);
     }
+  }
+
+  function createBindStageTracker(userIdentifier) {
+    const recordedStages = new Set();
+    const requestOccurredAt = new Date();
+    return function recordBindStage(stage) {
+      const normalizedStage = monitoringRepository.normalizeMonitorStage(stage);
+      if (recordedStages.has(normalizedStage)) return false;
+      recordedStages.add(normalizedStage);
+      recordMonitorEvent({
+        occurredAt: requestOccurredAt,
+        eventType: "bind_stage",
+        success: true,
+        stage: normalizedStage,
+        userIdentifier,
+        source: "jwxt"
+      });
+      return true;
+    };
   }
 
   function monitorBusinessEvent(eventType, eventOptions) {
@@ -104,7 +124,7 @@ function createBusinessEventRecorder(options) {
     };
   }
 
-  return { monitorBusinessEvent, recordMonitorEvent };
+  return { monitorBusinessEvent, recordMonitorEvent, createBindStageTracker };
 }
 
 const recorder = createBusinessEventRecorder();
@@ -112,5 +132,6 @@ const recorder = createBusinessEventRecorder();
 module.exports = {
   createBusinessEventRecorder,
   monitorBusinessEvent: recorder.monitorBusinessEvent,
-  recordMonitorEvent: recorder.recordMonitorEvent
+  recordMonitorEvent: recorder.recordMonitorEvent,
+  createBindStageTracker: recorder.createBindStageTracker
 };

@@ -1,4 +1,5 @@
 const Module = require("module");
+const fs = require("fs");
 
 const originalLoad = Module._load;
 const realAxios = originalLoad("axios", module, false);
@@ -33,6 +34,21 @@ function unavailableError() {
 
 Module._load = function(request, parent, isMain) {
   if (request === "axios") return mockAxios;
+  if (String(request).includes("services/businessEventRecorder")) {
+    const actual = originalLoad.call(this, request, parent, isMain);
+    return Object.assign({}, actual, {
+      createBindStageTracker(userIdentifier) {
+        const record = actual.createBindStageTracker(userIdentifier);
+        return stage => {
+          const inserted = record(stage);
+          if (inserted && process.env.MOCK_BIND_STAGE_LOG) {
+            fs.appendFileSync(process.env.MOCK_BIND_STAGE_LOG, stage + "\n", "utf8");
+          }
+          return inserted;
+        };
+      }
+    });
+  }
   if (String(request).includes("login/httpJwxtLogin")) {
     return {
       httpPortalLogin: async () => {

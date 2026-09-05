@@ -25,6 +25,16 @@ async function main() {
     async getLifetimeEventSummary(input) { calls.push(["lifetimeEvents", input]); return { events: [{ eventType: "grades_query", total: 1234, success: 1210, failure: 24 }], firstOccurredAt: new Date("2026-08-31T16:30:00Z") }; },
     async getRegisteredUserCount() { calls.push(["registeredUsers"]); return 123; },
     async getBoundUserCount() { calls.push(["boundUsers"]); return 80; },
+    async getBindingFunnel(input) { calls.push(["bindingFunnel", input]); return [
+      { stage: "bind_started", count: 25 },
+      { stage: "portal_login_confirmed", count: 18 },
+      { stage: "binding_saved", count: 8 },
+      { stage: "jwxt_login_confirmed", count: 5 }
+    ]; },
+    async getBindingFailureBreakdown(input) { calls.push(["bindingFailures", input]); return [
+      { reasonKey: "invalid_credentials", failureCount: 12, affectedUsers: 7 },
+      { reasonKey: "school_login_failed", failureCount: 10, affectedUsers: 9 }
+    ]; },
     async getRequestTimeseries(input) { calls.push(["series", input]); return [{ timestamp: new Date("2026-09-04T03:59:00Z"), requestCount: 2, averageResponseTimeMs: 10, p95ResponseTimeMs: 14 }]; },
     async getErrorSummary(input) { calls.push(["errors", input]); return [{ eventType: "grades_query", errorType: "JWXT_TIMEOUT", count: 2, lastOccurredAt: new Date("2026-09-04T03:50:00Z"), userDayHash: "forbidden", message: "forbidden" }]; },
     async checkPostgresHealth() { calls.push(["health"]); }
@@ -40,6 +50,18 @@ async function main() {
     assert.deepStrictEqual(summary.json.today, { uniqueUsers: 3, activeUsers5m: 1, requestCount: 9, averageResponseTimeMs: 0, p95ResponseTimeMs: 42.3 });
     assert.deepStrictEqual(summary.json.events.wechatLogin, { total: 0, success: 0, failure: 0 });
     assert.deepStrictEqual(summary.json.events.gradesQuery, { total: 2, success: 1, failure: 1 });
+    assert.deepStrictEqual(summary.json.bindingFunnel, {
+      started: 25,
+      portalConfirmed: 18,
+      saved: 8,
+      jwxtConfirmed: 5,
+      conversionRates: { portalFromStarted: 72, savedFromPortal: 44.4, jwxtFromSaved: 62.5, finalSuccess: 20 }
+    });
+    assert.deepStrictEqual(summary.json.bindingFailures, [
+      { reason: "账号或密码错误", failureCount: 12, affectedUsers: 7 },
+      { reason: "学校系统登录失败", failureCount: 10, affectedUsers: 9 }
+    ]);
+    assert.ok(!summary.body.includes("reasonKey") && !summary.body.includes("errorType") && !summary.body.includes("user_day_hash"));
     assert.strictEqual(summary.json.lifetime.monitoringStartedAt, "2026-08-31T16:30:00.000Z");
     assert.deepStrictEqual({
       registeredUsers: summary.json.lifetime.registeredUsers,
@@ -78,7 +100,9 @@ async function main() {
       getLifetimeRequestSummary: async () => ({ requestCount: 0, averageResponseTimeMs: null, p95ResponseTimeMs: null, firstOccurredAt: null }),
       getLifetimeEventSummary: async () => ({ events: [], firstOccurredAt: null }),
       getRegisteredUserCount: async () => 0,
-      getBoundUserCount: async () => 0
+      getBoundUserCount: async () => 0,
+      getBindingFunnel: async () => [],
+      getBindingFailureBreakdown: async () => []
     },
     now: () => new Date("2026-09-04T04:00:00Z")
   });
@@ -87,6 +111,7 @@ async function main() {
   assert.strictEqual(emptySummary.lifetime.monitoringStartedAt, null);
   assert.strictEqual(emptySummary.lifetime.boundUsers, 0);
   assert.strictEqual(emptySummary.lifetime.bindingRate, 0);
+  assert.deepStrictEqual(emptySummary.bindingFunnel.conversionRates, { portalFromStarted: 0, savedFromPortal: 0, jwxtFromSaved: 0, finalSuccess: 0 });
   assert.strictEqual(emptySummary.lifetime.events.gradesQuery.successRate, 0);
   assert.strictEqual(JSON.stringify(emptySummary).includes("NaN"), false);
   assert.strictEqual(JSON.stringify(emptySummary).includes("Infinity"), false);

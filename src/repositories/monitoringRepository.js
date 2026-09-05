@@ -5,7 +5,14 @@ const MONITOR_EVENT_TYPES = new Set([
   "bind_account",
   "unbind_account",
   "grades_query",
-  "timetable_query"
+  "timetable_query",
+  "bind_stage"
+]);
+const BIND_STAGES = new Set([
+  "bind_started",
+  "portal_login_confirmed",
+  "binding_saved",
+  "jwxt_login_confirmed"
 ]);
 const MONITOR_EVENT_SOURCES = new Set([
   "cache",
@@ -107,6 +114,12 @@ function normalizeMonitorSource(value) {
   return MONITOR_EVENT_SOURCES.has(source) ? source : "unknown";
 }
 
+function normalizeMonitorStage(value) {
+  const stage = String(value || "").trim().toLowerCase();
+  if (!BIND_STAGES.has(stage)) throw new TypeError("stage is not allowed");
+  return stage;
+}
+
 function monitorEvent(value) {
   const event = value && typeof value === "object" ? value : {};
   const occurredAt = event.occurredAt === undefined
@@ -115,6 +128,8 @@ function monitorEvent(value) {
   const eventType = String(event.eventType || "").trim();
   if (!MONITOR_EVENT_TYPES.has(eventType)) throw new TypeError("eventType is not allowed");
   if (typeof event.success !== "boolean") throw new TypeError("success must be boolean");
+  if (eventType === "bind_stage" && event.success !== true) throw new TypeError("bind stage must be successful");
+  if (eventType !== "bind_stage" && event.stage !== null && event.stage !== undefined) throw new TypeError("stage is only allowed for bind stage events");
 
   let durationMs = null;
   if (event.durationMs !== null && event.durationMs !== undefined) {
@@ -137,7 +152,8 @@ function monitorEvent(value) {
     errorType: event.success ? null : normalizeMonitorErrorType(event.errorType),
     durationMs,
     userDayHash,
-    source: normalizeMonitorSource(event.source)
+    source: normalizeMonitorSource(event.source),
+    stage: eventType === "bind_stage" ? normalizeMonitorStage(event.stage) : null
   };
 }
 
@@ -191,8 +207,8 @@ function createMonitoringRepository(poolProvider) {
     if (!db) throw new Error("POSTGRES_NOT_ENABLED");
     await db.query(
       `INSERT INTO monitor_events
-        (occurred_at, event_type, success, error_type, duration_ms, user_day_hash, source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        (occurred_at, event_type, success, error_type, duration_ms, user_day_hash, source, stage)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         event.occurredAt,
         event.eventType,
@@ -200,9 +216,69 @@ function createMonitoringRepository(poolProvider) {
         event.errorType,
         event.durationMs,
         event.userDayHash,
-        event.source
+        event.source,
+        event.stage
       ]
     );
+  }
+
+  async function getBindingFunnel(options) {
+    const input = options || {};
+    const since = requiredDate(input.since, "since");
+    const until = requiredDate(input.until, "until");
+    if (until.getTime() <= since.getTime()) throw new TypeError("until must follow since");
+    const db = providePool();
+    if (!db) throw new Error("POSTGRES_NOT_ENABLED");
+    const result = await adminQuery(db,
+      `SELECT stage, COUNT(*) AS stage_count
+         FROM monitor_events
+        WHERE event_type = 'bind_stage'
+          AND stage IS NOT NULL
+          AND occurred_at >= $1 AND occurred_at < $2
+        GROUP BY stage`,
+      [since, until]
+    );
+    return result.rows.map(row => ({
+      stage: normalizeMonitorStage(row.stage),
+      count: Number(row.stage_count || 0)
+    }));
+  }
+
+  async function getBindingFailureBreakdown(options) {
+    const input = options || {};
+    const since = requiredDate(input.since, "since");
+    const until = requiredDate(input.until, "until");
+    if (until.getTime() <= since.getTime()) throw new TypeError("until must follow since");
+    const db = providePool();
+    if (!db) throw new Error("POSTGRES_NOT_ENABLED");
+    const result = await adminQuery(db,
+      `WITH classified AS (
+         SELECT CASE
+                  WHEN error_type IN ('INVALID_ACCOUNT', 'INVALID_CREDENTIALS', 'JWXT_INVALID_CREDENTIALS') THEN 'invalid_credentials'
+                  WHEN error_type IN ('PORTAL_LOGIN_UNCONFIRMED', 'PORTAL_VERIFICATION_REQUIRED', 'JWXT_LOGIN_FAILED', 'JWXT_SSO_FAILED') THEN 'school_login_failed'
+                  WHEN error_type IN ('JWXT_CAPTCHA_REQUIRED', 'JWXT_CAPTCHA_INVALID', 'JWXT_CAPTCHA_SESSION_EXPIRED') THEN 'captcha_required'
+                  WHEN error_type IN ('JWXT_UNAVAILABLE', 'JWXT_TIMEOUT', 'PORTAL_UNAVAILABLE') THEN 'school_unavailable'
+                  ELSE 'other'
+                END AS reason_key,
+                user_day_hash
+           FROM monitor_events
+          WHERE event_type = 'bind_account'
+            AND success = FALSE
+            AND occurred_at >= $1 AND occurred_at < $2
+       )
+       SELECT reason_key,
+              COUNT(*) AS failure_count,
+              COUNT(DISTINCT user_day_hash) FILTER (WHERE user_day_hash IS NOT NULL) AS affected_user_count
+         FROM classified
+        GROUP BY reason_key
+        ORDER BY COUNT(*) DESC, reason_key ASC`,
+      [since, until]
+    );
+    return result.rows.map(row => ({
+      reasonKey: String(row.reason_key),
+      failureCount: Number(row.failure_count || 0),
+      affectedUsers: Number(row.affected_user_count || 0)
+    }));
   }
 
   async function getDailyUserSummary(options) {
@@ -224,6 +300,7 @@ function createMonitoringRepository(poolProvider) {
               ) AS active_users_last_5_minutes
          FROM monitor_events
         WHERE user_day_hash IS NOT NULL
+          AND event_type <> 'bind_stage'
           AND occurred_at >= LEAST($1, $3)
           AND occurred_at < $2`,
       [dayStart, dayEnd, activeSince]
@@ -249,6 +326,7 @@ function createMonitoringRepository(poolProvider) {
               COUNT(*) FILTER (WHERE success = FALSE) AS failure_count
          FROM monitor_events
         WHERE occurred_at >= $1 AND occurred_at < $2
+          AND event_type <> 'bind_stage'
         GROUP BY event_type`,
       [since, until]
     );
@@ -294,6 +372,7 @@ function createMonitoringRepository(poolProvider) {
               MIN(occurred_at) AS first_occurred_at
          FROM monitor_events
         WHERE occurred_at <= $1
+          AND event_type <> 'bind_stage'
         GROUP BY event_type`,
       [until]
     );
@@ -395,6 +474,8 @@ function createMonitoringRepository(poolProvider) {
     insertRequestMetric,
     getRequestSummary,
     insertMonitorEvent,
+    getBindingFunnel,
+    getBindingFailureBreakdown,
     getDailyUserSummary,
     getEventSummary,
     getLifetimeRequestSummary,
@@ -412,5 +493,6 @@ const repository = createMonitoringRepository();
 module.exports = Object.assign(repository, {
   createMonitoringRepository,
   normalizeMonitorErrorType,
-  normalizeMonitorSource
+  normalizeMonitorSource,
+  normalizeMonitorStage
 });

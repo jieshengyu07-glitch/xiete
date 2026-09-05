@@ -38,6 +38,19 @@
 
       <article class="panel"><div class="panel-head"><div><p class="eyebrow">今天的功能使用</p><h2>今天大家都在用什么</h2></div></div><div id="eventGrid" class="event-grid"></div></article>
 
+      <article class="panel binding-panel">
+        <div class="panel-head"><div><p class="eyebrow">账号绑定</p><h2>绑定流程情况</h2></div><span>按北京时间统计今天</span></div>
+        <div class="binding-layout">
+          <section><h3>今天走到哪一步</h3><div class="funnel-list">
+            <div class="funnel-step"><span>开始绑定</span><strong id="bindStarted">—</strong><small>有效绑定请求</small></div>
+            <div class="funnel-step"><span>学校登录成功</span><strong id="bindPortalConfirmed">—</strong><small id="bindPortalRate">上一步转化率 —</small></div>
+            <div class="funnel-step"><span>账号保存成功</span><strong id="bindSaved">—</strong><small id="bindSavedRate">上一步转化率 —</small></div>
+            <div class="funnel-step"><span>进入教务系统成功</span><strong id="bindJwxtConfirmed">—</strong><small id="bindJwxtRate">上一步转化率 —</small></div>
+          </div><p class="funnel-total">完整流程成功率：<strong id="bindFinalRate">—</strong></p></section>
+          <section><h3>今天为什么绑定失败</h3><div id="bindingFailureList" class="binding-failures"></div><p class="binding-note">失败次数按尝试计算，同一用户重复尝试会计为多次；影响人数是今天的匿名去重人数。</p></section>
+        </div>
+      </article>
+
       <article class="panel lifetime-panel">
         <div class="panel-head"><div><p class="eyebrow">历史累计</p><h2>从上线到现在</h2></div><span id="monitoringStart">数据开始记录时间：尚无数据</span></div>
         <div class="metrics-grid lifetime-grid">

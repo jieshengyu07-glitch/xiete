@@ -36,6 +36,8 @@ async function main() {
   assert.strictEqual(queries.filter(sql => /CREATE INDEX IF NOT EXISTS api_request_metrics_occurred_at_idx/.test(sql)).length, 2);
   assert.strictEqual(queries.filter(sql => /CREATE INDEX IF NOT EXISTS api_request_metrics_route_occurred_at_idx/.test(sql)).length, 2);
   assert.strictEqual(queries.filter(sql => /CREATE TABLE IF NOT EXISTS monitor_events/.test(sql)).length, 2);
+  assert.strictEqual(queries.filter(sql => /ALTER TABLE monitor_events ADD COLUMN IF NOT EXISTS stage TEXT/.test(sql)).length, 2);
+  assert.ok(queries.filter(sql => /CREATE TABLE IF NOT EXISTS monitor_events/.test(sql)).every(sql => /stage TEXT/.test(sql)));
   assert.strictEqual(queries.filter(sql => /CREATE INDEX IF NOT EXISTS monitor_events_occurred_at_idx/.test(sql)).length, 2);
   assert.strictEqual(queries.filter(sql => /CREATE INDEX IF NOT EXISTS monitor_events_event_type_occurred_at_idx/.test(sql)).length, 2);
   assert.strictEqual(queries.filter(sql => /CREATE INDEX IF NOT EXISTS monitor_events_user_day_hash_occurred_at_idx/.test(sql)).length, 2);
