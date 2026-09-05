@@ -19,23 +19,37 @@ async function main(){
   ["今日实时","累计总览","今日业务事件","累计业务事件"].forEach(value=>assert.ok(html.includes(value)));
   assert.strictEqual((js.match(/"\/admin\/metrics\/summary"/g)||[]).length,1);
   assert.ok(!/lifetimeUniqueUsers|stableUserHash|openidHash/.test(js+html));
-  assert.match(html,/<th>问题原因<\/th>/);
+  assert.match(html,/<th>功能<\/th><th>发生了什么<\/th><th>次数<\/th><th>最近一次<\/th>/);
   assert.match(js,/function getFriendlyErrorInfo\(errorType\)/);
   [
     ["INVALID_CREDENTIALS","账号或密码错误"],
-    ["PORTAL_LOGIN_UNCONFIRMED","学校教务系统暂时未确认登录"],
-    ["UNKNOWN","暂时无法确定具体原因"]
+    ["PORTAL_LOGIN_UNCONFIRMED","学校教务系统暂时没有确认登录"],
+    ["UNKNOWN","暂时无法确定原因"]
   ].forEach(([code,label])=>assert.ok(js.includes(code+':"'+label+'"'),code+" must have a friendly label"));
   assert.match(js,/friendlyErrorReasons\[code\]\|\|"暂时无法识别的问题"/);
-  assert.match(js,/problemCode\.textContent="问题代码："\+info\.code/);
+  assert.ok(!js.includes("操作未成功"));
+  assert.match(js,/problem\.title="问题代码："\+info\.code/);
   const mappingDeclaration=js.match(/var friendlyErrorReasons=\{[\s\S]*?\};/)[0];
   const mappingFunction=js.match(/function getFriendlyErrorInfo\(errorType\)\{[^\n]+\}/)[0];
-  const friendlyError=Function(mappingDeclaration+mappingFunction+";return getFriendlyErrorInfo;")();
-  assert.deepStrictEqual(friendlyError("INVALID_CREDENTIALS"),{code:"INVALID_CREDENTIALS",reason:"账号或密码错误"});
-  assert.deepStrictEqual(friendlyError("PORTAL_LOGIN_UNCONFIRMED"),{code:"PORTAL_LOGIN_UNCONFIRMED",reason:"学校教务系统暂时未确认登录"});
-  assert.deepStrictEqual(friendlyError("UNKNOWN"),{code:"UNKNOWN",reason:"暂时无法确定具体原因"});
-  assert.deepStrictEqual(friendlyError("FUTURE_SAFE_CODE"),{code:"FUTURE_SAFE_CODE",reason:"暂时无法识别的问题"});
+  const categoryDeclaration=js.match(/var friendlyErrorCategories=\{[\s\S]*?\};/)[0];
+  const friendlyError=Function(mappingDeclaration+categoryDeclaration+mappingFunction+";return getFriendlyErrorInfo;")();
+  [
+    ["INVALID_CREDENTIALS","账号或密码错误","用户输入的问题"],
+    ["JWXT_INVALID_CREDENTIALS","账号或密码错误","用户输入的问题"],
+    ["PORTAL_LOGIN_UNCONFIRMED","学校教务系统暂时没有确认登录","学校系统或登录流程问题"],
+    ["JWXT_CAPTCHA_REQUIRED","需要完成验证码","用户需要继续操作"],
+    ["JWXT_UNAVAILABLE","学校教务系统暂时无法访问","学校系统问题"],
+    ["JWXT_TIMEOUT","学校教务系统响应太慢","学校系统问题"],
+    ["NETWORK_ERROR","网络连接异常","网络问题"],
+    ["DATABASE_ERROR","数据库暂时异常","系统问题，需要关注"],
+    ["UNAUTHORIZED","登录状态已失效","用户需要重新登录"],
+    ["NOT_BOUND","账号还没有绑定","用户需要先绑定账号"],
+    ["INTERNAL_ERROR","系统内部出现异常","系统问题，需要关注"],
+    ["UNKNOWN","暂时无法确定原因","暂时无法判断"]
+  ].forEach(([code,reason,category])=>assert.deepStrictEqual(friendlyError(code),{code,reason,category}));
+  assert.deepStrictEqual(friendlyError("FUTURE_SAFE_CODE"),{code:"FUTURE_SAFE_CODE",reason:"暂时无法识别的问题",category:"暂时无法判断"});
   const renderErrors=js.slice(js.indexOf("function renderErrors"),js.indexOf("function healthLabel"));
+  assert.ok(!/textContent="问题代码："/.test(renderErrors),"technical code must not be visible body text");
   ["item.message","item.stack","item.response","item.data","openid","studentId","userDayHash"].forEach(value=>assert.ok(!renderErrors.includes(value),value+" must not be rendered"));
   console.log("adminDashboardStaticSecurityHeadersTest=passed");
   console.log("adminDashboardFriendlyErrorMappingTest=passed");

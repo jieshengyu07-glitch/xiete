@@ -413,7 +413,13 @@ td {
   font-size: 13px;
 }
 
-.problem-code {
+.problem-reason {
+  display: block;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.problem-category {
   display: block;
   margin-top: 5px;
   color: var(--muted);
