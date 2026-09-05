@@ -19,7 +19,26 @@ async function main(){
   ["今日实时","累计总览","今日业务事件","累计业务事件"].forEach(value=>assert.ok(html.includes(value)));
   assert.strictEqual((js.match(/"\/admin\/metrics\/summary"/g)||[]).length,1);
   assert.ok(!/lifetimeUniqueUsers|stableUserHash|openidHash/.test(js+html));
+  assert.match(html,/<th>问题原因<\/th>/);
+  assert.match(js,/function getFriendlyErrorInfo\(errorType\)/);
+  [
+    ["INVALID_CREDENTIALS","账号或密码错误"],
+    ["PORTAL_LOGIN_UNCONFIRMED","学校教务系统暂时未确认登录"],
+    ["UNKNOWN","暂时无法确定具体原因"]
+  ].forEach(([code,label])=>assert.ok(js.includes(code+':"'+label+'"'),code+" must have a friendly label"));
+  assert.match(js,/friendlyErrorReasons\[code\]\|\|"暂时无法识别的问题"/);
+  assert.match(js,/problemCode\.textContent="问题代码："\+info\.code/);
+  const mappingDeclaration=js.match(/var friendlyErrorReasons=\{[\s\S]*?\};/)[0];
+  const mappingFunction=js.match(/function getFriendlyErrorInfo\(errorType\)\{[^\n]+\}/)[0];
+  const friendlyError=Function(mappingDeclaration+mappingFunction+";return getFriendlyErrorInfo;")();
+  assert.deepStrictEqual(friendlyError("INVALID_CREDENTIALS"),{code:"INVALID_CREDENTIALS",reason:"账号或密码错误"});
+  assert.deepStrictEqual(friendlyError("PORTAL_LOGIN_UNCONFIRMED"),{code:"PORTAL_LOGIN_UNCONFIRMED",reason:"学校教务系统暂时未确认登录"});
+  assert.deepStrictEqual(friendlyError("UNKNOWN"),{code:"UNKNOWN",reason:"暂时无法确定具体原因"});
+  assert.deepStrictEqual(friendlyError("FUTURE_SAFE_CODE"),{code:"FUTURE_SAFE_CODE",reason:"暂时无法识别的问题"});
+  const renderErrors=js.slice(js.indexOf("function renderErrors"),js.indexOf("function healthLabel"));
+  ["item.message","item.stack","item.response","item.data","openid","studentId","userDayHash"].forEach(value=>assert.ok(!renderErrors.includes(value),value+" must not be rendered"));
   console.log("adminDashboardStaticSecurityHeadersTest=passed");
+  console.log("adminDashboardFriendlyErrorMappingTest=passed");
   console.log("adminDashboardMemoryOnlySecretAndPollingTest=passed");
 }
 main().catch(err=>{console.error(err);process.exitCode=1;});
