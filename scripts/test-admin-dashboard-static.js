@@ -19,6 +19,15 @@ async function main(){
   ["今日实时","累计总览","今日业务事件","累计业务事件"].forEach(value=>assert.ok(html.includes(value)));
   assert.strictEqual((js.match(/"\/admin\/metrics\/summary"/g)||[]).length,1);
   assert.ok(!/lifetimeUniqueUsers|stableUserHash|openidHash/.test(js+html));
+  assert.ok(html.includes("当前已绑定账号"));
+  assert.ok(html.includes("绑定率"));
+  assert.match(html,/id="boundUsers"/);
+  assert.match(html,/id="bindingRate"/);
+  assert.match(js,/text\("boundUsers",countText\(lifetime\.boundUsers,"人"\)\)/);
+  assert.match(js,/text\("bindingRate",percentText\(lifetime\.bindingRate\)\)/);
+  const percentFunction=Function(js.match(/function percentText\(value\)\{[^\n]+\}/)[0]+";return percentText;")();
+  assert.strictEqual(percentFunction(80),"80.0%");
+  assert.strictEqual(percentFunction(0),"0.0%");
   assert.match(html,/<th>功能<\/th><th>发生了什么<\/th><th>次数<\/th><th>最近一次<\/th>/);
   assert.match(js,/function getFriendlyErrorInfo\(errorType\)/);
   [

@@ -222,6 +222,10 @@ button {
   background: #0b1821;
 }
 
+.lifetime-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .metric {
   min-width: 0;
   padding: 22px;

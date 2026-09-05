@@ -17,6 +17,12 @@ function finiteOrZero(value) {
   return Number.isFinite(number) ? Math.round(number * 10) / 10 : 0;
 }
 
+function percentage(part, total) {
+  const safePart = finiteOrZero(part);
+  const safeTotal = finiteOrZero(total);
+  return safeTotal > 0 ? Math.round(safePart / safeTotal * 1000) / 10 : 0;
+}
+
 function shanghaiDayBounds(value) {
   const day = shanghaiDateString(value);
   const start = new Date(day + "T00:00:00+08:00");
@@ -65,13 +71,14 @@ function createAdminMetricsService(options) {
     const generatedAt = now();
     const bounds = shanghaiDayBounds(generatedAt);
     const activeSince = new Date(generatedAt.getTime() - 5 * 60 * 1000);
-    const [requests, users, eventRows, lifetimeRequests, lifetimeEventSummary, registeredUsers] = await Promise.all([
+    const [requests, users, eventRows, lifetimeRequests, lifetimeEventSummary, registeredUsers, boundUsers] = await Promise.all([
       repository.getRequestSummary({ since: bounds.start, until: bounds.end }),
       repository.getDailyUserSummary({ dayStart: bounds.start, dayEnd: bounds.end, activeSince }),
       repository.getEventSummary({ since: bounds.start, until: bounds.end }),
       repository.getLifetimeRequestSummary({ until: generatedAt }),
       repository.getLifetimeEventSummary({ until: generatedAt }),
-      repository.getRegisteredUserCount()
+      repository.getRegisteredUserCount(),
+      repository.getBoundUserCount()
     ]);
     return {
       ok: true,
@@ -88,6 +95,8 @@ function createAdminMetricsService(options) {
       lifetime: {
         monitoringStartedAt: earliestDate(lifetimeRequests.firstOccurredAt, lifetimeEventSummary.firstOccurredAt),
         registeredUsers: finiteOrZero(registeredUsers),
+        boundUsers: finiteOrZero(boundUsers),
+        bindingRate: percentage(boundUsers, registeredUsers),
         requestCount: finiteOrZero(lifetimeRequests.requestCount),
         averageResponseTimeMs: finiteOrZero(lifetimeRequests.averageResponseTimeMs),
         p95ResponseTimeMs: finiteOrZero(lifetimeRequests.p95ResponseTimeMs),

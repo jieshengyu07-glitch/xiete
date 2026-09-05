@@ -42,6 +42,8 @@
         <div class="panel-head"><div><p class="eyebrow">历史累计</p><h2>从上线到现在</h2></div><span id="monitoringStart">数据开始记录时间：尚无数据</span></div>
         <div class="metrics-grid lifetime-grid">
           <div class="metric priority"><span>总用户数</span><strong id="registeredUsers">—</strong><small>历史上登录过小程序的账号总数</small></div>
+          <div class="metric priority"><span>当前已绑定账号</span><strong id="boundUsers">—</strong><small>当前已经完成教务账号绑定的用户数</small></div>
+          <div class="metric priority"><span>绑定率</span><strong id="bindingRate">—</strong><small>已绑定账号人数 ÷ 总用户数</small></div>
           <div class="metric priority"><span>系统累计处理次数</span><strong id="lifetimeRequestCount">—</strong><small>从监控开始记录以来后台处理的请求总数</small></div>
           <div class="metric"><span>历史平均响应速度</span><strong id="lifetimeAverageMs">—</strong><small>所有已记录操作的平均返回速度</small><em id="lifetimeAverageSpeed" class="speed-label">等待数据</em></div>
           <div class="metric"><span>历史较慢响应速度</span><strong id="lifetimeP95Ms">—</strong><small>95%的历史请求都能在这个时间内完成</small><em id="lifetimeP95Speed" class="speed-label">等待数据</em></div>

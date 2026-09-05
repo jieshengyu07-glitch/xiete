@@ -318,6 +318,13 @@ function createMonitoringRepository(poolProvider) {
     return Number(result.rows[0] && result.rows[0].registered_user_count || 0);
   }
 
+  async function getBoundUserCount() {
+    const db = providePool();
+    if (!db) throw new Error("POSTGRES_NOT_ENABLED");
+    const result = await adminQuery(db, "SELECT COUNT(*) AS bound_user_count FROM jwxt_bindings", []);
+    return Number(result.rows[0] && result.rows[0].bound_user_count || 0);
+  }
+
   async function getRequestTimeseries(options) {
     const input = options || {};
     const since = requiredDate(input.since, "since");
@@ -393,6 +400,7 @@ function createMonitoringRepository(poolProvider) {
     getLifetimeRequestSummary,
     getLifetimeEventSummary,
     getRegisteredUserCount,
+    getBoundUserCount,
     getRequestTimeseries,
     getErrorSummary,
     checkPostgresHealth

@@ -24,6 +24,7 @@ async function main() {
     async getLifetimeRequestSummary(input) { calls.push(["lifetimeRequests", input]); return { requestCount: 4567, averageResponseTimeMs: 82.25, p95ResponseTimeMs: 240.05, firstOccurredAt: new Date("2026-08-31T17:00:00Z") }; },
     async getLifetimeEventSummary(input) { calls.push(["lifetimeEvents", input]); return { events: [{ eventType: "grades_query", total: 1234, success: 1210, failure: 24 }], firstOccurredAt: new Date("2026-08-31T16:30:00Z") }; },
     async getRegisteredUserCount() { calls.push(["registeredUsers"]); return 123; },
+    async getBoundUserCount() { calls.push(["boundUsers"]); return 80; },
     async getRequestTimeseries(input) { calls.push(["series", input]); return [{ timestamp: new Date("2026-09-04T03:59:00Z"), requestCount: 2, averageResponseTimeMs: 10, p95ResponseTimeMs: 14 }]; },
     async getErrorSummary(input) { calls.push(["errors", input]); return [{ eventType: "grades_query", errorType: "JWXT_TIMEOUT", count: 2, lastOccurredAt: new Date("2026-09-04T03:50:00Z"), userDayHash: "forbidden", message: "forbidden" }]; },
     async checkPostgresHealth() { calls.push(["health"]); }
@@ -42,13 +43,15 @@ async function main() {
     assert.strictEqual(summary.json.lifetime.monitoringStartedAt, "2026-08-31T16:30:00.000Z");
     assert.deepStrictEqual({
       registeredUsers: summary.json.lifetime.registeredUsers,
+      boundUsers: summary.json.lifetime.boundUsers,
+      bindingRate: summary.json.lifetime.bindingRate,
       requestCount: summary.json.lifetime.requestCount,
       averageResponseTimeMs: summary.json.lifetime.averageResponseTimeMs,
       p95ResponseTimeMs: summary.json.lifetime.p95ResponseTimeMs
-    }, { registeredUsers: 123, requestCount: 4567, averageResponseTimeMs: 82.3, p95ResponseTimeMs: 240.1 });
+    }, { registeredUsers: 123, boundUsers: 80, bindingRate: 65, requestCount: 4567, averageResponseTimeMs: 82.3, p95ResponseTimeMs: 240.1 });
     assert.deepStrictEqual(summary.json.lifetime.events.gradesQuery, { total: 1234, success: 1210, failure: 24, successRate: 98.1 });
     assert.deepStrictEqual(summary.json.lifetime.events.wechatLogin, { total: 0, success: 0, failure: 0, successRate: 0 });
-    ["openid", "userDayHash", "studentId", "password", "error.message", "error.stack"].forEach(value => assert.ok(!summary.body.includes(value)));
+    ["openid", "userDayHash", "user_id", "studentId", "student_id", "password", "password_enc", "last_jwxt_error", "last_jwxt_error_message", "error.message", "error.stack"].forEach(value => assert.ok(!summary.body.includes(value)));
     const bounds = calls.find(call => call[0] === "users")[1];
     assert.strictEqual(bounds.dayStart.toISOString(), "2026-09-03T16:00:00.000Z"); assert.strictEqual(bounds.dayEnd.toISOString(), "2026-09-04T16:00:00.000Z");
     const series = await request(server, "/admin/metrics/timeseries?range=60m&bucket=minute", SECRET);
@@ -74,15 +77,19 @@ async function main() {
       getEventSummary: async () => [],
       getLifetimeRequestSummary: async () => ({ requestCount: 0, averageResponseTimeMs: null, p95ResponseTimeMs: null, firstOccurredAt: null }),
       getLifetimeEventSummary: async () => ({ events: [], firstOccurredAt: null }),
-      getRegisteredUserCount: async () => 0
+      getRegisteredUserCount: async () => 0,
+      getBoundUserCount: async () => 0
     },
     now: () => new Date("2026-09-04T04:00:00Z")
   });
   const emptySummary = await empty.summary();
   assert.deepStrictEqual(emptySummary.today, { uniqueUsers: 0, activeUsers5m: 0, requestCount: 0, averageResponseTimeMs: 0, p95ResponseTimeMs: 0 });
   assert.strictEqual(emptySummary.lifetime.monitoringStartedAt, null);
+  assert.strictEqual(emptySummary.lifetime.boundUsers, 0);
+  assert.strictEqual(emptySummary.lifetime.bindingRate, 0);
   assert.strictEqual(emptySummary.lifetime.events.gradesQuery.successRate, 0);
   assert.strictEqual(JSON.stringify(emptySummary).includes("NaN"), false);
+  assert.strictEqual(JSON.stringify(emptySummary).includes("Infinity"), false);
   console.log("adminMetricsSummaryAndShanghaiBoundaryTest=passed");
   console.log("adminMetricsTimeseriesWhitelistAndZeroFillTest=passed");
   console.log("adminMetricsPrivacyAndHealthTest=passed");
