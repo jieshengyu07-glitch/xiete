@@ -32,7 +32,7 @@ function staticReviewChecks() {
   assert.match(legacyEntryView, /仅限太原科技大学在校学生/);
   assert.match(legacyEntryView, /学校统一身份认证系统核验账号有效性/);
   assert.match(legacyEntryView, /不获取用户手机号/);
-  assert.match(legacyEntryView, /我符合服务对象条件，继续登录/);
+  assert.match(legacyEntryView, /进入课表/);
   assert.doesNotMatch(legacyEntryView, /成绩监测中心|服务状态|最近成绩变化/);
   const ignoredFolders = (projectConfig.packOptions && projectConfig.packOptions.ignore || [])
     .filter(item => item.type === "folder")
@@ -81,13 +81,17 @@ function publicLandingDoesNotAutoLoginTest() {
   let pageDefinition;
   let navigatedTo = "";
   let loginOrRequestCalls = 0;
+  let onboardingCompleted = false;
   const originalPage = global.Page;
   const originalWx = global.wx;
   global.Page = definition => { pageDefinition = definition; };
   global.wx = {
-    getStorageSync: () => "",
+    getStorageSync: key => key === "campus_assistant_onboarding_completed" && onboardingCompleted,
+    setStorageSync: (key, value) => {
+      if (key === "campus_assistant_onboarding_completed") onboardingCompleted = value;
+    },
     navigateTo: options => { navigatedTo = options.url; },
-    switchTab: () => {},
+    switchTab: options => { navigatedTo = options.url; },
     login: () => { loginOrRequestCalls += 1; },
     request: () => { loginOrRequestCalls += 1; }
   };
@@ -98,12 +102,14 @@ function publicLandingDoesNotAutoLoginTest() {
       data: Object.assign({}, pageDefinition.data),
       setData(patchValue) { Object.assign(this.data, patchValue); }
     });
+    page.onLoad({});
     page.onShow();
     assert.strictEqual(loginOrRequestCalls, 0);
     assert.strictEqual(navigatedTo, "");
     page.continueToService();
     assert.strictEqual(loginOrRequestCalls, 0);
-    assert.strictEqual(navigatedTo, "/pages/login/index");
+    assert.strictEqual(onboardingCompleted, true);
+    assert.strictEqual(navigatedTo, "/pages/timetable/timetable");
     console.log("publicLandingDoesNotAutoLoginTest=passed");
   } finally {
     global.Page = originalPage;

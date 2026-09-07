@@ -1,4 +1,4 @@
-<view class="landing-page">
+<view wx:if="{{guideReady}}" class="landing-page">
   <view wx:if="{{showAnnouncementBanner}}" class="announcement-banner" bindtap="openAnnouncement">
     <view class="announcement-banner-dot"></view>
     <view class="announcement-banner-text">{{announcement.homeBannerText}}</view>
@@ -38,7 +38,7 @@
 
   <view class="unofficial-note">本小程序为校园工具，不代表学校官方应用。</view>
 
-  <button class="continue-btn" bindtap="continueToService">{{loggedIn ? '进入课表' : '我符合服务对象条件，继续登录'}}</button>
+  <button class="continue-btn" bindtap="continueToService">进入课表</button>
   <view class="privacy-link" bindtap="openPrivacy">查看《用户隐私保护指引》</view>
 </view>
 

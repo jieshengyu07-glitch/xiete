@@ -1,4 +1,7 @@
 {
   "navigationBarTitleText": "课表",
+  "usingComponents": {
+    "announcement-modal": "/components/announcement-modal/index"
+  },
   "enablePullDownRefresh": true
 }

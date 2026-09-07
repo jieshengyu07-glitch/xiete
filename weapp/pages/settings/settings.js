@@ -143,6 +143,10 @@ Page({
     this.setData({ announcementVisible: false });
   },
 
+  openUsageGuide() {
+    wx.navigateTo({ url: "/pages/index/index?mode=manual" });
+  },
+
   onUnload() {
     if (this.captchaRefreshTimer) clearTimeout(this.captchaRefreshTimer);
     this.captchaRefreshTimer = null;

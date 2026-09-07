@@ -56,6 +56,14 @@
     <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
   </view>
 
+  <view class="card feedback-card" bindtap="openUsageGuide">
+    <view class="feedback-copy">
+      <view class="card-title feedback-title">使用说明</view>
+      <view class="hint feedback-subtitle">查看服务对象与使用说明</view>
+    </view>
+    <view class="feedback-arrow">›</view>
+  </view>
+
   <view class="card feedback-card" bindtap="openAnnouncement">
     <view class="feedback-copy">
       <view class="card-title feedback-title">问题反馈</view>

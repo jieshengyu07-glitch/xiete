@@ -2,6 +2,7 @@ const api = require("../../utils/api");
 const { formatJwxtErrorMessage, isCaptchaRequired, isLoginRequired } = require("../../utils/jwxtError");
 const { timetablePresentation, campusPresentation, userErrorMessage } = require("../../utils/statusPresenter");
 const { coursesFromSections, resolveCourseTimeline } = require("../../utils/timetableTimeline");
+const announcementService = require("../../utils/announcement");
 
 const WEEKDAY_NAMES = ["", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
 function defaultSections() {
@@ -101,18 +102,48 @@ Page({
     todayEmptyTitle: "今天没有课",
     todayEmptyDescription: "暂无课程安排",
     sections: defaultSections(),
-    weekDays: []
+    weekDays: [],
+    announcement: null,
+    showAnnouncementBanner: false,
+    announcementVisible: false
   },
 
   onShow() {
     this._timetablePageActive = true;
     this._syncPollAttempts = 0;
+    this.loadAnnouncement();
     if (!wx.getStorageSync("token")) {
       this.resetLoggedOutState();
       return;
     }
     this.loadCurrent();
     this.refreshAccountStatus();
+  },
+
+  loadAnnouncement() {
+    announcementService.loadAnnouncement({ allowAutoPopup: true })
+      .then(result => {
+        const item = result.announcement;
+        this.setData({
+          announcement: item,
+          showAnnouncementBanner: Boolean(item && item.enabled),
+          announcementVisible: Boolean(result.shouldAutoOpen)
+        });
+      })
+      .catch(() => {
+        this.setData({ showAnnouncementBanner: false, announcementVisible: false });
+      });
+  },
+
+  openAnnouncement() {
+    if (this.data.announcement && this.data.announcement.enabled) {
+      this.setData({ announcementVisible: true });
+    }
+  },
+
+  closeAnnouncement() {
+    announcementService.dismissAnnouncement(this.data.announcement);
+    this.setData({ announcementVisible: false });
   },
 
   resetLoggedOutState() {

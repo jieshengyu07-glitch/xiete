@@ -1,4 +1,10 @@
 <view class="container timetable-page">
+  <view wx:if="{{showAnnouncementBanner}}" class="announcement-banner" bindtap="openAnnouncement">
+    <view class="announcement-banner-dot"></view>
+    <view class="announcement-banner-text">{{announcement.homeBannerText}}</view>
+    <view class="announcement-banner-arrow">›</view>
+  </view>
+
   <view wx:if="{{isInitialLoading && !hasTimetable}}" class="card">
     <view class="loading">加载中...</view>
   </view>
@@ -106,3 +112,5 @@
     </view>
   </block>
 </view>
+
+<announcement-modal visible="{{announcementVisible}}" announcement="{{announcement}}" bind:close="closeAnnouncement" />

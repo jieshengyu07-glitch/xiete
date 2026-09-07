@@ -1,20 +1,33 @@
 const announcementService = require("../../utils/announcement");
+const onboarding = require("../../utils/onboarding");
 
 Page({
   data: {
     loggedIn: false,
+    guideReady: false,
+    manualGuide: false,
     announcement: null,
     showAnnouncementBanner: false,
     announcementVisible: false
   },
 
+  onLoad(options) {
+    const manualGuide = onboarding.isManualGuide(options);
+    if (!onboarding.shouldShowGuide(wx, options)) {
+      wx.switchTab({ url: "/pages/timetable/timetable" });
+      return;
+    }
+    this.setData({ guideReady: true, manualGuide });
+  },
+
   onShow() {
+    if (!this.data.guideReady) return;
     this.setData({ loggedIn: Boolean(wx.getStorageSync("token")) });
     this.loadAnnouncement();
   },
 
   loadAnnouncement() {
-    announcementService.loadAnnouncement({ allowAutoPopup: true })
+    announcementService.loadAnnouncement({ allowAutoPopup: !this.data.manualGuide })
       .then(result => {
         const item = result.announcement;
         this.setData({
@@ -40,11 +53,8 @@ Page({
   },
 
   continueToService() {
-    if (this.data.loggedIn) {
-      wx.switchTab({ url: "/pages/timetable/timetable" });
-      return;
-    }
-    wx.navigateTo({ url: "/pages/login/index" });
+    if (!this.data.manualGuide) onboarding.complete(wx);
+    wx.switchTab({ url: "/pages/timetable/timetable" });
   },
 
   openPrivacy() {
