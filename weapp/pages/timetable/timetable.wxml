@@ -25,8 +25,6 @@
       <button wx:if="{{accountState!=='UNBOUND'}}" class="refresh-btn" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">{{refreshButtonText}}</button>
     </view>
 
-    <view wx:if="{{lastSuccessAtText}}" class="sync-meta">{{lastSuccessAtText}}</view>
-
     <view wx:if="{{viewMode==='today' && (timelineState==='IN_CLASS' || timelineState==='BEFORE_FIRST_CLASS' || (timelineState==='BETWEEN_CLASSES' && focusCourse))}}" class="timeline-card timeline-{{timelineState}}">
       <view class="timeline-label">{{timelineTitle}}</view>
       <block wx:if="{{focusCourse}}">

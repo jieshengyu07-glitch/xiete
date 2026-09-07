@@ -92,7 +92,6 @@
   font-size: 25rpx;
   line-height: 1.5;
 }
-.sync-meta { margin: -8rpx 4rpx 18rpx; color: #77849a; font-size: 23rpx; }
 .notice-stage { margin-top: 6rpx; color: #60789b; font-size: 23rpx; }
 
 .timeline-card {
@@ -327,7 +326,6 @@
 .hero-WEEK .refresh-btn { background: #e3efff; color: #1677ff; }
 .refresh-btn { border-radius: 12rpx; font-size: 23rpx; }
 .notice-card { border-color: #d8e8fb; border-radius: 14rpx; background: #f3f8ff; color: #315d8d; font-size: 23rpx; }
-.sync-meta { color: #8a94a6; font-size: 22rpx; }
 .notice-stage { color: #596579; font-size: 22rpx; }
 .timeline-card { border-radius: 20rpx; box-shadow: none; }
 .timeline-label { font-size: 23rpx; font-weight: 650; }
