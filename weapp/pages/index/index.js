@@ -1,10 +1,42 @@
+const announcementService = require("../../utils/announcement");
+
 Page({
   data: {
-    loggedIn: false
+    loggedIn: false,
+    announcement: null,
+    showAnnouncementBanner: false,
+    announcementVisible: false
   },
 
   onShow() {
     this.setData({ loggedIn: Boolean(wx.getStorageSync("token")) });
+    this.loadAnnouncement();
+  },
+
+  loadAnnouncement() {
+    announcementService.loadAnnouncement({ allowAutoPopup: true })
+      .then(result => {
+        const item = result.announcement;
+        this.setData({
+          announcement: item,
+          showAnnouncementBanner: Boolean(item && item.enabled),
+          announcementVisible: Boolean(result.shouldAutoOpen)
+        });
+      })
+      .catch(() => {
+        this.setData({ showAnnouncementBanner: false, announcementVisible: false });
+      });
+  },
+
+  openAnnouncement() {
+    if (this.data.announcement && this.data.announcement.enabled) {
+      this.setData({ announcementVisible: true });
+    }
+  },
+
+  closeAnnouncement() {
+    announcementService.dismissAnnouncement(this.data.announcement);
+    this.setData({ announcementVisible: false });
   },
 
   continueToService() {

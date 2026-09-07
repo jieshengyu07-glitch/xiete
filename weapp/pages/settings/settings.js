@@ -1,6 +1,7 @@
 const api = require("../../utils/api");
 const { formatJwxtErrorMessage, isInvalidCredentials } = require("../../utils/jwxtError");
 const { campusPresentation, formatSyncTime, userErrorMessage } = require("../../utils/statusPresenter");
+const announcementService = require("../../utils/announcement");
 
 const BOUND_HINT_KEY = "jwxtBound";
 const OLD_BOUND_HINT_KEY = "jwxtBoundHint";
@@ -103,12 +104,43 @@ Page({
     showRebindActions: false,
     privacyAccepted: false,
     bindingSuccess: false,
-    maskedStudentId: ""
+    maskedStudentId: "",
+    announcement: null,
+    announcementVisible: false
   },
 
   onShow() {
     this.setData({ privacyAccepted: Boolean(wx.getStorageSync("privacyAccepted")) });
     this.refreshStatus();
+    this.loadAnnouncement();
+  },
+
+  loadAnnouncement() {
+    announcementService.loadAnnouncement({ allowAutoPopup: false })
+      .then(result => this.setData({ announcement: result.announcement }))
+      .catch(() => {});
+  },
+
+  openAnnouncement() {
+    const current = this.data.announcement;
+    if (current && current.enabled) {
+      this.setData({ announcementVisible: true });
+      return;
+    }
+    announcementService.loadAnnouncement({ allowAutoPopup: false, force: true })
+      .then(result => {
+        if (result.announcement && result.announcement.enabled) {
+          this.setData({ announcement: result.announcement, announcementVisible: true });
+          return;
+        }
+        wx.showToast({ title: "反馈群信息暂未开放", icon: "none" });
+      })
+      .catch(() => wx.showToast({ title: "反馈群信息暂未开放", icon: "none" }));
+  },
+
+  closeAnnouncement() {
+    announcementService.dismissAnnouncement(this.data.announcement);
+    this.setData({ announcementVisible: false });
   },
 
   onUnload() {

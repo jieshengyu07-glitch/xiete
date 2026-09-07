@@ -190,6 +190,26 @@ function sendPublic(path, method, data, options) {
   });
 }
 
+function sendAnonymous(path, options) {
+  return new Promise((resolve, reject) => {
+    wx.request({
+      url: app.globalData.apiBase + path,
+      method: "GET",
+      header: { "Content-Type": "application/json" },
+      data: {},
+      timeout: options && options.timeout ? options.timeout : 10000,
+      success: res => {
+        if (res.statusCode >= 400) {
+          reject(normalizeError(res));
+          return;
+        }
+        resolve(res.data);
+      },
+      fail: err => reject(normalizeFailError(err))
+    });
+  });
+}
+
 function request(path, options) {
   const epoch = currentAuthEpoch();
   const key = epoch + ":GET:" + String(path || "");
@@ -224,6 +244,7 @@ module.exports = {
   get: request,
   publicRequest,
   publicGet: publicRequest,
+  anonymousGet: sendAnonymous,
   post,
   del,
   ensureLogin,

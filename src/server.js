@@ -44,6 +44,7 @@ const userRepository = require("./repositories/userRepository");
 const campusCacheRuntime = require("./services/campusCacheRuntime");
 const syncStateRuntime = require("./services/syncStateRuntime");
 const { createAdminRouter } = require("./admin/routes");
+const { announcementConfig } = require("./services/announcement");
 
 function productionPostgresRuntime() {
   return String(process.env.NODE_ENV || "").toLowerCase() === "production" && isPostgresEnabled();
@@ -733,6 +734,11 @@ app.get("/api/school", (req, res) => {
   } catch (err) {
     ratingApiError(res, 500, "SCHOOL_DATA_UNAVAILABLE", "学院专业数据暂时不可用");
   }
+});
+
+app.get("/api/announcement", (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.json(announcementConfig());
 });
 
 app.get("/api/courses/search", (req, res) => {

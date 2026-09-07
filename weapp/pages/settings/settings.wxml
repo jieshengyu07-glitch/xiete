@@ -56,4 +56,14 @@
     <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
   </view>
 
+  <view class="card feedback-card" bindtap="openAnnouncement">
+    <view class="feedback-copy">
+      <view class="card-title feedback-title">问题反馈</view>
+      <view class="hint feedback-subtitle">加入太小科用户反馈群</view>
+    </view>
+    <view class="feedback-arrow">›</view>
+  </view>
+
 </view>
+
+<announcement-modal visible="{{announcementVisible}}" announcement="{{announcement}}" bind:close="closeAnnouncement" />

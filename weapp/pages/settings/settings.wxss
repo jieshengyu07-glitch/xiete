@@ -29,3 +29,9 @@
 .captcha-submit { background: #1677ff; color: #fff; }
 .captcha-cancel { min-height: 64rpx; margin: 10rpx 0 0; background: transparent; color: #596579; font-size: 23rpx; line-height: 64rpx; }
 .unbind-btn { min-height: 76rpx; margin-top: 18rpx; border: 1rpx solid #f0c9c6; border-radius: 14rpx; background: #fff; color: #c9362b; font-size: 25rpx; line-height: 76rpx; }
+.feedback-card { display: flex; align-items: center; justify-content: space-between; min-height: 104rpx; }
+.feedback-card:active { background: #f8fbff; }
+.feedback-copy { flex: 1; min-width: 0; }
+.feedback-title { margin-bottom: 8rpx; }
+.feedback-subtitle { margin-bottom: 0; }
+.feedback-arrow { flex-shrink: 0; margin-left: 20rpx; color: #1677ff; font-size: 42rpx; line-height: 1; }

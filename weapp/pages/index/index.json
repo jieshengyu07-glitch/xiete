@@ -1,3 +1,6 @@
 {
-  "navigationBarTitleText": "校园助手"
+  "navigationBarTitleText": "校园助手",
+  "usingComponents": {
+    "announcement-modal": "/components/announcement-modal/index"
+  }
 }

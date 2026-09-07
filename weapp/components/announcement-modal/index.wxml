@@ -1,0 +1,12 @@
+<view wx:if="{{visible && announcement && announcement.enabled}}" class="announcement-mask" bindtap="close" catchtouchmove="stopPropagation">
+  <view class="announcement-card" catchtap="stopPropagation">
+    <view class="announcement-title">{{announcement.title}}</view>
+    <view class="announcement-content">{{announcement.content}}</view>
+    <image class="announcement-image" src="{{announcement.imageUrl}}" mode="widthFix" bindtap="previewImage" />
+    <view class="announcement-tip">点击海报可查看大图</view>
+    <view class="announcement-actions">
+      <button class="announcement-button announcement-preview" bindtap="previewImage">查看大图</button>
+      <button class="announcement-button announcement-close" bindtap="close">关闭</button>
+    </view>
+  </view>
+</view>

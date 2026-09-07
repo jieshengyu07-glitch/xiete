@@ -1,4 +1,6 @@
 {
-  "usingComponents": {},
+  "usingComponents": {
+    "announcement-modal": "/components/announcement-modal/index"
+  },
   "navigationBarTitleText": "设置"
 }
