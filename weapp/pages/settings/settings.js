@@ -1,6 +1,6 @@
 const api = require("../../utils/api");
 const { formatJwxtErrorMessage, isInvalidCredentials } = require("../../utils/jwxtError");
-const { campusPresentation, formatSyncTime, userErrorMessage } = require("../../utils/statusPresenter");
+const { userErrorMessage } = require("../../utils/statusPresenter");
 const announcementService = require("../../utils/announcement");
 
 const BOUND_HINT_KEY = "jwxtBound";
@@ -10,30 +10,40 @@ function normalizeCode(value) {
   return String(value || "").toUpperCase();
 }
 
-function boundDisplay(status) {
-  const display = campusPresentation({ bound: true, account: { state: "BOUND", bound: true } });
-  return { status: status || display.state, tone: display.level, title: display.title, desc: display.description, bound: true };
+function boundDisplay() {
+  return {
+    status: "BOUND",
+    tone: "ok",
+    title: "已绑定校园账号",
+    desc: "已完成校园账号绑定",
+    bound: true
+  };
+}
+
+function unboundDisplay() {
+  return {
+    status: "UNBOUND",
+    tone: "muted",
+    title: "未绑定校园账号",
+    desc: "绑定后可同步课表和成绩。",
+    bound: false
+  };
 }
 
 function deriveStatus(status) {
   const serverBound = status && typeof status.bound === "boolean" ? status.bound : null;
-  const hasBoundJwxt = serverBound !== null ? serverBound : (Boolean(
-    status &&
-    (status.portalAuthStatus === "OK" ||
-      status.cookieStatus === "account_saved" ||
-      status.cookieStatus === "pending_verify")
-  ) || Boolean(wx.getStorageSync(BOUND_HINT_KEY)));
-
   const productAccount = status && status.productStatus && status.productStatus.account;
-  const input = Object.assign({}, status || {}, { bound: hasBoundJwxt, account: productAccount });
-  const display = campusPresentation(input);
-  return {
-    status: display.state,
-    tone: display.level,
-    title: display.title,
-    desc: display.description,
-    bound: display.bound
-  };
+  const productBound = productAccount && typeof productAccount.bound === "boolean" ? productAccount.bound : null;
+  const hasBoundJwxt = serverBound !== null
+    ? serverBound
+    : (productBound !== null ? productBound : (Boolean(
+      status &&
+      (status.portalAuthStatus === "OK" ||
+        status.cookieStatus === "account_saved" ||
+        status.cookieStatus === "pending_verify")
+    ) || Boolean(wx.getStorageSync(BOUND_HINT_KEY))));
+
+  return hasBoundJwxt ? boundDisplay() : unboundDisplay();
 }
 
 function isTimeoutError(err) {
@@ -78,10 +88,6 @@ function isCaptchaRetryError(err) {
   ].includes(errorCode(err));
 }
 
-function recoveringDisplay() {
-  return deriveStatus({ bound: true, campusLoginStatus: "recovering" });
-}
-
 Page({
   data: {
     studentId: "",
@@ -95,12 +101,10 @@ Page({
     captchaImage: "",
     captchaValue: "",
     status: "UNBOUND",
-    statusTitle: "还没有绑定校园账号",
-    statusDesc: "绑定后可自动同步课表、成绩和教务状态。",
+    statusTitle: "未绑定校园账号",
+    statusDesc: "绑定后可同步课表和成绩。",
     statusTone: "muted",
     hasBoundJwxt: false,
-    lastSyncText: "",
-    syncMetaText: "",
     showRebindActions: false,
     privacyAccepted: false,
     bindingSuccess: false,
@@ -181,20 +185,13 @@ Page({
     api.request("/status")
       .then(status => {
         const display = deriveStatus(status || {});
-        const lastSync = status && (status.lastSuccessfulSyncAt || status.lastCheckAt);
-        const failedSync = status && status.lastFailedSyncAt;
         this.setDisplayStatus(display, {
-          lastSyncText: formatSyncTime(lastSync),
-          syncMetaText: failedSync && ["RELOGIN_REQUIRED", "SCHOOL_UNAVAILABLE"].includes(display.status) ? ("最近失败：" + formatSyncTime(failedSync)) : "",
           maskedStudentId: String((status && status.maskedStudentId) || "")
         });
       })
       .catch(err => {
         const display = deriveStatus(null);
-        this.setDisplayStatus(display, {
-          lastSyncText: "",
-          syncMetaText: ""
-        });
+        this.setDisplayStatus(display);
       });
   },
 
@@ -250,9 +247,8 @@ Page({
       if (data && data.success === true && data.bound === true) {
         wx.setStorageSync(BOUND_HINT_KEY, true);
         wx.removeStorageSync(OLD_BOUND_HINT_KEY);
-        const display = boundDisplay(data.verified === true ? "SYNC_OK" : "BOUND");
+        const display = boundDisplay();
         this.setDisplayStatus(display, {
-          lastSyncText: data.verified === true ? formatSyncTime(new Date().toISOString()) : "",
           bindingSuccess: true,
           maskedStudentId: data.maskedStudentId || ""
         });
@@ -385,8 +381,7 @@ Page({
         captchaValue: "",
         password: ""
       });
-      this.setDisplayStatus(boundDisplay("SYNC_OK"), {
-        lastSyncText: formatSyncTime(new Date().toISOString()),
+      this.setDisplayStatus(boundDisplay(), {
         bindingSuccess: true
       });
       wx.showToast({ title: "绑定成功", icon: "success" });
@@ -434,13 +429,7 @@ Page({
     );
 
     if (errorCode(err) === "REVIEW_DEMO_UNAVAILABLE") {
-      this.setDisplayStatus({
-        status: "UNBOUND",
-        tone: "muted",
-        title: "还没有绑定校园账号",
-        desc: "绑定后可自动同步课表、成绩和教务状态。",
-        bound: false
-      });
+      this.setDisplayStatus(unboundDisplay());
       wx.showModal({
         title: "审核账号未启用",
         content: "当前服务器尚未启用审核体验账号，请联系小程序管理员。",
@@ -450,19 +439,7 @@ Page({
     }
 
     if (isInvalidCredentials(err)) {
-      this.setDisplayStatus(wasBound ? {
-        status: "RELOGIN_REQUIRED",
-        tone: "warn",
-        title: "校园账号需要重新验证",
-        desc: "本次验证的账号或密码不正确，原绑定信息未被删除。",
-        bound: true
-      } : {
-        status: "UNBOUND",
-        tone: "muted",
-        title: "还没有绑定校园账号",
-        desc: "绑定后可自动同步课表、成绩和教务状态。",
-        bound: false
-      });
+      this.setDisplayStatus(wasBound ? boundDisplay() : unboundDisplay());
       wx.showToast({ title: "学号或教务密码错误", icon: "none" });
       return;
     }
@@ -474,15 +451,9 @@ Page({
     }
 
     if (wasBound) {
-      this.setDisplayStatus(recoveringDisplay());
+      this.setDisplayStatus(boundDisplay());
     } else {
-      this.setDisplayStatus({
-        status: "UNBOUND",
-        tone: "muted",
-        title: "还没有绑定校园账号",
-        desc: "绑定后可自动同步课表、成绩和教务状态。",
-        bound: false
-      });
+      this.setDisplayStatus(unboundDisplay());
     }
 
     const transient = isTransientBindError(err);
@@ -500,13 +471,7 @@ Page({
 
   rebindAccount() {
     this.setData({ password: "", privacyAccepted: Boolean(wx.getStorageSync("privacyAccepted")), bindingSuccess: false });
-    this.setDisplayStatus({
-      status: "UNBOUND",
-      tone: "muted",
-      title: "还没有绑定校园账号",
-      desc: "绑定后可自动同步课表、成绩和教务状态。",
-      bound: false
-    });
+    this.setDisplayStatus(unboundDisplay());
   },
 
   viewGrades() {
@@ -541,13 +506,7 @@ Page({
       if (data && data.success) {
         wx.removeStorageSync(BOUND_HINT_KEY);
         wx.removeStorageSync(OLD_BOUND_HINT_KEY);
-        this.setDisplayStatus({
-          status: "UNBOUND",
-          tone: "muted",
-          title: "还没有绑定校园账号",
-          desc: "绑定后可自动同步课表、成绩和教务状态。",
-          bound: false
-        }, { lastSyncText: "", syncMetaText: "" });
+        this.setDisplayStatus(unboundDisplay());
         wx.showToast({ title: "已解除绑定", icon: "success" });
       } else {
         wx.showToast({ title: "解除失败", icon: "none" });

@@ -3,8 +3,6 @@
     <view class="status-label">校园账号</view>
     <view class="status-value status-{{statusTone}}">{{statusTitle}}</view>
     <view class="status-desc">{{statusDesc}}</view>
-    <view wx:if="{{lastSyncText}}" class="status-meta">最近同步时间：{{lastSyncText}}</view>
-    <view wx:if="{{syncMetaText}}" class="status-meta">{{syncMetaText}}</view>
   </view>
 
   <view wx:if="{{!hasBoundJwxt || status === 'RELOGIN_REQUIRED' || status === 'CAPTCHA_REQUIRED' || binding || showCaptcha}}" class="card bind-card">
@@ -39,9 +37,9 @@
   </view>
 
   <view wx:if="{{hasBoundJwxt && status !== 'RELOGIN_REQUIRED' && status !== 'CAPTCHA_REQUIRED'}}" class="card bound-card">
-    <view class="card-title">校园账号已绑定</view>
+    <view class="card-title">已绑定校园账号</view>
     <view wx:if="{{maskedStudentId}}" class="hint">学号：{{maskedStudentId}}</view>
-    <view class="hint">系统会自动同步课表和成绩，无需重复登录。若更换教务密码，可先解除绑定后重新绑定。</view>
+    <view class="hint">校园账号已安全保存。若更换教务密码，可先解除绑定后重新绑定。</view>
     <view wx:if="{{bindingSuccess}}" class="success-actions">
       <button class="bind-btn" bindtap="viewGrades">查看我的成绩</button>
       <button class="light-btn" bindtap="viewTodayTimetable">查看今日课表</button>

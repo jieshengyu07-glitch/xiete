@@ -1,4 +1,5 @@
 const assert = require("assert");
+const fs = require("fs");
 const path = require("path");
 
 const settingsPath = path.resolve(__dirname, "../weapp/pages/settings/settings.js");
@@ -55,11 +56,35 @@ async function main() {
   const recoveringPage = createPage();
   recoveringPage.refreshStatus();
   await flush();
-  assert.strictEqual(recoveringPage.data.status, "RECOVERING");
+  assert.strictEqual(recoveringPage.data.status, "BOUND");
   assert.strictEqual(recoveringPage.data.hasBoundJwxt, true);
   assert.strictEqual(recoveringPage.data.showRebindActions, false);
-  assert.strictEqual(recoveringPage.data.statusTitle, "正在恢复校园账号");
-  console.log("recoveringStatusOverridesLegacyJwxtFailureTest=passed");
+  assert.strictEqual(recoveringPage.data.statusTitle, "已绑定校园账号");
+  assert.strictEqual(recoveringPage.data.statusDesc, "已完成校园账号绑定");
+  assert.notStrictEqual(recoveringPage.data.statusTitle, "正在恢复校园账号");
+  console.log("boundRecoveringKeepsBoundAccountTitleTest=passed");
+
+  statusResponse = {
+    bound: true,
+    jwxtStatus: "SYNCING"
+  };
+  const syncingPage = createPage();
+  syncingPage.refreshStatus();
+  await flush();
+  assert.strictEqual(syncingPage.data.status, "BOUND");
+  assert.strictEqual(syncingPage.data.statusTitle, "已绑定校园账号");
+  console.log("boundJwxtSyncingKeepsBoundAccountTitleTest=passed");
+
+  statusResponse = {
+    bound: true,
+    productStatus: { account: { state: "RECOVERING", bound: true } }
+  };
+  const productRecoveringPage = createPage();
+  productRecoveringPage.refreshStatus();
+  await flush();
+  assert.strictEqual(productRecoveringPage.data.status, "BOUND");
+  assert.strictEqual(productRecoveringPage.data.statusTitle, "已绑定校园账号");
+  console.log("boundProductRecoveringKeepsBoundAccountTitleTest=passed");
 
   statusResponse = {
     bound: true,
@@ -82,18 +107,19 @@ async function main() {
   const reloginPage = createPage();
   reloginPage.refreshStatus();
   await flush();
-  assert.strictEqual(reloginPage.data.status, "RELOGIN_REQUIRED");
-  assert.strictEqual(reloginPage.data.showRebindActions, true);
-  console.log("explicitReloginRequiredShowsRebindTest=passed");
+  assert.strictEqual(reloginPage.data.status, "BOUND");
+  assert.strictEqual(reloginPage.data.showRebindActions, false);
+  assert.strictEqual(reloginPage.data.statusTitle, "已绑定校园账号");
+  console.log("boundReloginStateKeepsBoundAccountTitleTest=passed");
 
   latestModal = null;
   const transientPage = createPage({ hasBoundJwxt: true });
   transientPage.handleBindFailure({ error: "JWXT_UNAVAILABLE", message: "temporary" });
-  assert.strictEqual(transientPage.data.status, "SCHOOL_UNAVAILABLE");
+  assert.strictEqual(transientPage.data.status, "BOUND");
   assert.strictEqual(transientPage.data.showRebindActions, false);
-  assert.strictEqual(transientPage.data.statusTitle, "学校系统暂时无法访问");
+  assert.strictEqual(transientPage.data.statusTitle, "已绑定校园账号");
   assert.strictEqual(latestModal, null);
-  console.log("transientRebindFailureKeepsBoundRecoveryStateTest=passed");
+  console.log("transientServiceFailureKeepsBoundAccountTitleTest=passed");
 
   boundHint = false;
   statusResponse = { bound: false, campusLoginStatus: "not_bound" };
@@ -101,7 +127,19 @@ async function main() {
   unboundPage.refreshStatus();
   await flush();
   assert.strictEqual(unboundPage.data.status, "UNBOUND");
+  assert.strictEqual(unboundPage.data.statusTitle, "未绑定校园账号");
   console.log("authoritativeUnboundStatusIgnoresStaleUiStateTest=passed");
+
+  const settingsSource = fs.readFileSync(settingsPath, "utf8");
+  const settingsView = fs.readFileSync(path.resolve(__dirname, "../weapp/pages/settings/settings.wxml"), "utf8");
+  assert.match(settingsSource, /api\.request\("\/status"\)/);
+  assert.match(settingsSource, /api\.post\("\/unbind-account"/);
+  assert.match(settingsSource, /api\.post\("\/bind-account"/);
+  assert.match(settingsView, /bindtap="refreshStatus"/);
+  assert.match(settingsView, /bindtap="unbindAccount"/);
+  assert.match(settingsView, /bindtap="bindAccount"/);
+  assert.doesNotMatch(settingsView, /lastSyncText|syncMetaText|最近同步时间|最近失败/);
+  console.log("settingsAccountManagementActionsPreservedTest=passed");
 
   latestModal = null;
   latestToast = null;
