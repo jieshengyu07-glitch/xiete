@@ -490,7 +490,7 @@ Page({
         await Promise.all([this.loadCurrent(), this.refreshAccountStatus()]);
         const hasCache = Boolean(result.hasCache || this.data.hasTimetable);
         const message = result.message || (hasCache
-          ? "教务系统暂时不可用，当前显示上次同步课表"
+          ? "课表刷新失败，已保留原课表"
           : "暂无课表，请先刷新课表");
         this.setData({
           notice: hasCache ? message : "",
@@ -513,7 +513,7 @@ Page({
       const message = formatJwxtErrorMessage(err, "课表刷新失败");
       this.setData({
         syncing: false,
-        notice: this.data.hasTimetable ? "教务系统暂时不可用，当前显示上次同步课表" : "",
+        notice: this.data.hasTimetable ? "课表刷新失败，已保留原课表" : "",
         error: this.data.hasTimetable ? "" : message
       });
       if (isCaptchaRequired(err)) {

@@ -23,6 +23,7 @@ const { scheduleUserTimetableSync, isUserTimetableSyncRunning } = require("./syn
 const { scheduleCampusSessionBootstrap, isCampusSessionBootstrapRunning } = require("./sync/campusSessionBootstrap");
 const { currentTermInfo, loadConfiguredTerm, assertTermConfig } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
+const { rowsForTerm, shouldScheduleAutomaticSync } = require("./timetable/cachePolicy");
 const { publicClassTimeConfig } = require("./timetable/classPeriods");
 const { resolveGradeQueryTerms, publicTerm } = require("./grade/termDiscovery");
 const { createCaptchaSession, loginWithCaptcha, clearCaptchaSessionsForUser } = require("./login/captchaSession");
@@ -1510,8 +1511,9 @@ async function termRowsForRequest(req) {
   let source = productionDb ? "none" : "legacy";
   if (req.userId) {
     const cache = await campusCacheRuntime.getTimetable(req.userId);
-    if (cache && cache.timetable && cache.timetable.length) {
-      rows = cache.timetable.filter(item => String(item.termYear || item.term_year || term.termYear) === String(term.termYear) && String(item.termSemester || item.term_semester || term.termSemester) === String(term.termSemester));
+    const persistentRows = rowsForTerm(cache && cache.timetable, term);
+    if (productionDb || persistentRows.length) {
+      rows = persistentRows;
       source = "postgres";
     }
   }
@@ -1552,10 +1554,13 @@ async function maybeScheduleTimetableSync(userId, rows) {
   try { credentials = await credentialStore.getJwxtCredentialsAsync(userId); } catch (_) {}
   if (!userId || rows.length || !credentials) return false;
   const state = await syncStateRuntime.get(userId, "timetable");
-  const finishedAt = state.type === "timetable" ? timeValue(state.finishedAt) : 0;
-  const sinceFinished = finishedAt ? Date.now() - finishedAt : Infinity;
-  if (state.status === "failed" && sinceFinished < FAILED_SYNC_RETRY_INTERVAL_MS) return false;
-  if (state.status === "success" && sinceFinished < AUTO_GRADE_SYNC_INTERVAL_MS) return false;
+  if (!shouldScheduleAutomaticSync({
+    userId,
+    currentTermRows: rows,
+    hasCredentials: Boolean(credentials),
+    syncState: state,
+    failedRetryIntervalMs: FAILED_SYNC_RETRY_INTERVAL_MS
+  })) return false;
   scheduleUserTimetableSync(userId);
   return true;
 }
@@ -1743,20 +1748,8 @@ app.post("/timetable/sync", auth, monitorBusinessEvent("timetable_query", { sour
     if (sendTermConfigError(res, err)) return;
     return res.status(500).json({ success: false, error: "TIMETABLE_CONFIG_FAILED", message: err.message });
   }
-  const cachedRows = activeStorage.getTimetable(configuredTerm.termYear, configuredTerm.termSemester);
+  const { rows: cachedRows } = await termRowsForRequest(req);
   const hasCache = cachedRows.length > 0;
-  const cooldown = isRetryCooledDown(req.userId ? await credentialStore.readBoundAccountMetaAsync(req.userId) : null);
-  if (cooldown.cooledDown) {
-    return res.json({
-      success: false,
-      error: cooldown.error,
-      warning: hasCache,
-      fromCache: hasCache,
-      hasCache,
-      retryAfterSeconds: cooldown.retryAfterSeconds || null,
-      message: hasCache ? cacheWarningMessage("timetable", true, cooldown.error) : cacheWarningMessage("timetable", false, cooldown.error)
-    });
-  }
 
   if (req.userId) {
     const alreadyRunning = isUserTimetableSyncRunning(req.userId);

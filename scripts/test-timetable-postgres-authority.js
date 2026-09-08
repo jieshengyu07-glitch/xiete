@@ -10,9 +10,11 @@ const termRows = server.slice(start, end);
 
 assert(termRows.includes('const productionDb = productionPostgresRuntime();'));
 assert(termRows.includes('let rows = productionDb ? [] : requestStorage(req).getTimetable'));
+assert(termRows.includes('const persistentRows = rowsForTerm(cache && cache.timetable, term);'));
+assert(termRows.includes('if (productionDb || persistentRows.length)'));
 assert(termRows.includes('source = "postgres"'));
 assert(termRows.includes('source = productionDb ? "none" : "legacy"'));
-assert(!termRows.includes('if (cache && cache.timetable && cache.timetable.length) rows ='));
+assert(!termRows.includes('timetable_updated_at'));
 
 function selectRows({ production, postgresRows, legacyRows }) {
   return production ? (postgresRows.length ? postgresRows : []) : (postgresRows.length ? postgresRows : legacyRows);

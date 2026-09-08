@@ -3,6 +3,7 @@ const userPersistence = require("../services/userPersistence");
 const { markCampusLoginValid } = require("../services/campusLoginState");
 const { loadConfiguredTerm } = require("../timetable/calendar");
 const { syncTimetableForUser } = require("../timetable/sync");
+const { replaceTermRows } = require("../timetable/cachePolicy");
 const campusCacheRuntime = require("../services/campusCacheRuntime");
 const syncStateRuntime = require("../services/syncStateRuntime");
 
@@ -17,9 +18,17 @@ async function syncUserTimetable(userId) {
     finishedAt: "", errorCode: "", lastError: ""
   }, "timetable");
   try {
-    const result = await syncTimetableForUser(userId, storage, { term: loadConfiguredTerm() });
+    const term = loadConfiguredTerm();
+    const result = await syncTimetableForUser(userId, storage, { term });
     if (result && result.success) {
-      try { if (require("../db/pool").isPostgresEnabled()) await campusCacheRuntime.saveTimetable(userId, storage.getTimetable(loadConfiguredTerm().termYear, loadConfiguredTerm().termSemester), result.updatedAt); }
+      try {
+        if (require("../db/pool").isPostgresEnabled()) {
+          const currentRows = storage.getTimetable(term.termYear, term.termSemester);
+          const previous = await campusCacheRuntime.getTimetable(userId);
+          const replacement = replaceTermRows(previous && previous.timetable, term, currentRows);
+          await campusCacheRuntime.saveTimetable(userId, replacement, result.updatedAt);
+        }
+      }
       catch (cacheErr) { console.error("[cache] timetable persistence failed code=" + (cacheErr.code || "CACHE_WRITE_FAILED")); try { await syncStateRuntime.update(userId, "timetable", { lastError: "CACHE_PERSISTENCE_FAILED" }); } catch (_) {} return { success: false, error: "CACHE_PERSISTENCE_FAILED", message: "课表缓存持久化失败" }; }
       if (require("../db/pool").isPostgresEnabled()) await syncStateRuntime.update(userId, "timetable", { lastSuccessfulAt: result.updatedAt, lastError: "" });
       await markCampusLoginValid(userId, "timetable");
