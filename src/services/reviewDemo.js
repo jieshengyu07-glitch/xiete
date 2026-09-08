@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { SECTION_NUMBERS } = require("../timetable/classPeriods");
 const fs = require("fs");
 const path = require("path");
 const { getUserPaths, safeUserId } = require("./userPaths");
@@ -226,7 +227,7 @@ function demoCourses(weekday) {
 
 function demoSections(weekday) {
   const courses = demoCourses(weekday);
-  return [1, 2, 3, 4].map(section => ({
+  return SECTION_NUMBERS.map(section => ({
     section,
     title: "第" + section + "大节",
     courses: courses.filter(course => course.section === section)

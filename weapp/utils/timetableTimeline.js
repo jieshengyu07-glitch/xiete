@@ -1,4 +1,9 @@
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+const SECTION_NUMBERS = Object.freeze([1, 2, 3, 4, 5]);
+
+function sectionLabel(section) {
+  return Number(section) === 5 ? "第9-10节" : (section ? "第" + section + "大节" : "时间待定");
+}
 
 function minutesOf(value) {
   const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
@@ -53,11 +58,11 @@ function normalizeCourse(course, sectionValue, periods) {
     teacherName: String(course && course.teacherName || "").trim(),
     locationText: locationOf(course),
     startTime: period ? period.startTime : "",
-    startLabel: period ? period.startTime : (section ? "第" + section + "大节" : "时间待定"),
+    startLabel: period ? period.startTime : sectionLabel(section),
     endTime: period ? period.endTime : "",
     startMinutes: period ? period.startMinutes : null,
     endMinutes: period ? period.endMinutes : null,
-    timeText: period ? period.timeText : (section ? "第" + section + "大节" : "时间待定"),
+    timeText: period ? period.timeText : sectionLabel(section),
     hasExactTime: Boolean(period)
   });
 }
@@ -141,7 +146,9 @@ function resolveCourseTimeline(options) {
   if (currentCourse) {
     state = "IN_CLASS";
     title = "正在上课";
-    description = nextCourse ? "下一节：" + nextCourse.courseName + " · " + nextCourse.startTime : "这是今天最后一门课";
+    const hasUnknownLaterCourse = courses.some(course => !course.hasExactTime && course.section > currentCourse.section);
+    description = nextCourse ? "下一节：" + nextCourse.courseName + " · " + nextCourse.startTime :
+      (hasUnknownLaterCourse ? "后续还有时间待确认的课程安排" : "这是今天最后一门课");
   } else if (nextCourse) {
     const firstTimed = courses.find(course => course.hasExactTime);
     state = firstTimed === nextCourse ? "BEFORE_FIRST_CLASS" : "BETWEEN_CLASSES";
@@ -149,9 +156,10 @@ function resolveCourseTimeline(options) {
     const diff = nextCourse.startMinutes - currentMinutes;
     description = diff > 0 ? "距上课还有 " + diff + " 分钟" : "";
   } else {
-    state = courses.some(course => course.hasExactTime) ? "AFTER_LAST_CLASS" : "NO_CLASS_TODAY";
-    title = state === "AFTER_LAST_CLASS" ? "今天的课上完了" : "今天有课程安排";
-    description = state === "AFTER_LAST_CLASS" ? "今天共 " + courses.length + " 门课" : "具体时间请以节次为准。";
+    const hasUnknownTimeCourse = courses.some(course => !course.hasExactTime);
+    state = hasUnknownTimeCourse ? "TIME_UNKNOWN" : "AFTER_LAST_CLASS";
+    title = hasUnknownTimeCourse ? "今天还有课程安排" : "今天的课上完了";
+    description = hasUnknownTimeCourse ? "具体时间请以节次为准。" : "今天共 " + courses.length + " 门课";
   }
 
   const focusCourse = currentCourse || nextCourse;
@@ -170,6 +178,7 @@ function resolveCourseTimeline(options) {
 }
 
 module.exports = {
+  SECTION_NUMBERS,
   minutesOf,
   shanghaiNow,
   periodMap,

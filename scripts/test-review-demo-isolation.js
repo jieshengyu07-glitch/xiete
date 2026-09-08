@@ -175,13 +175,13 @@ async function main() {
     const today = await request(port, "GET", "/timetable/today", demoToken);
     assert.strictEqual(today.data.reviewDemo, true);
     assert.strictEqual(today.data.syncing, false);
-    assert.strictEqual(today.data.sections.length, 4);
+    assert.strictEqual(today.data.sections.length, 5);
     assert(today.data.sections.reduce((count, section) => count + section.courses.length, 0) >= 2);
 
     const week = await request(port, "GET", "/timetable/week", demoToken);
     assert.strictEqual(week.data.reviewDemo, true);
     assert.strictEqual(week.data.days.length, 7);
-    assert(week.data.days.every(day => day.sections.length === 4));
+    assert(week.data.days.every(day => day.sections.length === 5));
     assert(week.data.days.reduce((count, day) => {
       return count + day.sections.reduce((dayCount, section) => dayCount + section.courses.length, 0);
     }, 0) >= 14);

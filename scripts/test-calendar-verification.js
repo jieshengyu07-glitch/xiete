@@ -64,6 +64,7 @@ assert.deepStrictEqual(classTime.classPeriods, [
   { section: 1, sectionStart: 1, sectionEnd: 2, startTime: "08:00", endTime: "09:40" },
   { section: 2, sectionStart: 3, sectionEnd: 4, startTime: "10:00", endTime: "11:40" },
   { section: 3, sectionStart: 5, sectionEnd: 6, startTime: "14:30", endTime: "16:10" },
-  { section: 4, sectionStart: 7, sectionEnd: 8, startTime: "16:30", endTime: "18:10" }
+  { section: 4, sectionStart: 7, sectionEnd: 8, startTime: "16:30", endTime: "18:10" },
+  { section: 5, sectionStart: 9, sectionEnd: 10, startTime: "", endTime: "" }
 ]);
 console.log("unverifiedLegacyClassTimeGuardTest=passed");

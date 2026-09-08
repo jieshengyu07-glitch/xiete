@@ -24,7 +24,7 @@ const { scheduleCampusSessionBootstrap, isCampusSessionBootstrapRunning } = requ
 const { currentTermInfo, loadConfiguredTerm, assertTermConfig } = require("./timetable/calendar");
 const { syncTimetableForUser, parseClassroom } = require("./timetable/sync");
 const { rowsForTerm, shouldScheduleAutomaticSync } = require("./timetable/cachePolicy");
-const { publicClassTimeConfig } = require("./timetable/classPeriods");
+const { SECTION_NUMBERS, publicClassTimeConfig } = require("./timetable/classPeriods");
 const { resolveGradeQueryTerms, publicTerm } = require("./grade/termDiscovery");
 const { createCaptchaSession, loginWithCaptcha, clearCaptchaSessionsForUser } = require("./login/captchaSession");
 const {
@@ -1497,7 +1497,7 @@ function fillDaySections(rows) {
     if (!bySection[section]) bySection[section] = [];
     bySection[section].push(compactTimetableItem(item));
   });
-  return [1, 2, 3, 4].map(section => ({
+  return SECTION_NUMBERS.map(section => ({
     section,
     title: "第" + section + "大节",
     courses: bySection[section] || []

@@ -4,7 +4,14 @@ const path = require("path");
 const { timetablePresentation, campusPresentation } = require("../weapp/utils/statusPresenter");
 
 const classConfig = require("../src/timetable/classPeriods").publicClassTimeConfig();
-assert.strictEqual(classConfig.classPeriods.length, 4);
+assert.strictEqual(classConfig.classPeriods.length, 5);
+assert.deepStrictEqual(classConfig.classPeriods[4], {
+  section: 5,
+  sectionStart: 9,
+  sectionEnd: 10,
+  startTime: "",
+  endTime: ""
+});
 assert.strictEqual(classConfig.classTimeSource, "LEGACY_CONFIGURED");
 assert.strictEqual(classConfig.classTimeSchoolVerified, false);
 

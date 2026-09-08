@@ -1,12 +1,12 @@
 const api = require("../../utils/api");
 const { formatJwxtErrorMessage, isCaptchaRequired, isLoginRequired } = require("../../utils/jwxtError");
 const { timetablePresentation, campusPresentation, userErrorMessage } = require("../../utils/statusPresenter");
-const { coursesFromSections, resolveCourseTimeline } = require("../../utils/timetableTimeline");
+const { SECTION_NUMBERS, coursesFromSections, resolveCourseTimeline } = require("../../utils/timetableTimeline");
 const announcementService = require("../../utils/announcement");
 
 const WEEKDAY_NAMES = ["", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
 function defaultSections() {
-  return [1, 2, 3, 4].map(section => ({
+  return SECTION_NUMBERS.map(section => ({
     section,
     title: "第" + section + "大节",
     timeText: "",

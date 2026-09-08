@@ -95,7 +95,9 @@ function normalizeSection(raw) {
   if (first <= 2) return 1;
   if (first <= 4) return 2;
   if (first <= 6) return 3;
-  return 4;
+  if (first <= 8) return 4;
+  if (first <= 10) return 5;
+  return 0;
 }
 
 function parseWeekType(text) {
