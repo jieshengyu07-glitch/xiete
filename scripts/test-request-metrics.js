@@ -1,6 +1,7 @@
 const assert = require("assert");
 const http = require("http");
 const express = require("express");
+const { EventEmitter } = require("events");
 const requestMetrics = require("../src/middleware/requestMetrics");
 
 function request(server, options) {
@@ -78,7 +79,7 @@ async function main() {
 
   assert.strictEqual(metrics.length, 5);
   assert.deepStrictEqual(Object.keys(metrics[0]).sort(), [
-    "method", "occurredAt", "responseTimeMs", "route", "statusCode"
+    "featureCategory", "method", "occurredAt", "responseTimeMs", "route", "statusCode"
   ]);
   assert.strictEqual(metrics[0].method, "GET");
   assert.strictEqual(metrics[0].route, "/test");
@@ -88,6 +89,7 @@ async function main() {
   assert.strictEqual(metrics[2].route, "/sensitive");
   assert.strictEqual(metrics[3].statusCode, 503);
   assert.strictEqual(metrics[4].route, "__unmatched__");
+  assert.strictEqual(metrics[0].featureCategory, "other");
   const serialized = JSON.stringify(metrics);
   ["123", "DO_NOT_STORE", "test-token", "test-cookie", "must-not-be-stored", "query-secret", "body-secret"].forEach(value => {
     assert.ok(!serialized.includes(value));
@@ -122,9 +124,46 @@ async function main() {
   }
   assert.strictEqual(failureLogs, 2);
   assert.strictEqual(unhandled, null);
+
+  const lifecycleMetrics = [];
+  let time = 0n;
+  const lifecycleMiddleware = requestMetrics({
+    insertRequestMetric: metric => { lifecycleMetrics.push(metric); },
+    hrtime: () => { time += 1000000n; return time; }
+  });
+  const fakeRequest = new EventEmitter();
+  fakeRequest.method = "GET";
+  fakeRequest.path = "/grades";
+  fakeRequest.route = { path: "/grades" };
+  const fakeResponse = new EventEmitter();
+  fakeResponse.statusCode = 200;
+  fakeResponse.writableFinished = false;
+  lifecycleMiddleware(fakeRequest, fakeResponse, () => {});
+  fakeRequest.emit("aborted");
+  fakeResponse.emit("close");
+  await nextTurn();
+  assert.strictEqual(lifecycleMetrics.length, 1);
+  assert.strictEqual(lifecycleMetrics[0].statusCode, 499);
+  assert.strictEqual(lifecycleMetrics[0].featureCategory, "grades");
+
+  const completedMetrics = [];
+  const completedRequest = new EventEmitter();
+  completedRequest.method = "GET";
+  completedRequest.path = "/status";
+  completedRequest.route = { path: "/status" };
+  const completedResponse = new EventEmitter();
+  completedResponse.statusCode = 500;
+  completedResponse.writableFinished = true;
+  requestMetrics({ insertRequestMetric: metric => { completedMetrics.push(metric); } })(completedRequest, completedResponse, () => {});
+  completedResponse.emit("finish");
+  completedResponse.emit("close");
+  await nextTurn();
+  assert.strictEqual(completedMetrics.length, 1);
+  assert.strictEqual(completedMetrics[0].statusCode, 500);
   console.log("requestMetricsMiddlewareTest=passed");
   console.log("requestMetricsPrivacyGuardTest=passed");
   console.log("requestMetricsFailureIsolationTest=passed");
+  console.log("requestMetricsFinishCloseAndAbortedLifecycleTest=passed");
 }
 
 main().catch(err => {

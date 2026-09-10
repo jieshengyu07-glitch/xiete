@@ -19,6 +19,11 @@ async function main(){
   ["今日实时","累计总览","今日业务事件","累计业务事件"].forEach(value=>assert.ok(html.includes(value)));
   assert.strictEqual((js.match(/"\/admin\/metrics\/summary"/g)||[]).length,1);
   assert.ok(!/lifetimeUniqueUsers|stableUserHash|openidHash/.test(js+html));
+  ["今日活跃用户","按核心功能调用匿名去重，不是微信公众平台访问人数","近5分钟活跃用户","今日 API 请求","HTTP 5xx","今日 HTTP 状态分布","今日功能使用排行","RSS","Heap Used","Heap Total","Event Loop Lag"].forEach(value=>assert.ok(html.includes(value),value));
+  ["http2xxToday","http3xxToday","http4xxToday","http5xxToday","featureRanking","runtimeRss","runtimeHeapUsed","runtimeHeapTotal","eventLoopLag"].forEach(id=>assert.ok(html.includes('id="'+id+'"'),id));
+  assert.ok(!html.includes("在线人数"));
+  assert.match(js,/renderFeatureRanking\(data\.featureRanking\)/);
+  assert.match(js,/Number\(today\.http5xxToday\)>0\?"metric alert":"metric"/);
   assert.ok(html.includes("当前已绑定账号"));
   assert.ok(html.includes("绑定率"));
   assert.match(html,/id="boundUsers"/);

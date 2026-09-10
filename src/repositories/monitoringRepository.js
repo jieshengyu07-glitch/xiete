@@ -201,6 +201,31 @@ function createMonitoringRepository(poolProvider) {
     };
   }
 
+  async function getHttpStatusSummary(options) {
+    const input = options || {};
+    const since = requiredDate(input.since, "since");
+    const until = requiredDate(input.until, "until");
+    if (until.getTime() < since.getTime()) throw new TypeError("until must not precede since");
+    const db = providePool();
+    if (!db) throw new Error("POSTGRES_NOT_ENABLED");
+    const result = await adminQuery(db,
+      `SELECT COUNT(*) FILTER (WHERE status_code BETWEEN 200 AND 299) AS http_2xx,
+              COUNT(*) FILTER (WHERE status_code BETWEEN 300 AND 399) AS http_3xx,
+              COUNT(*) FILTER (WHERE status_code BETWEEN 400 AND 499) AS http_4xx,
+              COUNT(*) FILTER (WHERE status_code BETWEEN 500 AND 599) AS http_5xx
+         FROM api_request_metrics
+        WHERE occurred_at >= $1 AND occurred_at < $2`,
+      [since, until]
+    );
+    const row = result.rows[0] || {};
+    return {
+      http2xx: Number(row.http_2xx || 0),
+      http3xx: Number(row.http_3xx || 0),
+      http4xx: Number(row.http_4xx || 0),
+      http5xx: Number(row.http_5xx || 0)
+    };
+  }
+
   async function insertMonitorEvent(value) {
     const event = monitorEvent(value);
     const db = providePool();
@@ -421,6 +446,10 @@ function createMonitoringRepository(poolProvider) {
     const result = await adminQuery(db,
       `SELECT ${expression} AS bucket_at,
               COUNT(*) AS request_count,
+              COUNT(*) FILTER (WHERE status_code BETWEEN 200 AND 299) AS http_2xx,
+              COUNT(*) FILTER (WHERE status_code BETWEEN 300 AND 399) AS http_3xx,
+              COUNT(*) FILTER (WHERE status_code BETWEEN 400 AND 499) AS http_4xx,
+              COUNT(*) FILTER (WHERE status_code BETWEEN 500 AND 599) AS http_5xx,
               AVG(response_time_ms) AS average_response_time_ms,
               percentile_cont(0.95) WITHIN GROUP (ORDER BY response_time_ms) AS p95_response_time_ms
          FROM api_request_metrics
@@ -432,6 +461,10 @@ function createMonitoringRepository(poolProvider) {
     return result.rows.map(row => ({
       timestamp: requiredDate(row.bucket_at, "bucket_at"),
       requestCount: Number(row.request_count || 0),
+      http2xx: Number(row.http_2xx || 0),
+      http3xx: Number(row.http_3xx || 0),
+      http4xx: Number(row.http_4xx || 0),
+      http5xx: Number(row.http_5xx || 0),
       averageResponseTimeMs: finiteNumber(row.average_response_time_ms),
       p95ResponseTimeMs: finiteNumber(row.p95_response_time_ms)
     }));
@@ -473,6 +506,7 @@ function createMonitoringRepository(poolProvider) {
   return {
     insertRequestMetric,
     getRequestSummary,
+    getHttpStatusSummary,
     insertMonitorEvent,
     getBindingFunnel,
     getBindingFailureBreakdown,

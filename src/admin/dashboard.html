@@ -24,19 +24,24 @@
 
     <section id="dashboard" class="dashboard" hidden>
       <article class="panel now-panel">
-        <div><p class="eyebrow">现在怎么样</p><h2>最近5分钟有多少人在用</h2><p id="activeUsersHelp" class="metric-explanation">最近5分钟内产生操作的用户</p></div>
+        <div><p class="eyebrow">现在怎么样</p><h2>近5分钟活跃用户</h2><p id="activeUsersHelp" class="metric-explanation">最近5分钟内产生核心功能调用的匿名用户</p></div>
         <strong id="activeUsers" class="now-value">—</strong>
       </article>
 
       <div class="section-heading"><div><p class="eyebrow">今天</p><h2>今天的使用情况</h2></div><span>按北京时间统计</span></div>
       <div class="metrics-grid today-grid">
-        <article class="metric priority"><span>今天有多少人用过</span><strong id="uniqueUsers">—</strong><small>今天至少使用过一次主要功能的人数</small></article>
-        <article class="metric priority"><span>今天系统处理次数</span><strong id="requestCount">—</strong><small>小程序今天向后台发起并完成的请求总数，不等于点击次数</small></article>
+        <article class="metric priority"><span>今日活跃用户</span><strong id="uniqueUsers">—</strong><small>按核心功能调用匿名去重，不是微信公众平台访问人数</small></article>
+        <article class="metric priority"><span>今日 API 请求</span><strong id="requestCount">—</strong><small>今天完成或明确异常终止的普通业务请求，不等于点击次数</small></article>
+        <article id="http5xxCard" class="metric"><span>HTTP 5xx</span><strong id="http5xxToday">—</strong><small>今天后台返回的服务端错误数量</small></article>
         <article class="metric"><span>平均响应速度</span><strong id="averageMs">—</strong><small>后台通常多久给小程序返回结果，数字越小越快</small><em id="averageSpeed" class="speed-label">等待数据</em></article>
         <article class="metric"><span>较慢时响应速度</span><strong id="p95Ms">—</strong><small>95%的请求都能在这个时间内完成，数字越小越好</small><em id="p95Speed" class="speed-label">等待数据</em></article>
       </div>
 
+      <article class="panel"><div class="panel-head"><div><p class="eyebrow">HTTP 状态</p><h2>今日 HTTP 状态分布</h2></div><span>499 表示客户端提前断开，归入 4xx</span></div><div class="metrics-grid status-grid"><div class="metric"><span>2xx</span><strong id="http2xxToday">—</strong></div><div class="metric"><span>3xx</span><strong id="http3xxToday">—</strong></div><div class="metric accent"><span>4xx</span><strong id="http4xxToday">—</strong></div><div class="metric danger"><span>5xx</span><strong id="http5xxDistribution">—</strong></div></div></article>
+
       <article class="panel"><div class="panel-head"><div><p class="eyebrow">今天的功能使用</p><h2>今天大家都在用什么</h2></div></div><div id="eventGrid" class="event-grid"></div></article>
+
+      <article class="panel"><div class="panel-head"><div><p class="eyebrow">使用排行</p><h2>今日功能使用排行</h2></div><span>按业务操作次数从高到低</span></div><div id="featureRanking" class="ranking-list"></div></article>
 
       <article class="panel binding-panel">
         <div class="panel-head"><div><p class="eyebrow">账号绑定</p><h2>绑定流程情况</h2></div><span>按北京时间统计今天</span></div>
@@ -64,13 +69,13 @@
         </div>
       </article>
 
-      <article class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">最近一小时</p><h2>最近60分钟使用情况</h2></div><span>每分钟更新走势</span></div><svg id="requestChart" viewBox="0 0 800 260" role="img" aria-label="最近60分钟系统处理次数走势"></svg><p id="chartEmpty" class="empty" hidden>最近60分钟暂时没有操作</p></article>
+      <article class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">最近一小时</p><h2>最近60分钟请求与 HTTP 状态趋势</h2></div><div class="chart-legend"><span class="legend-total">请求</span><span class="legend-2xx">2xx</span><span class="legend-4xx">4xx</span><span class="legend-5xx">5xx</span></div></div><svg id="requestChart" viewBox="0 0 800 260" role="img" aria-label="最近60分钟请求与HTTP状态趋势"></svg><p id="chartEmpty" class="empty" hidden>最近60分钟暂时没有操作</p></article>
 
       <article class="panel"><div class="panel-head"><div><p class="eyebrow">历史功能使用</p><h2>各功能累计使用次数</h2></div></div><div id="lifetimeEventGrid" class="event-grid"></div></article>
 
       <article class="panel"><div class="panel-head"><div><p class="eyebrow">问题记录</p><h2 id="errorsTitle">最近24小时出现的问题</h2></div><span>最多显示 20 项</span></div><div class="table-wrap"><table><thead><tr><th>功能</th><th>发生了什么</th><th>次数</th><th>最近一次</th></tr></thead><tbody id="errorRows"></tbody></table><p id="errorsEmpty" class="empty" hidden>运行正常，最近24小时没有记录到业务错误</p></div></article>
 
-      <article class="panel health-panel"><div class="panel-head"><div><p class="eyebrow">当前状态</p><h2>系统运行状态</h2></div></div><div class="health-grid"><div class="health-item"><span>后台服务</span><strong id="expressStatus">暂时无法确认</strong></div><div class="health-item"><span>已连续运行</span><strong id="serviceUptime">—</strong></div><div class="health-item"><span>数据库</span><strong id="postgresStatus">暂时无法确认</strong></div><div class="health-item"><span>数据库响应速度</span><strong id="postgresLatency">—</strong></div></div><p id="dataNotice" class="notice"></p></article>
+      <article class="panel health-panel"><div class="panel-head"><div><p class="eyebrow">当前状态</p><h2>系统运行状态</h2></div></div><div class="health-grid"><div class="health-item"><span>后台服务</span><strong id="expressStatus">暂时无法确认</strong></div><div class="health-item"><span>已连续运行</span><strong id="serviceUptime">—</strong></div><div class="health-item"><span>数据库</span><strong id="postgresStatus">暂时无法确认</strong></div><div class="health-item"><span>数据库响应速度</span><strong id="postgresLatency">—</strong></div><div class="health-item"><span>RSS</span><strong id="runtimeRss">—</strong></div><div class="health-item"><span>Heap Used</span><strong id="runtimeHeapUsed">—</strong></div><div class="health-item"><span>Heap Total</span><strong id="runtimeHeapTotal">—</strong></div><div class="health-item"><span>Event Loop Lag</span><strong id="eventLoopLag">—</strong></div></div><p id="dataNotice" class="notice"></p></article>
     </section>
     <!-- 兼容现有静态校验：今日实时、累计总览、今日业务事件、累计业务事件。 -->
   </main>

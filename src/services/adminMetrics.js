@@ -1,5 +1,6 @@
 const monitoringRepository = require("../repositories/monitoringRepository");
 const { shanghaiDateString } = require("./monitoringIdentity");
+const { monitorEventLoopDelay } = require("perf_hooks");
 
 const TIMEZONE = "Asia/Shanghai";
 const EVENT_KEYS = {
@@ -9,6 +10,14 @@ const EVENT_KEYS = {
   bind_account: "bindAccount",
   unbind_account: "unbindAccount"
 };
+const EVENT_LABELS = {
+  wechat_login: "微信登录",
+  grades_query: "成绩查询",
+  timetable_query: "课表查询",
+  bind_account: "绑定账号",
+  unbind_account: "解绑账号"
+};
+const CACHE_TTL_MS = { summary: 5000, health: 3000, timeseries: 10000, errors: 10000 };
 const BIND_STAGE_KEYS = {
   bind_started: "started",
   portal_login_confirmed: "portalConfirmed",
@@ -24,6 +33,69 @@ const BIND_FAILURE_LABELS = {
 };
 const RANGE_MS = { "60m": 60 * 60 * 1000, "6h": 6 * 60 * 60 * 1000, "24h": 24 * 60 * 60 * 1000 };
 const BUCKET_MS = { minute: 60 * 1000, "5minute": 5 * 60 * 1000, hour: 60 * 60 * 1000 };
+
+const eventLoopDelayMonitor = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelayMonitor.enable();
+
+function defaultEventLoopDelayNanoseconds() {
+  const value = Number(eventLoopDelayMonitor.mean);
+  eventLoopDelayMonitor.reset();
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function nanosecondsToMilliseconds(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.round(number / 100000) / 10 : 0;
+}
+
+function runtimeSnapshot(options) {
+  const config = options || {};
+  try {
+    const memory = config.memoryUsage();
+    const safeBytes = value => {
+      const number = Number(value);
+      return Number.isFinite(number) && number >= 0 ? Math.round(number) : 0;
+    };
+    const uptime = Number(config.uptime());
+    return {
+      rssBytes: safeBytes(memory.rss),
+      heapUsedBytes: safeBytes(memory.heapUsed),
+      heapTotalBytes: safeBytes(memory.heapTotal),
+      externalBytes: safeBytes(memory.external),
+      eventLoopLagMs: nanosecondsToMilliseconds(config.eventLoopDelayNanoseconds()),
+      processUptimeSeconds: Number.isFinite(uptime) && uptime >= 0 ? Math.floor(uptime) : 0
+    };
+  } catch (_) {
+    return {
+      rssBytes: 0,
+      heapUsedBytes: 0,
+      heapTotalBytes: 0,
+      externalBytes: 0,
+      eventLoopLagMs: 0,
+      processUptimeSeconds: 0
+    };
+  }
+}
+
+function createPromiseTtlCache(nowMs) {
+  const entries = new Map();
+  return async function cached(key, ttlMs, load) {
+    const currentTime = Number(nowMs());
+    const existing = entries.get(key);
+    if (existing && existing.value !== undefined && existing.expiresAt > currentTime) return existing.value;
+    if (existing && existing.promise) return existing.promise;
+    const promise = Promise.resolve().then(load);
+    entries.set(key, { promise, expiresAt: 0, value: undefined });
+    try {
+      const value = await promise;
+      entries.set(key, { value, expiresAt: Number(nowMs()) + ttlMs, promise: null });
+      return value;
+    } catch (err) {
+      entries.delete(key);
+      throw err;
+    }
+  };
+}
 
 function finiteOrZero(value) {
   const number = Number(value);
@@ -97,19 +169,41 @@ function bindingFailures(rows) {
   }));
 }
 
+function featureRanking(rows) {
+  return rows
+    .filter(row => Object.prototype.hasOwnProperty.call(EVENT_LABELS, row.eventType))
+    .map(row => ({
+      eventType: row.eventType,
+      label: EVENT_LABELS[row.eventType],
+      total: finiteOrZero(row.total),
+      success: finiteOrZero(row.success),
+      failure: finiteOrZero(row.failure)
+    }))
+    .sort((left, right) => right.total - left.total || left.label.localeCompare(right.label, "zh-CN"));
+}
+
 function createAdminMetricsService(options) {
   const config = options || {};
   const repository = config.repository || monitoringRepository;
   const now = config.now || (() => new Date());
   const uptime = config.uptime || process.uptime;
+  const memoryUsage = config.memoryUsage || process.memoryUsage;
+  const eventLoopDelayNanoseconds = config.eventLoopDelayNanoseconds || defaultEventLoopDelayNanoseconds;
+  const clockMs = config.clockMs || Date.now;
   const healthTimeoutMs = Number(config.healthTimeoutMs || 3000);
+  const cacheTtlMs = Object.assign({}, CACHE_TTL_MS, config.cacheTtlMs || {});
+  const cached = createPromiseTtlCache(config.cacheNowMs || clockMs);
+  const statusSummary = typeof repository.getHttpStatusSummary === "function"
+    ? input => repository.getHttpStatusSummary(input)
+    : async () => ({ http2xx: 0, http3xx: 0, http4xx: 0, http5xx: 0 });
 
-  async function summary() {
+  async function loadSummary() {
     const generatedAt = now();
     const bounds = shanghaiDayBounds(generatedAt);
     const activeSince = new Date(generatedAt.getTime() - 5 * 60 * 1000);
-    const [requests, users, eventRows, lifetimeRequests, lifetimeEventSummary, registeredUsers, boundUsers, bindStageRows, bindFailureRows] = await Promise.all([
+    const [requests, httpStatus, users, eventRows, lifetimeRequests, lifetimeEventSummary, registeredUsers, boundUsers, bindStageRows, bindFailureRows] = await Promise.all([
       repository.getRequestSummary({ since: bounds.start, until: bounds.end }),
+      statusSummary({ since: bounds.start, until: bounds.end }),
       repository.getDailyUserSummary({ dayStart: bounds.start, dayEnd: bounds.end, activeSince }),
       repository.getEventSummary({ since: bounds.start, until: bounds.end }),
       repository.getLifetimeRequestSummary({ until: generatedAt }),
@@ -127,10 +221,19 @@ function createAdminMetricsService(options) {
         uniqueUsers: finiteOrZero(users.uniqueUsersToday),
         activeUsers5m: finiteOrZero(users.activeUsersLast5Minutes),
         requestCount: finiteOrZero(requests.requestCount),
+        http4xxToday: finiteOrZero(httpStatus.http4xx),
+        http5xxToday: finiteOrZero(httpStatus.http5xx),
+        httpStatus: {
+          http2xx: finiteOrZero(httpStatus.http2xx),
+          http3xx: finiteOrZero(httpStatus.http3xx),
+          http4xx: finiteOrZero(httpStatus.http4xx),
+          http5xx: finiteOrZero(httpStatus.http5xx)
+        },
         averageResponseTimeMs: finiteOrZero(requests.averageResponseTimeMs),
         p95ResponseTimeMs: finiteOrZero(requests.p95ResponseTimeMs)
       },
       events: eventSummary(eventRows, false),
+      featureRanking: featureRanking(eventRows),
       bindingFunnel: bindingFunnel(bindStageRows),
       bindingFailures: bindingFailures(bindFailureRows),
       lifetime: {
@@ -146,7 +249,11 @@ function createAdminMetricsService(options) {
     };
   }
 
-  async function timeseries(input) {
+  function summary() {
+    return cached("summary", cacheTtlMs.summary, loadSummary);
+  }
+
+  async function loadTimeseries(input) {
     const range = String(input && input.range || "60m");
     const bucket = String(input && input.bucket || "minute");
     if (!RANGE_MS[range] || !BUCKET_MS[bucket]) throw Object.assign(new Error("invalid window"), { code: "INVALID_TIMESERIES_WINDOW" });
@@ -164,6 +271,10 @@ function createAdminMetricsService(options) {
       points.push({
         timestamp,
         requestCount: row ? finiteOrZero(row.requestCount) : 0,
+        http2xx: row ? finiteOrZero(row.http2xx) : 0,
+        http3xx: row ? finiteOrZero(row.http3xx) : 0,
+        http4xx: row ? finiteOrZero(row.http4xx) : 0,
+        http5xx: row ? finiteOrZero(row.http5xx) : 0,
         averageResponseTimeMs: row ? finiteOrZero(row.averageResponseTimeMs) : 0,
         p95ResponseTimeMs: row ? finiteOrZero(row.p95ResponseTimeMs) : 0
       });
@@ -171,7 +282,13 @@ function createAdminMetricsService(options) {
     return { ok: true, range, bucket, points };
   }
 
-  async function errors(input) {
+  function timeseries(input) {
+    const range = String(input && input.range || "60m");
+    const bucket = String(input && input.bucket || "minute");
+    return cached("timeseries:" + range + ":" + bucket, cacheTtlMs.timeseries, () => loadTimeseries(input));
+  }
+
+  async function loadErrors(input) {
     const rawLimit = input && input.limit === undefined ? 20 : Number(input.limit);
     if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 50) {
       throw Object.assign(new Error("invalid limit"), { code: "INVALID_LIMIT" });
@@ -190,8 +307,14 @@ function createAdminMetricsService(options) {
     };
   }
 
-  async function health() {
-    const startedAt = Date.now();
+  function errors(input) {
+    const limit = String(input && input.limit === undefined ? 20 : input && input.limit);
+    return cached("errors:" + limit, cacheTtlMs.errors, () => loadErrors(input));
+  }
+
+  async function loadHealth() {
+    const startedAt = clockMs();
+    const runtime = runtimeSnapshot({ memoryUsage, uptime, eventLoopDelayNanoseconds });
     let timer;
     try {
       await Promise.race([
@@ -202,21 +325,37 @@ function createAdminMetricsService(options) {
       ]);
       return {
         ok: true,
-        service: { status: "ok", uptimeSeconds: Math.max(0, Math.floor(uptime())) },
-        postgres: { status: "ok", latencyMs: Math.max(0, Date.now() - startedAt) }
+        service: { status: "ok", uptimeSeconds: runtime.processUptimeSeconds },
+        runtime,
+        postgres: { status: "ok", latencyMs: Math.max(0, clockMs() - startedAt) }
       };
     } catch (_) {
       return {
         ok: false,
-        service: { status: "ok", uptimeSeconds: Math.max(0, Math.floor(uptime())) },
-        postgres: { status: "error", latencyMs: Math.max(0, Date.now() - startedAt) }
+        service: { status: "ok", uptimeSeconds: runtime.processUptimeSeconds },
+        runtime,
+        postgres: { status: "error", latencyMs: Math.max(0, clockMs() - startedAt) }
       };
     } finally {
       if (timer) clearTimeout(timer);
     }
   }
 
+  function health() {
+    return cached("health", cacheTtlMs.health, loadHealth);
+  }
+
   return { summary, timeseries, errors, health };
 }
 
-module.exports = { createAdminMetricsService, shanghaiDayBounds, RANGE_MS, BUCKET_MS };
+module.exports = {
+  createAdminMetricsService,
+  createPromiseTtlCache,
+  nanosecondsToMilliseconds,
+  runtimeSnapshot,
+  featureRanking,
+  shanghaiDayBounds,
+  RANGE_MS,
+  BUCKET_MS,
+  CACHE_TTL_MS
+};
