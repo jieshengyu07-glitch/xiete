@@ -54,6 +54,17 @@
     <button class="unbind-btn" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbindAccount">解除绑定</button>
   </view>
 
+  <view class="card feedback-card" bindtap="chooseCampus">
+    <view class="feedback-copy">
+      <view class="card-title feedback-title">上课校区</view>
+      <view class="hint feedback-subtitle">{{campusName}}</view>
+    </view>
+    <view class="campus-setting-action">
+      <text wx:if="{{campusSaving}}">保存中</text>
+      <text wx:else class="feedback-arrow">›</text>
+    </view>
+  </view>
+
   <view class="card feedback-card" bindtap="openUsageGuide">
     <view class="feedback-copy">
       <view class="card-title feedback-title">使用说明</view>

@@ -4,7 +4,7 @@ function cleanOpenid(openid) { return String(openid || "").trim(); }
 
 async function findByOpenid(openid) {
   const db = getPool(); if (!db) return null;
-  const result = await db.query("SELECT id, openid, created_at, updated_at, last_login_at FROM users WHERE openid = $1", [cleanOpenid(openid)]);
+  const result = await db.query("SELECT id, openid, created_at, updated_at, last_login_at, default_campus_code FROM users WHERE openid = $1", [cleanOpenid(openid)]);
   return result.rows[0] || null;
 }
 
@@ -12,7 +12,7 @@ async function findOrCreateByOpenid(openid) {
   const value = cleanOpenid(openid); if (!value) throw new Error("OPENID_REQUIRED");
   const db = getPool(); if (!db) return { id: null, openid: value };
   const result = await db.query(
-    "INSERT INTO users (openid) VALUES ($1) ON CONFLICT (openid) DO UPDATE SET updated_at = NOW() RETURNING id, openid, created_at, updated_at, last_login_at",
+    "INSERT INTO users (openid) VALUES ($1) ON CONFLICT (openid) DO UPDATE SET updated_at = NOW() RETURNING id, openid, created_at, updated_at, last_login_at, default_campus_code",
     [value]
   );
   return result.rows[0];
@@ -24,10 +24,34 @@ async function touchLogin(openid) {
   return result.rows[0] || null;
 }
 
+async function getDefaultCampusCode(openid) {
+  const user = await findByOpenid(openid);
+  return user ? String(user.default_campus_code || "") : "";
+}
+
+async function setDefaultCampusCode(openid, campusCode) {
+  const db = getPool();
+  if (!db) throw new Error("POSTGRES_NOT_ENABLED");
+  const result = await db.query(
+    `INSERT INTO users (openid, default_campus_code) VALUES ($1, $2)
+     ON CONFLICT (openid) DO UPDATE SET default_campus_code = EXCLUDED.default_campus_code, updated_at = NOW()
+     RETURNING default_campus_code`,
+    [cleanOpenid(openid), String(campusCode || "")]
+  );
+  return String(result.rows[0] && result.rows[0].default_campus_code || "");
+}
+
 async function deleteUser(openid) {
   const db = getPool(); if (!db) return false;
   const result = await db.query("DELETE FROM users WHERE openid = $1", [cleanOpenid(openid)]);
   return result.rowCount > 0;
 }
 
-module.exports = { findByOpenid, findOrCreateByOpenid, touchLogin, deleteUser };
+module.exports = {
+  findByOpenid,
+  findOrCreateByOpenid,
+  touchLogin,
+  getDefaultCampusCode,
+  setDefaultCampusCode,
+  deleteUser
+};

@@ -20,6 +20,10 @@ function boundDisplay() {
   };
 }
 
+function campusName(code) {
+  return code === "WANBAILIN" ? "万柏林校区" : (code === "JINYUAN" ? "晋源校区" : "未选择");
+}
+
 function unboundDisplay() {
   return {
     status: "UNBOUND",
@@ -109,6 +113,9 @@ Page({
     privacyAccepted: false,
     bindingSuccess: false,
     maskedStudentId: "",
+    defaultCampusCode: "",
+    campusName: "未选择",
+    campusSaving: false,
     announcement: null,
     announcementVisible: false
   },
@@ -186,13 +193,41 @@ Page({
       .then(status => {
         const display = deriveStatus(status || {});
         this.setDisplayStatus(display, {
-          maskedStudentId: String((status && status.maskedStudentId) || "")
+          maskedStudentId: String((status && status.maskedStudentId) || ""),
+          defaultCampusCode: String((status && status.defaultCampusCode) || ""),
+          campusName: campusName(status && status.defaultCampusCode)
         });
       })
       .catch(err => {
         const display = deriveStatus(null);
         this.setDisplayStatus(display);
       });
+  },
+
+  chooseCampus() {
+    if (this.data.campusSaving) return;
+    wx.showActionSheet({
+      itemList: ["万柏林校区", "晋源校区"],
+      success: result => {
+        const code = Number(result.tapIndex) === 0 ? "WANBAILIN" : (Number(result.tapIndex) === 1 ? "JINYUAN" : "");
+        if (code) this.saveCampusPreference(code);
+      }
+    });
+  },
+
+  async saveCampusPreference(defaultCampusCode) {
+    if (this.data.campusSaving) return;
+    this.setData({ campusSaving: true });
+    try {
+      const result = await api.post("/preferences/campus", { defaultCampusCode });
+      const saved = String(result && result.defaultCampusCode || defaultCampusCode);
+      this.setData({ defaultCampusCode: saved, campusName: campusName(saved) });
+      wx.showToast({ title: "校区已更新", icon: "success" });
+    } catch (err) {
+      wx.showToast({ title: "校区保存失败，请重试", icon: "none" });
+    } finally {
+      this.setData({ campusSaving: false });
+    }
   },
 
   onStudentIdInput(e) {

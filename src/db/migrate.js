@@ -6,8 +6,16 @@ const statements = [
     openid TEXT NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_login_at TIMESTAMPTZ
+    last_login_at TIMESTAMPTZ,
+    default_campus_code TEXT CHECK (default_campus_code IS NULL OR default_campus_code IN ('WANBAILIN', 'JINYUAN'))
   )`,
+  "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_campus_code TEXT",
+  `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_default_campus_code_check') THEN
+      ALTER TABLE users ADD CONSTRAINT users_default_campus_code_check
+      CHECK (default_campus_code IS NULL OR default_campus_code IN ('WANBAILIN', 'JINYUAN'));
+    END IF;
+  END $$`,
   `CREATE TABLE IF NOT EXISTS jwxt_bindings (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,

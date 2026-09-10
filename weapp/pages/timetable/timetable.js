@@ -28,6 +28,10 @@ function normalizeWeekType(data) {
   return "单双周";
 }
 
+function campusName(code) {
+  return code === "WANBAILIN" ? "万柏林校区" : (code === "JINYUAN" ? "晋源校区" : "");
+}
+
 function normalizeSections(sections, classPeriods) {
   const source = Array.isArray(sections) ? sections : [];
   const times = {};
@@ -79,6 +83,10 @@ Page({
     academicIdle: false,
     classPeriods: [],
     classTimeSchoolVerified: false,
+    defaultCampusCode: "",
+    campusName: "",
+    showCampusChooser: false,
+    campusSaving: false,
     timelineState: "NO_CLASS_TODAY",
     timelineTitle: "今天没有课",
     timelineDescription: "",
@@ -158,6 +166,10 @@ Page({
       statusDescription: "微信登录与校园账号验证是两个独立步骤。",
       statusLevel: "muted",
       academicIdle: false,
+      defaultCampusCode: "",
+      campusName: "",
+      showCampusChooser: false,
+      campusSaving: false,
       timelineState: "NO_CLASS_TODAY",
       timelineTitle: "登录后查看课表",
       timelineDescription: "完成登录后即可查看今天的课程安排。",
@@ -246,7 +258,9 @@ Page({
   },
 
   applyToday(data) {
+    this._lastTodayData = Object.assign({}, data || {});
     const classPeriods = Array.isArray(data.classPeriods) ? data.classPeriods : this.data.classPeriods;
+    const defaultCampusCode = String(data.defaultCampusCode || data.campusCode || "");
     const sections = normalizeSections(data.sections, classPeriods);
     const hasTodayCourses = sections.some(section => section.courses.length > 0);
     const display = timetablePresentation(data);
@@ -283,6 +297,9 @@ Page({
       academicIdle,
       classPeriods,
       classTimeSchoolVerified: data.classTimeSchoolVerified === true,
+      defaultCampusCode,
+      campusName: campusName(defaultCampusCode),
+      showCampusChooser: !defaultCampusCode,
       timelineState: timeline.state,
       timelineTitle: timeline.title,
       timelineDescription,
@@ -300,7 +317,9 @@ Page({
   },
 
   applyWeek(data) {
+    this._lastWeekData = Object.assign({}, data || {});
     const classPeriods = Array.isArray(data.classPeriods) ? data.classPeriods : this.data.classPeriods;
+    const defaultCampusCode = String(data.defaultCampusCode || data.campusCode || "");
     const weekDays = (Array.isArray(data.days) ? data.days : []).map(day => {
       const sections = normalizeSections(day.sections, classPeriods).map(section => Object.assign({}, section, {
         courses: coursesFromSections([section], classPeriods)
@@ -338,11 +357,48 @@ Page({
       timelineTitle: academicIdle ? display.title : this.data.timelineTitle,
       classPeriods,
       classTimeSchoolVerified: data.classTimeSchoolVerified === true,
+      defaultCampusCode,
+      campusName: campusName(defaultCampusCode),
+      showCampusChooser: !defaultCampusCode,
       notice: data.reviewDemo ? "当前为审核演示课表，不包含真实个人信息" :
         (display.state === "SYNCING" && !data.hasTimetable ? "正在同步课表..." :
           (["READY"].includes(display.state) ? "" : display.title + (display.description ? "，" + display.description : ""))),
       weekDays
     });
+  },
+
+  async selectCampus(e) {
+    if (this.data.campusSaving) return;
+    const defaultCampusCode = String(e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.campusCode || "");
+    if (!["WANBAILIN", "JINYUAN"].includes(defaultCampusCode)) return;
+    const previous = this.data.viewMode === "week" ? this._lastWeekData : this._lastTodayData;
+    this.setData({ campusSaving: true });
+    try {
+      const config = await api.post("/preferences/campus", {
+        defaultCampusCode,
+        date: previous && previous.date || ""
+      });
+      const next = Object.assign({}, previous || {}, config || {}, {
+        defaultCampusCode,
+        campusCode: defaultCampusCode
+      });
+      if (previous) {
+        if (this.data.viewMode === "week") this.applyWeek(next);
+        else this.applyToday(next);
+      } else {
+        this.setData({
+          defaultCampusCode,
+          campusName: campusName(defaultCampusCode),
+          classPeriods: Array.isArray(config && config.classPeriods) ? config.classPeriods : this.data.classPeriods,
+          showCampusChooser: false
+        });
+      }
+      wx.showToast({ title: "校区已保存", icon: "success" });
+    } catch (err) {
+      wx.showToast({ title: "校区保存失败，请重试", icon: "none" });
+    } finally {
+      this.setData({ campusSaving: false });
+    }
   },
 
   stopSyncPolling() {

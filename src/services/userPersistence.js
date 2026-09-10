@@ -58,7 +58,8 @@ function defaultProfile(userId) {
     openid: safeUserId(userId),
     studentId: "",
     bindTime: "",
-    lastLoginTime: ""
+    lastLoginTime: "",
+    defaultCampusCode: ""
   };
 }
 

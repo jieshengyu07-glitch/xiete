@@ -46,9 +46,18 @@ const campusCacheRuntime = require("./services/campusCacheRuntime");
 const syncStateRuntime = require("./services/syncStateRuntime");
 const { createAdminRouter } = require("./admin/routes");
 const { announcementConfig } = require("./services/announcement");
+const userPreferenceRuntime = require("./services/userPreferenceRuntime");
 
 function productionPostgresRuntime() {
   return String(process.env.NODE_ENV || "").toLowerCase() === "production" && isPostgresEnabled();
+}
+
+async function classTimeConfigForUser(userId, date) {
+  const defaultCampusCode = userId ? await userPreferenceRuntime.getDefaultCampusCode(userId) : "";
+  return Object.assign(
+    { defaultCampusCode },
+    publicClassTimeConfig({ date, campusCode: defaultCampusCode })
+  );
 }
 
 assertJwtConfig();
@@ -979,10 +988,12 @@ function productDataState(hasData, syncStatus, termStatus) {
 app.get("/status", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   logUserScope(req, "GET /status");
+  const defaultCampusCode = await userPreferenceRuntime.getDefaultCampusCode(req.userId);
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     userPersistence.touchLogin(req.userId);
     res.setHeader("Cache-Control", "no-store");
     const demoStatus = reviewDemo.getStatus(req.userId);
+    demoStatus.defaultCampusCode = defaultCampusCode;
     let demoTerm = { termStatus: "" };
     try { demoTerm = currentTermInfo(); } catch (err) {}
     demoStatus.productStatus = {
@@ -1094,6 +1105,7 @@ app.get("/status", auth, async (req, res) => {
     status: "running",
     bound,
     maskedStudentId,
+    defaultCampusCode,
     campusLoginStatus,
     gradeQueryStatus,
     timetableSyncStatus,
@@ -1133,6 +1145,29 @@ app.get("/status", auth, async (req, res) => {
     },
     version: "1.0.0",
   });
+});
+
+app.post("/preferences/campus", auth, async (req, res) => {
+  if (!ensureValidScope(req, res)) return;
+  const date = String(req.body && req.body.date || "").trim();
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ success: false, error: "INVALID_DATE", message: "date must be YYYY-MM-DD" });
+  }
+  try {
+    const defaultCampusCode = await userPreferenceRuntime.setDefaultCampusCode(
+      req.userId,
+      req.body && req.body.defaultCampusCode
+    );
+    return res.json(Object.assign(
+      { success: true, defaultCampusCode },
+      publicClassTimeConfig({ date: date || undefined, campusCode: defaultCampusCode })
+    ));
+  } catch (err) {
+    if (err && err.code === "INVALID_CAMPUS_CODE") {
+      return res.status(400).json({ success: false, error: err.code, message: err.message });
+    }
+    return res.status(500).json({ success: false, error: "CAMPUS_PREFERENCE_SAVE_FAILED", message: "上课校区保存失败，请稍后重试" });
+  }
 });
 
 // GET /grades
@@ -1582,7 +1617,8 @@ app.get("/timetable/config", auth, async (req, res) => {
   if (!ensureValidScope(req, res)) return;
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     res.setHeader("Cache-Control", "no-store");
-    return res.json(Object.assign(reviewDemo.getTimetableConfig(), publicClassTimeConfig()));
+    const demoConfig = reviewDemo.getTimetableConfig();
+    return res.json(Object.assign(demoConfig, await classTimeConfigForUser(req.userId, demoConfig.date)));
   }
   try {
     const info = currentTermInfo();
@@ -1610,7 +1646,7 @@ app.get("/timetable/config", auth, async (req, res) => {
       hasTimetable: cachedRows.length > 0,
       timetableCount: cachedRows.length,
       source: cachedRows.length ? (persistent && persistent.timetable && persistent.timetable.length ? "postgres" : "legacy") : (productionPostgresRuntime() ? "none" : "legacy")
-    }, publicClassTimeConfig()));
+    }, await classTimeConfigForUser(req.userId, info.date)));
   } catch (err) {
     if (sendTermConfigError(res, err)) return;
     res.status(500).json({ success: false, error: "TIMETABLE_CONFIG_FAILED", message: err.message });
@@ -1626,7 +1662,8 @@ app.get("/timetable/today", auth, monitorBusinessEvent("timetable_query", { sour
   }
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     res.setHeader("Cache-Control", "no-store");
-    return res.json(Object.assign(reviewDemo.getTodayTimetable(requestedDate || undefined), publicClassTimeConfig()));
+    const demoToday = reviewDemo.getTodayTimetable(requestedDate || undefined);
+    return res.json(Object.assign(demoToday, await classTimeConfigForUser(req.userId, demoToday.date)));
   }
   let info;
   try {
@@ -1666,7 +1703,7 @@ app.get("/timetable/today", auth, monitorBusinessEvent("timetable_query", { sour
     debug: timetableDebug(info, rows.length, todayRows.length),
     timetable: syncing && !rows.length ? [] : todayRows,
     sections: syncing && !rows.length ? [] : fillDaySections(todayRows)
-  }, publicClassTimeConfig()));
+  }, await classTimeConfigForUser(req.userId, info.date)));
 });
 
 // GET /timetable/week
@@ -1678,7 +1715,8 @@ app.get("/timetable/week", auth, monitorBusinessEvent("timetable_query", { sourc
   }
   if (reviewDemo.isReviewDemoUser(req.userId)) {
     res.setHeader("Cache-Control", "no-store");
-    return res.json(Object.assign(reviewDemo.getWeekTimetable(requestedDate || undefined), publicClassTimeConfig()));
+    const demoWeek = reviewDemo.getWeekTimetable(requestedDate || undefined);
+    return res.json(Object.assign(demoWeek, await classTimeConfigForUser(req.userId, demoWeek.date)));
   }
   let info;
   try {
@@ -1721,7 +1759,7 @@ app.get("/timetable/week", auth, monitorBusinessEvent("timetable_query", { sourc
     lastFailedSyncAt: meta.lastFailedSyncAt || null,
     debug: timetableDebug(info, rows.length, filtered.length),
     days: syncing && !rows.length ? [] : days
-  }, publicClassTimeConfig()));
+  }, await classTimeConfigForUser(req.userId, info.date)));
 });
 
 // POST /timetable/sync

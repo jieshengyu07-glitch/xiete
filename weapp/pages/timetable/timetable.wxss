@@ -82,6 +82,12 @@
   line-height: 64rpx;
 }
 
+.campus-choice-card { margin-bottom: 20rpx; padding: 26rpx; border: 1rpx solid #dce9fb; border-radius: 18rpx; background: #fff; }
+.campus-choice-title { color: #17233c; font-size: 28rpx; font-weight: 700; }
+.campus-choice-desc { margin-top: 8rpx; color: #65758b; font-size: 23rpx; line-height: 1.55; }
+.campus-choice-actions { display: flex; gap: 14rpx; margin-top: 20rpx; }
+.campus-choice-btn { flex: 1; min-height: 72rpx; margin: 0; border-radius: 14rpx; background: #edf5ff; color: #1677ff; font-size: 24rpx; font-weight: 650; line-height: 72rpx; }
+
 .notice-card {
   margin-bottom: 20rpx;
   padding: 18rpx 22rpx;

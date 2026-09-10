@@ -25,6 +25,15 @@
       <button wx:if="{{accountState!=='UNBOUND'}}" class="refresh-btn" loading="{{syncing}}" disabled="{{syncing}}" bindtap="syncTimetable">{{refreshButtonText}}</button>
     </view>
 
+    <view wx:if="{{showCampusChooser}}" class="campus-choice-card">
+      <view class="campus-choice-title">你的主要上课校区</view>
+      <view class="campus-choice-desc">用于显示正确的上课时间，可随时在设置中修改。</view>
+      <view class="campus-choice-actions">
+        <button class="campus-choice-btn" data-campus-code="WANBAILIN" loading="{{campusSaving}}" disabled="{{campusSaving}}" bindtap="selectCampus">万柏林校区</button>
+        <button class="campus-choice-btn" data-campus-code="JINYUAN" loading="{{campusSaving}}" disabled="{{campusSaving}}" bindtap="selectCampus">晋源校区</button>
+      </view>
+    </view>
+
     <view wx:if="{{viewMode==='today' && (timelineState==='IN_CLASS' || timelineState==='BEFORE_FIRST_CLASS' || (timelineState==='BETWEEN_CLASSES' && focusCourse))}}" class="timeline-card timeline-{{timelineState}}">
       <view class="timeline-label">{{timelineTitle}}</view>
       <block wx:if="{{focusCourse}}">
