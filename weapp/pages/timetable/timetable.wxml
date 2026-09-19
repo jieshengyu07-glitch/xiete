@@ -6,7 +6,7 @@
   </view>
 
   <view wx:if="{{isInitialLoading && !hasTimetable}}" class="card">
-    <view class="loading">加载中...</view>
+    <view class="loading">{{initialLoadingText}}</view>
   </view>
 
   <view wx:elif="{{authRequired}}" class="card auth-card">

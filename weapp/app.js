@@ -1,4 +1,5 @@
 const { getApiBase, getApiEnv } = require("./config");
+const timetableCache = require("./utils/timetableCache");
 
 function pickToken(data) {
   if (!data || typeof data !== "object") return "";
@@ -49,6 +50,7 @@ App({
   },
 
   invalidateAuth() {
+    timetableCache.clearTimetableCaches();
     wx.removeStorageSync("token");
     return this.bumpAuthEpoch();
   },
@@ -86,6 +88,7 @@ App({
               if (token) {
                 this.globalData.lastLoginError = "";
                 wx.setStorageSync("token", token);
+                timetableCache.beginUserSession();
                 wx.removeStorageSync("manualLogout");
                 this.globalData.authEpoch = requestEpoch + 1;
                 resolve(token);

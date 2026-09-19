@@ -1,6 +1,7 @@
 const api = require("../../utils/api");
 const { formatJwxtErrorMessage, isInvalidCredentials } = require("../../utils/jwxtError");
 const { userErrorMessage } = require("../../utils/statusPresenter");
+const timetableCache = require("../../utils/timetableCache");
 const announcementService = require("../../utils/announcement");
 
 const BOUND_HINT_KEY = "jwxtBound";
@@ -221,6 +222,7 @@ Page({
     try {
       const result = await api.post("/preferences/campus", { defaultCampusCode });
       const saved = String(result && result.defaultCampusCode || defaultCampusCode);
+      timetableCache.updateCampusPreference(saved, result && result.classPeriods);
       this.setData({ defaultCampusCode: saved, campusName: campusName(saved) });
       wx.showToast({ title: "校区已更新", icon: "success" });
     } catch (err) {

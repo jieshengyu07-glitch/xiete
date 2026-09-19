@@ -3,8 +3,10 @@ const { formatJwxtErrorMessage, isCaptchaRequired, isLoginRequired } = require("
 const { timetablePresentation, campusPresentation, userErrorMessage } = require("../../utils/statusPresenter");
 const { SECTION_NUMBERS, coursesFromSections, resolveCourseTimeline } = require("../../utils/timetableTimeline");
 const announcementService = require("../../utils/announcement");
+const timetableCache = require("../../utils/timetableCache");
 
 const WEEKDAY_NAMES = ["", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
+const TIMETABLE_FRESHNESS_MS = 8000;
 function defaultSections() {
   return SECTION_NUMBERS.map(section => ({
     section,
@@ -70,6 +72,8 @@ Page({
   data: {
     viewMode: "today",
     isInitialLoading: true,
+    initialLoadingText: "加载中...",
+    backgroundRefreshing: false,
     syncing: false,
     refreshStage: "",
     refreshButtonText: "刷新课表",
@@ -123,7 +127,8 @@ Page({
       this.resetLoggedOutState();
       return;
     }
-    this.loadCurrent();
+    const cacheApplied = this.loadCachedCurrent();
+    this.loadCurrent({ backgroundRefresh: cacheApplied });
     this.refreshAccountStatus();
   },
 
@@ -155,8 +160,11 @@ Page({
 
   resetLoggedOutState() {
     this.stopSyncPolling();
+    this.stopInitialConnectionTimer();
     this.setData({
       isInitialLoading: false,
+      initialLoadingText: "加载中...",
+      backgroundRefreshing: false,
       syncing: false,
       authRequired: true,
       error: "",
@@ -227,12 +235,14 @@ Page({
     this._timetablePageActive = false;
     this.stopSyncPolling();
     this.stopRefreshStageTimer();
+    this.stopInitialConnectionTimer();
   },
 
   onUnload() {
     this._timetablePageActive = false;
     this.stopSyncPolling();
     this.stopRefreshStageTimer();
+    this.stopInitialConnectionTimer();
   },
 
   onPullDownRefresh() {
@@ -241,7 +251,7 @@ Page({
       wx.stopPullDownRefresh();
       return;
     }
-    Promise.all([this.loadCurrent(), this.refreshAccountStatus()]).finally(() => wx.stopPullDownRefresh());
+    Promise.all([this.loadCurrent({ force: true }), this.refreshAccountStatus()]).finally(() => wx.stopPullDownRefresh());
   },
 
   switchView(e) {
@@ -250,11 +260,73 @@ Page({
     this.stopSyncPolling();
     this._syncPollAttempts = 0;
     this.setData({ viewMode: mode, error: "", notice: "" });
-    this.loadCurrent();
+    const cacheApplied = this.loadCachedCurrent();
+    this.loadCurrent({ backgroundRefresh: cacheApplied });
   },
 
   loadCurrent(options) {
     return this.data.viewMode === "week" ? this.loadWeek(options) : this.loadToday(options);
+  },
+
+  loadCachedCurrent() {
+    return this.data.viewMode === "week" ? this.loadCachedWeek() : this.loadCachedToday();
+  },
+
+  loadCachedToday() {
+    return this.applyCachedView("today");
+  },
+
+  loadCachedWeek() {
+    return this.applyCachedView("week");
+  },
+
+  applyCachedView(viewType) {
+    const cached = timetableCache.read(viewType);
+    if (!cached) return false;
+    try {
+      if (viewType === "week") this.applyWeek(cached.payload);
+      else this.applyToday(cached.payload);
+      this._localTimetableCache = this._localTimetableCache || {};
+      this._localTimetableCache[viewType] = true;
+      this.setData({
+        isInitialLoading: false,
+        initialLoadingText: "加载中...",
+        backgroundRefreshing: false,
+        error: ""
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+
+  hasLocalCache(viewType) {
+    return Boolean(this._localTimetableCache && this._localTimetableCache[viewType]);
+  },
+
+  wasRecentlyRefreshed(viewType) {
+    const at = this._lastTimetableRefreshAt && this._lastTimetableRefreshAt[viewType];
+    return Boolean(at && Date.now() - at < TIMETABLE_FRESHNESS_MS);
+  },
+
+  markRefreshed(viewType) {
+    this._lastTimetableRefreshAt = this._lastTimetableRefreshAt || {};
+    this._lastTimetableRefreshAt[viewType] = Date.now();
+  },
+
+  stopInitialConnectionTimer() {
+    if (this._initialConnectionTimer) clearTimeout(this._initialConnectionTimer);
+    this._initialConnectionTimer = null;
+  },
+
+  startInitialConnectionTimer() {
+    this.stopInitialConnectionTimer();
+    this._initialConnectionTimer = setTimeout(() => {
+      this._initialConnectionTimer = null;
+      if (this._timetablePageActive && this.data.isInitialLoading && !this.data.hasTimetable) {
+        this.setData({ initialLoadingText: "正在连接服务..." });
+      }
+    }, 2500);
   },
 
   applyToday(data) {
@@ -393,6 +465,8 @@ Page({
           showCampusChooser: false
         });
       }
+      timetableCache.updateCampusPreference(defaultCampusCode, config && config.classPeriods);
+      if (previous) timetableCache.write(this.data.viewMode, next);
       wx.showToast({ title: "校区已保存", icon: "success" });
     } catch (err) {
       wx.showToast({ title: "校区保存失败，请重试", icon: "none" });
@@ -443,66 +517,142 @@ Page({
     }, delay);
   },
 
-  async loadToday(options) {
+  loadToday(options) {
+    const config = options || {};
+    this._timetableLoadPromises = this._timetableLoadPromises || {};
+    if (this._timetableLoadPromises.today) return this._timetableLoadPromises.today;
+    if (!config.force && !config.polling && this.wasRecentlyRefreshed("today")) return Promise.resolve({ skipped: true });
+
     const polling = Boolean(options && options.polling);
-    if (!polling && !this.data.hasTimetable) this.setData({ isInitialLoading: true, error: "" });
-    try {
-      const data = await api.request("/timetable/today");
-      this.applyToday(data || {});
-      this.setData({
-        isInitialLoading: false,
-        error: this.data.productState === "SYNC_FAILED_NO_CACHE" ? this.data.statusDescription : ""
-      });
-      if (data && data.syncing) this.scheduleSyncPolling();
-      else this.stopSyncPolling();
-    } catch (err) {
-      this.stopSyncPolling();
-      if (err && (err.code === "AUTH_REQUIRED" || err.message === "MANUAL_LOGOUT" || err.message === "UNAUTHORIZED")) {
-        this.resetLoggedOutState();
-        return;
-      }
-      this.setData({
-        isInitialLoading: false,
-        syncing: false,
-        productState: this.data.hasTimetable ? "SYNC_FAILED_WITH_CACHE" : "SYNC_FAILED_NO_CACHE",
-        statusTitle: this.data.hasTimetable ? "暂时无法同步最新课表" : "暂时无法同步课表",
-        statusDescription: this.data.hasTimetable ? "当前显示的是上次同步的数据。" : userErrorMessage(err, "学校系统暂时无法访问，请稍后再试。"),
-        statusLevel: this.data.hasTimetable ? "warn" : "err",
-        notice: this.data.hasTimetable ? "暂时无法同步最新课表，当前显示的是上次同步的数据。" : "",
-        error: this.data.hasTimetable ? "" : userErrorMessage(err, "课表加载失败，请稍后再试")
-      });
+    const backgroundRefresh = Boolean(config.backgroundRefresh && (this.hasLocalCache("today") || this.data.hasTimetable));
+    if (!polling && !backgroundRefresh && !this.data.hasTimetable) {
+      this.setData({ isInitialLoading: true, initialLoadingText: "加载中...", error: "" });
+      this.startInitialConnectionTimer();
+    } else if (backgroundRefresh) {
+      this.setData({ backgroundRefreshing: true, notice: "正在更新课表..." });
     }
+
+    const task = (async () => {
+      try {
+        const data = await api.request("/timetable/today");
+        if (!timetableCache.validPayload("today", data)) throw new Error("INVALID_TIMETABLE_PAYLOAD");
+        timetableCache.write("today", data);
+        this._localTimetableCache = this._localTimetableCache || {};
+        this._localTimetableCache.today = true;
+        this.markRefreshed("today");
+        if (this.data.viewMode === "today") {
+          this.applyToday(data);
+          this.setData({
+            isInitialLoading: false,
+            initialLoadingText: "加载中...",
+            backgroundRefreshing: false,
+            error: this.data.productState === "SYNC_FAILED_NO_CACHE" ? this.data.statusDescription : ""
+          });
+        }
+        if (data.syncing) this.scheduleSyncPolling();
+        else this.stopSyncPolling();
+        return data;
+      } catch (err) {
+        this.stopSyncPolling();
+        if (err && (err.code === "AUTH_REQUIRED" || err.message === "MANUAL_LOGOUT" || err.message === "UNAUTHORIZED")) {
+          this.resetLoggedOutState();
+          return null;
+        }
+        const hasCache = this.hasLocalCache("today") || this.data.hasTimetable;
+        if (this.data.viewMode === "today") {
+          this.setData({
+            isInitialLoading: false,
+            backgroundRefreshing: false,
+            syncing: false,
+            productState: hasCache ? "SYNC_FAILED_WITH_CACHE" : "SYNC_FAILED_NO_CACHE",
+            statusTitle: hasCache ? "暂时无法同步最新课表" : "暂时无法同步课表",
+            statusDescription: hasCache ? "当前显示的是上次同步的数据。" : userErrorMessage(err, "学校系统暂时无法访问，请稍后再试。"),
+            statusLevel: hasCache ? "warn" : "err",
+            notice: hasCache ? "当前显示上次课表，可下拉刷新获取最新数据。" : "",
+            error: hasCache ? "" : userErrorMessage(err, "课表加载失败，请稍后再试")
+          });
+        }
+        return null;
+      } finally {
+        this.stopInitialConnectionTimer();
+      }
+    })();
+    this._timetableLoadPromises.today = task;
+    task.then(() => {
+      if (this._timetableLoadPromises.today === task) this._timetableLoadPromises.today = null;
+    }, () => {
+      if (this._timetableLoadPromises.today === task) this._timetableLoadPromises.today = null;
+    });
+    return task;
   },
 
-  async loadWeek(options) {
+  loadWeek(options) {
+    const config = options || {};
+    this._timetableLoadPromises = this._timetableLoadPromises || {};
+    if (this._timetableLoadPromises.week) return this._timetableLoadPromises.week;
+    if (!config.force && !config.polling && this.wasRecentlyRefreshed("week")) return Promise.resolve({ skipped: true });
+
     const polling = Boolean(options && options.polling);
-    if (!polling && !this.data.hasTimetable) this.setData({ isInitialLoading: true, error: "" });
-    try {
-      const data = await api.request("/timetable/week");
-      this.applyWeek(data || {});
-      this.setData({
-        isInitialLoading: false,
-        error: this.data.productState === "SYNC_FAILED_NO_CACHE" ? this.data.statusDescription : ""
-      });
-      if (data && data.syncing) this.scheduleSyncPolling();
-      else this.stopSyncPolling();
-    } catch (err) {
-      this.stopSyncPolling();
-      if (err && (err.code === "AUTH_REQUIRED" || err.message === "MANUAL_LOGOUT" || err.message === "UNAUTHORIZED")) {
-        this.resetLoggedOutState();
-        return;
-      }
-      this.setData({
-        isInitialLoading: false,
-        syncing: false,
-        productState: this.data.hasTimetable ? "SYNC_FAILED_WITH_CACHE" : "SYNC_FAILED_NO_CACHE",
-        statusTitle: this.data.hasTimetable ? "暂时无法同步最新课表" : "暂时无法同步课表",
-        statusDescription: this.data.hasTimetable ? "当前显示的是上次同步的数据。" : userErrorMessage(err, "学校系统暂时无法访问，请稍后再试。"),
-        statusLevel: this.data.hasTimetable ? "warn" : "err",
-        notice: this.data.hasTimetable ? "暂时无法同步最新课表，当前显示的是上次同步的数据。" : "",
-        error: this.data.hasTimetable ? "" : userErrorMessage(err, "课表加载失败，请稍后再试")
-      });
+    const backgroundRefresh = Boolean(config.backgroundRefresh && (this.hasLocalCache("week") || this.data.hasTimetable));
+    if (!polling && !backgroundRefresh && !this.data.hasTimetable) {
+      this.setData({ isInitialLoading: true, initialLoadingText: "加载中...", error: "" });
+      this.startInitialConnectionTimer();
+    } else if (backgroundRefresh) {
+      this.setData({ backgroundRefreshing: true, notice: "正在更新课表..." });
     }
+
+    const task = (async () => {
+      try {
+        const data = await api.request("/timetable/week");
+        if (!timetableCache.validPayload("week", data)) throw new Error("INVALID_TIMETABLE_PAYLOAD");
+        timetableCache.write("week", data);
+        this._localTimetableCache = this._localTimetableCache || {};
+        this._localTimetableCache.week = true;
+        this.markRefreshed("week");
+        if (this.data.viewMode === "week") {
+          this.applyWeek(data);
+          this.setData({
+            isInitialLoading: false,
+            initialLoadingText: "加载中...",
+            backgroundRefreshing: false,
+            error: this.data.productState === "SYNC_FAILED_NO_CACHE" ? this.data.statusDescription : ""
+          });
+        }
+        if (data.syncing) this.scheduleSyncPolling();
+        else this.stopSyncPolling();
+        return data;
+      } catch (err) {
+        this.stopSyncPolling();
+        if (err && (err.code === "AUTH_REQUIRED" || err.message === "MANUAL_LOGOUT" || err.message === "UNAUTHORIZED")) {
+          this.resetLoggedOutState();
+          return null;
+        }
+        const hasCache = this.hasLocalCache("week") || this.data.hasTimetable;
+        if (this.data.viewMode === "week") {
+          this.setData({
+            isInitialLoading: false,
+            backgroundRefreshing: false,
+            syncing: false,
+            productState: hasCache ? "SYNC_FAILED_WITH_CACHE" : "SYNC_FAILED_NO_CACHE",
+            statusTitle: hasCache ? "暂时无法同步最新课表" : "暂时无法同步课表",
+            statusDescription: hasCache ? "当前显示的是上次同步的数据。" : userErrorMessage(err, "学校系统暂时无法访问，请稍后再试。"),
+            statusLevel: hasCache ? "warn" : "err",
+            notice: hasCache ? "当前显示上次课表，可下拉刷新获取最新数据。" : "",
+            error: hasCache ? "" : userErrorMessage(err, "课表加载失败，请稍后再试")
+          });
+        }
+        return null;
+      } finally {
+        this.stopInitialConnectionTimer();
+      }
+    })();
+    this._timetableLoadPromises.week = task;
+    task.then(() => {
+      if (this._timetableLoadPromises.week === task) this._timetableLoadPromises.week = null;
+    }, () => {
+      if (this._timetableLoadPromises.week === task) this._timetableLoadPromises.week = null;
+    });
+    return task;
   },
 
   async syncTimetable() {
@@ -539,11 +689,11 @@ Page({
       if (result && result.success === false) {
         if (isCaptchaRequired(result)) {
           showCaptchaRequired(() => this.syncTimetable());
-          await this.loadCurrent();
+          await this.loadCurrent({ force: true });
           return;
         }
 
-        await Promise.all([this.loadCurrent(), this.refreshAccountStatus()]);
+        await Promise.all([this.loadCurrent({ force: true }), this.refreshAccountStatus()]);
         const hasCache = Boolean(result.hasCache || this.data.hasTimetable);
         const message = result.message || (hasCache
           ? "课表刷新失败，已保留原课表"
@@ -557,7 +707,7 @@ Page({
       }
 
       wx.showToast({ title: "课表已刷新", icon: "success" });
-      await this.loadCurrent();
+      await this.loadCurrent({ force: true });
       if (result && (result.syncedCount === 0 || result.count === 0)) {
         wx.showModal({
           title: "未发现课表",
