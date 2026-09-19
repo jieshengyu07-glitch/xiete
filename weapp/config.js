@@ -1,6 +1,6 @@
 const config = {
   development: {
-    baseUrl: "https://xiete.onrender.com"
+    baseUrl: "https://api.taixiaoke.cn"
   },
   production: {
     baseUrl: "https://xiete.onrender.com"
