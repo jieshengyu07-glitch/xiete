@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const axios = require("axios");
 const storage = require("./db/storage");
 const { createStorageForUser } = require("./db/storage");
@@ -344,6 +344,77 @@ async function refreshCookiesFromEnv(userId) {
   return recovery.value;
 }
 
+function buildJwxtGradeQueryBody(term, page, rows) {
+  return new URLSearchParams({
+    xnm: term.xnm,
+    xqm: term.xqm,
+    _search: "false",
+    "queryModel.showCount": String(rows),
+    "queryModel.currentPage": String(page),
+    "queryModel.sortName": "",
+    "queryModel.sortOrder": "asc",
+    page: String(page),
+    rows: String(rows)
+  }).toString();
+}
+
+function jwxtGradeRows(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.items)) return data.items;
+  if (data && Array.isArray(data.rows)) return data.rows;
+  return null;
+}
+
+function positiveInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : null;
+}
+
+function jwxtHasMoreGradePages(data, page, requestedRows, rowCount) {
+  const totalPages = positiveInteger(data && (data.totalPage || data.totalPages || data.pageCount));
+  if (totalPages) return page < totalPages;
+
+  const totalCount = positiveInteger(data && (data.totalCount || data.totalResult || data.records));
+  const effectivePageSize = positiveInteger(data && (data.pageSize || data.showCount || data.limit)) || requestedRows;
+  if (totalCount) return page * effectivePageSize < totalCount;
+
+  return rowCount >= effectivePageSize;
+}
+
+async function queryJwxtTermGrades(term, fetchPage, options) {
+  const configuredRows = Number(options && options.rows);
+  const requestedRows = Number.isFinite(configuredRows) && configuredRows > 0
+    ? Math.min(200, Math.floor(configuredRows))
+    : 50;
+  const maxPages = 100;
+  const grades = [];
+  let previousFingerprint = "";
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const data = await fetchPage(page, requestedRows);
+    const rows = jwxtGradeRows(data);
+    if (!rows) {
+      const err = new Error("Unexpected grade response format");
+      err.code = "JWXT_GRADE_RESPONSE_FORMAT";
+      throw err;
+    }
+
+    if (!rows.length) break;
+
+    const fingerprint = JSON.stringify(rows);
+    if (page > 1 && fingerprint === previousFingerprint) break;
+    previousFingerprint = fingerprint;
+
+    grades.push(...rows.map(function(grade) {
+      return attachTermToGrade(grade, term);
+    }));
+
+    if (!jwxtHasMoreGradePages(data, page, requestedRows, rows.length)) break;
+  }
+
+  return grades;
+}
+
 async function executeCheck(cookies, activeStorage) {
   activeStorage = activeStorage || storage;
   if (!cookies) return fail("login_required", "Run: npm run login or POST /upload-cookies");
@@ -361,29 +432,31 @@ async function executeCheck(cookies, activeStorage) {
       activeStorage.setGradeAvailableTerms(queryTerms.map(publicTerm), termResolution.source);
     }
     var termResults = await mapWithConcurrency(queryTerms, gradeQueryConcurrency(), async function(t) {
-      console.log("[checker] querying grades xnm=" + t.xnm + " xqm=" + t.xqm);
-      try{
-        var resp=await axios.post(
-          "https://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxXsgrcj.html?doType=query",
-          new URLSearchParams({xnm:t.xnm,xqm:t.xqm,page:"1",rows:"50"}).toString(),
-          {headers:{"Content-Type":"application/x-www-form-urlencoded","Cookie":cs,"Referer":"https://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default"},maxRedirects:0,validateStatus:function(s){return true;},timeout:30000}
-        );
-        var respClass = classifyResponse(resp);
-        if(respClass) return { errorResult: fail(respClass.status, respClass.message, { httpStatus: resp.status, term: t }) };
-        var data=resp.data;
-        var grades=[];
-        if(Array.isArray(data))grades=data;
-        else if(data.items)grades=data.items;
-        else if(data.rows)grades=data.rows;
-        else return { errorResult: fail("query_error", "Unexpected grade response format", { term: t }) };
-        console.log("[checker] term " + t.xnm + "-" + t.xqm + " count=" + grades.length);
-        return { grades: grades.map(function(grade) { return attachTermToGrade(grade, t); }) };
-      }catch(e){
-        if (isJwxtUnavailableError(e)) return { errorResult: fail("jwxt_unavailable", e.message, { term: t }) };
-        return { errorResult: fail("query_error", e.message, { term: t }) };
-      }
-    });
-    for(var i=0;i<termResults.length;i++){
+console.log("[checker] querying grades xnm=" + t.xnm + " xqm=" + t.xqm);
+try{
+var grades = await queryJwxtTermGrades(t, async function(page, rows) {
+var resp=await axios.post(
+"https" + "://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxXsgrcj.html?doType=query",
+buildJwxtGradeQueryBody(t, page, rows),
+{headers:{"Content-Type":"application/x-www-form-urlencoded","Cookie":cs,"Referer":"https" + "://newjwc.tyust.edu.cn/jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default"},maxRedirects:0,validateStatus:function(s){return true;},timeout:30000}
+);
+var respClass = classifyResponse(resp);
+if(respClass) {
+  var classifiedError = new Error(respClass.message);
+  classifiedError.errorResult = fail(respClass.status, respClass.message, { httpStatus: resp.status, term: t, page: page });
+  throw classifiedError;
+}
+return resp.data;
+});
+console.log("[checker] term " + t.xnm + "-" + t.xqm + " count=" + grades.length);
+return { grades: grades };
+}catch(e){
+if (e && e.errorResult) return { errorResult: e.errorResult };
+if (isJwxtUnavailableError(e)) return { errorResult: fail("jwxt_unavailable", e.message, { term: t }) };
+return { errorResult: fail("query_error", e.message, { term: t }) };
+}
+});
+for(var i=0;i<termResults.length;i++){
       if (termResults[i].errorResult) return termResults[i].errorResult;
       allGrades = allGrades.concat(termResults[i].grades || []);
     }
@@ -705,6 +778,8 @@ module.exports = {
   validateJwxtSessionForUser,
   _performance: {
     mapWithConcurrency,
-    gradeQueryConcurrency
+    gradeQueryConcurrency,
+    queryJwxtTermGrades,
+    buildJwxtGradeQueryBody
   }
 };
